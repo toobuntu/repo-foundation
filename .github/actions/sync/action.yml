@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Sync shared configuration
+description: >-
+  Apply repo-foundation's canonical files to one consumer checkout via
+  .github/actions/sync/sync-files.rb. Commits one file per change in the target
+  and reports whether a pull request is needed.
+
+inputs:
+  repo:
+    description: Consumer repository slug, e.g. toobuntu/blackoutd.
+    required: true
+  target_path:
+    description: Path to the already checked-out consumer repository.
+    required: true
+  manifest_path:
+    description: >-
+      Optional override for the manifest path. Defaults to
+      repo-foundation/sync-manifest.yaml (resolved relative to the engine).
+    required: false
+    default: ""
+  dry_run:
+    description: When 'true', report changes without writing or committing.
+    required: false
+    default: "false"
+
+outputs:
+  pull_request:
+    description: "'true' when the engine committed changes to the target."
+    value: ${{ steps.sync.outputs.pull_request }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run sync engine
+      id: sync
+      shell: bash
+      env:
+        REPO: ${{ inputs.repo }}
+        TARGET_PATH: ${{ inputs.target_path }}
+        MANIFEST_PATH: ${{ inputs.manifest_path }}
+        DRY_RUN: ${{ inputs.dry_run }}
+      run: |
+        args=("$REPO" "$TARGET_PATH")
+        if [ "$DRY_RUN" = "true" ]; then
+          args+=(--dry-run)
+        fi
+        if [ -n "$MANIFEST_PATH" ]; then
+          export SYNC_MANIFEST="$MANIFEST_PATH"
+        fi
+        # Ruby is preinstalled on GitHub-hosted runners; the engine is stdlib
+        # only, so no bundler or setup-ruby step is required.
+        ruby "${GITHUB_ACTION_PATH}/sync-files.rb" "${args[@]}"

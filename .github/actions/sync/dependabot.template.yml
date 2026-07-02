@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Base Dependabot configuration for all toobuntu repos. Intentionally a
+# SUPERSET of every ecosystem any repo uses. The sync engine
+# (.github/actions/sync/sync-files.rb, `generate` mode) keeps only the
+# ecosystems whose manifest file actually exists in each target repo, then
+# writes the result to that repo's .github/dependabot.yml. Mirrors Homebrew's
+# .github/actions/sync/dependabot.template.yml approach.
+version: 2
+
+updates:
+  - package-ecosystem: bundler   # kept when Gemfile.lock exists
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      bundler:
+        patterns: ["*"]
+    allow:
+      - dependency-type: all
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: github-actions   # kept when .github/workflows exists
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns: ["*"]
+    allow:
+      - dependency-type: all
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: pip   # kept when requirements.txt / pyproject.toml exists
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      pip:
+        patterns: ["*"]
+    allow:
+      - dependency-type: all
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: gomod   # kept when go.mod exists
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      gomod:
+        patterns: ["*"]
+    allow:
+      - dependency-type: all
+    cooldown:
+      default-days: 7
