@@ -1,0 +1,36 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Go pre-commit plugin for didan. Run by .githooks/pre-commit via the
+# run-parts-style pre-commit.d/ runner. Self-contained on purpose: plugins
+# run in a subprocess and do not inherit the base hook's shell functions.
+# Filename has no extension by the run-parts classicalre rule (see the base
+# hook and scripts/lint-perms.sh); disable by adding a dot suffix (10-go.off).
+
+set -e
+
+# Staged paths (NUL-safe), filtered to an ERE. ACMRT mirrors the base hook.
+staged_z() {
+  git diff --cached --name-only --diff-filter=ACMRT -z |
+    /usr/bin/grep --extended-regexp --null-data "$1" || true
+}
+has_files() { [ "$(staged_z "$1" | wc -c)" -gt 0 ]; }
+
+# gofmt staged Go files in place, then re-stage.
+staged_z '\.go$' | xargs -0 -r gofmt -w
+staged_z '\.go$' | xargs -0 -r git add
+
+# Heavier checks only when Go sources or module files are staged.
+if has_files '\.go$|go\.(mod|sum)$'; then
+  # go.mod/go.sum tidy: -diff reports drift and exits non-zero without
+  # writing (Go 1.23+); mirrors the CI Tidy step.
+  go mod tidy -diff
+  # Vet all packages: a staged change may affect non-staged packages.
+  go vet ./...
+  # staticcheck if available (go install honnef.co/go/tools/cmd/staticcheck@latest).
+  if command -v staticcheck > /dev/null 2>&1; then
+    staticcheck ./...
+  fi
+fi

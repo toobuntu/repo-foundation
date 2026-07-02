@@ -1,0 +1,50 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Homebrew-tap pre-commit plugin: `brew style` on staged Ruby and shell, plus
+# ksh -n syntax. Run by .githooks/pre-commit via the run-parts-style runner.
+# Self-contained: plugins run in a subprocess and do not inherit the base hook's
+# functions. Syncs only to Homebrew-tap consumers (brew_plugin in the manifest);
+# `brew style` is tap-specific, so a generic Ruby repo would get a different
+# plugin (e.g. bundle exec rubocop). Run-parts classicalre name (no extension);
+# disable with a dot suffix (30-brew.off).
+#
+# Files synced from repo-foundation must stay byte-identical to their canonical
+# source, so this plugin must never reformat them. It skips any staged file
+# carrying the "do not modify it directly" sync header — a manifest-decoupled way
+# to recognize a synced file (.githooks/*, scripts/*.sh, the lint configs, ...).
+# A tap consumer receives no synced .rb, so `brew style --changed` (which acts on
+# the consumer's own cmd/test Ruby) needs no such filtering.
+
+set -e
+
+staged() { git diff --cached --name-only --diff-filter=ACMRT | /usr/bin/grep --extended-regexp "$1" || true; }
+
+# Echo the args that do NOT carry the repo-foundation sync header.
+exclude_synced() {
+  [ "$#" -gt 0 ] || return 0
+  /usr/bin/grep --files-without-match "do not modify it directly" "$@" 2> /dev/null || true
+}
+
+# brew style --fix on the consumer's own staged Ruby; re-stage auto-fixes.
+ruby_files=$(staged '\.rb$')
+if [ -n "$ruby_files" ]; then
+  brew style --fix --changed
+  printf '%s\n' "$ruby_files" | xargs -r git add
+fi
+
+# brew style --fix on the consumer's own staged shell — never on synced scripts.
+shell_files=$(staged '\.(sh|bash|ksh)$')
+if [ -n "$shell_files" ]; then
+  # shellcheck disable=SC2086  # newline-delimited list, like the base hook's staged()
+  own_shell=$(exclude_synced $shell_files)
+  if [ -n "$own_shell" ]; then
+    printf '%s\n' "$own_shell" | xargs -r brew style --fix
+    printf '%s\n' "$own_shell" | xargs -r git add
+    if command -v ksh > /dev/null 2>&1; then
+      printf '%s\n' "$own_shell" | xargs -r ksh -n
+    fi
+  fi
+fi

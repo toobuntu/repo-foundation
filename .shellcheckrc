@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Optional shellcheck checks enabled org-wide (adopted from babble's config).
+# These are off by default; each catches a real portability or correctness
+# footgun. Homebrew-aligned repos defer to `brew style` and carry Homebrew's
+# own config instead of this one.
+
+# Suggest adding a default case in `case` statements
+enable=add-default-case
+
+# Suggest explicitly using -n in `[ $var ]`
+enable=avoid-nullary-conditions
+
+# Warn when uppercase variables are unassigned
+enable=check-unassigned-uppercase
+
+# Suggest 'command -v' instead of 'which'
+enable=deprecate-which
+
+# Turn on warnings for unquoted variables with safe values
+enable=quote-safe-variables

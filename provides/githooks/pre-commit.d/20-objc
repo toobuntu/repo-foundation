@@ -1,0 +1,76 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Objective-C pre-commit plugin: clang-format on staged .m/.h, clang-tidy on
+# staged .m. Extracted from blackoutd's base hook so a single fix propagates to
+# every Objective-C consumer via sync (see objc_plugin in sync-manifest.yaml).
+#
+# run-parts classicalre name (letters/digits/_/-, NO extension) so the base
+# hook's pre-commit.d runner executes it. Self-contained: plugins run as
+# subprocesses, so this defines its own staged_z/has_files rather than relying
+# on the base hook's helpers.
+#
+# The -DBD_BUNDLE_ID / -DBD_RESOURCES_BUNDLE / framework / -I src flags are
+# blackoutd-specific (the only Objective-C consumer today). Parameterize them
+# when a second Objective-C repo adopts this plugin.
+
+set -e
+
+# staged_z() emits staged paths matching $1 NUL-delimited for `xargs -0`.
+# has_files() reports whether any path matches, for gating a tool that takes no
+# path arguments. Diff filter ACMRT matches the base hook and lint-perms.sh.
+staged_z() {
+  git diff --cached --name-only --diff-filter=ACMRT -z |
+    /usr/bin/grep --extended-regexp --null-data "$1" || true
+}
+has_files() { [ "$(staged_z "$1" | wc -c)" -gt 0 ]; }
+
+# --- clang-format on staged .m and .h files ---
+# xargs -0 -r: NUL-delimited input, no invocation when nothing matches.
+if [ "$(/usr/bin/uname -s)" = "Darwin" ]; then
+  if xcrun --find clang-format > /dev/null 2>&1; then
+    staged_z '\.(m|h)$' |
+      xargs -0 -r xcrun clang-format --style=file --dry-run --Werror
+  fi
+elif command -v clang-format > /dev/null 2>&1; then
+  staged_z '\.(m|h)$' |
+    xargs -0 -r clang-format --style=file --dry-run --Werror
+fi
+
+# --- clang-tidy on staged .m files (macOS only — requires SDK headers) ---
+# has_files gates the (slow) toolchain probe so it only runs when .m files are
+# actually staged.
+if [ "$(/usr/bin/uname -s)" = "Darwin" ] && has_files '\.m$'; then
+  TIDY=""
+  if command -v clang-tidy > /dev/null 2>&1; then
+    TIDY="clang-tidy"
+  else
+    # HOMEBREW_NO_INSTALL_FROM_API: the probe needs only the local Cellar,
+    # but plain `brew list` refreshes Homebrew's internal packages manifest,
+    # which 404s mid-lint on a pre-release macOS (unrecognized OS tag).
+    # HOMEBREW_NO_AUTO_UPDATE does not cover that fetch, and this knob is
+    # incompatible with `brew exec`, so it is scoped to this one probe.
+    LLVM_MAX_VERSION="$(
+      HOMEBREW_NO_INSTALL_FROM_API=1 brew list --formula --versions |
+        grep --extended-regexp '^llvm(@[0-9]+)?[[:space:]]' |
+        sort --key=2 --version-sort |
+        awk 'END{print $1}'
+    )"
+    LLVM_PREFIX="$(brew --prefix)/opt/${LLVM_MAX_VERSION}"
+    if [ -n "$LLVM_PREFIX" ] && [ -x "$LLVM_PREFIX/bin/clang-tidy" ]; then
+      TIDY="$LLVM_PREFIX/bin/clang-tidy"
+    fi
+  fi
+  if [ -n "$TIDY" ]; then
+    staged_z '\.m$' | xargs -0 -r -J % "$TIDY" % -- \
+      -fobjc-arc \
+      -DBD_BUNDLE_ID='"io.github.toobuntu.blackoutd"' \
+      -DBD_RESOURCES_BUNDLE='"/usr/local/share/blackoutd.bundle"' \
+      -framework Cocoa \
+      -framework CoreGraphics \
+      -framework IOKit \
+      -I src
+  fi
+fi

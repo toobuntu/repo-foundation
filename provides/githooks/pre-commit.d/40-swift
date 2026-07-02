@@ -1,0 +1,62 @@
+#!/bin/sh
+
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Swift pre-commit plugin: swiftformat on staged .swift (auto-fix, re-stage),
+# then swiftlint. Run by .githooks/pre-commit via the run-parts-style runner.
+# Self-contained: plugins run in a subprocess and do not inherit the base hook's
+# functions, so this defines its own staged/staged_z/has_files. Syncs to Swift
+# consumers (swift_plugin in sync-manifest.yaml); the plugin base/model is ADR
+# 0017. Run-parts classicalre name (letters/digits/_/-, no extension); disable
+# with a dot suffix (40-swift.off).
+#
+# swiftformat and swiftlint are macOS-oriented (a swiftc toolchain repo such as
+# _dormant/powerstatus targets macOS), but the plugin is tool-gated rather than
+# Darwin-gated: where a formatter is absent it prints a hint and skips, like the
+# base hook does for actionlint/zizmor. Install: brew install swiftformat swiftlint.
+
+set -e
+
+# staged() emits matching staged paths newline-delimited; staged_z() emits them
+# NUL-delimited for `xargs -0`. Diff filter ACMRT matches the base hook and
+# scripts/lint-perms.sh (a renamed-and-edited .swift is re-checked at its new
+# path).
+staged() { git diff --cached --name-only --diff-filter=ACMRT | /usr/bin/grep --extended-regexp "$1" || true; }
+staged_z() {
+  git diff --cached --name-only --diff-filter=ACMRT -z |
+    /usr/bin/grep --extended-regexp --null-data "$1" || true
+}
+has_files() { [ "$(staged_z "$1" | wc -c)" -gt 0 ]; }
+
+has_files '\.swift$' || exit 0
+
+# Caching is bypassed for both tools (swiftformat --cache ignore, swiftlint
+# --no-cache). A pre-commit hook only ever processes the staged files — a
+# handful — so the on-disk cache saves nothing measurable here, while it adds a
+# failure mode: both tools cache under ~/Library/Caches, and swiftlint exits
+# NON-ZERO when it cannot write there (swiftformat only warns). Under a
+# restricted filesystem — an agent Seatbelt sandbox, a locked-down CI runner —
+# that unwritable cache would fail the commit for no real reason. Bypassing it
+# keeps the hook robust everywhere; the whole-tree CI job (ci.yml) keeps caching
+# on, where it pays off. (Compare ADR 0005's reuse --no-multiprocessing, a kin
+# sandbox-robustness flag.)
+
+# --- swiftformat: format staged .swift in place, then re-stage the result ---
+# Mirrors 10-go's gofmt -w; a no-op formatting pass leaves the index unchanged.
+if command -v swiftformat > /dev/null 2>&1; then
+  staged_z '\.swift$' | xargs -0 -r swiftformat --cache ignore
+  staged_z '\.swift$' | xargs -0 -r git add
+else
+  printf "warning: swiftformat not found — skipping Swift formatting (brew install swiftformat)\n" >&2
+fi
+
+# --- swiftlint: lint the staged .swift files ---
+# `swiftlint lint` exits non-zero on a serious violation, failing the commit.
+# --quiet drops the per-file progress noise; the violations still print.
+if command -v swiftlint > /dev/null 2>&1; then
+  staged_z '\.swift$' | xargs -0 -r swiftlint lint --no-cache --quiet
+else
+  printf "warning: swiftlint not found — skipping Swift lint (brew install swiftlint)\n" >&2
+fi
