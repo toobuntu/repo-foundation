@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# One space after sentence-ending punctuation, not two. Warning first — aligned
+# tables and intentionally-spaced examples can trip it — then promote to error
+# after a clean corpus pass (ADR 0014).
+extends: existence
+message: "Use one space after a sentence, not two."
+level: warning
+nonword: true
+tokens:
+  - '[a-z][.?!] {2,}[A-Z]'

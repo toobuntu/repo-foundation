@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Prefer straight ASCII quotes over curly/smart quotes in prose. They are not
+# invisible (unlike the bidi characters ADR 0006 blocks), but a consistent
+# straight-quote house style keeps diffs, greps, and copy-paste into shells
+# predictable. Warning until the corpus is clean, then promote to error
+# (ADR 0014). Code spans/blocks are out of scope by default, so a curly quote
+# inside sample data is not flagged.
+extends: existence
+message: "Use a straight quote, not the curly quote %s."
+level: warning
+nonword: true
+tokens:
+  - '[\x{2018}\x{2019}\x{201C}\x{201D}]'
