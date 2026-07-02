@@ -82,8 +82,10 @@ Review and merge per consumer, cross-checking the disposition review.
   `CLAUDE.md`. Confirm it carries Homebrew/brew's `.editorconfig` +
   `.shellcheckrc` verbatim and lints via `brew style` (it is excluded from
   `shell_lint`).
-- **cert-automation:** retire `lint.yml` — all three jobs are now canonical
-  (`shellcheck` + `ksh -n` in `shell-lint.yml`, `reuse` in `lint.yml`).
+- **cert-automation:** trim `lint.yml` to just its `ksh -n` job — `shellcheck`
+  is now in the synced `shell-lint.yml` and `reuse` in the canonical `lint.yml`.
+  Keep the `ksh -n` job (it installs ksh93); the synced workflow runs `ksh -n`
+  only opportunistically, so cert-automation's own ksh scripts still want it.
 - **zman-didan:** migrate off the local `Didan` Vale style to the synced
   `Toobuntu` (delete `.vale/styles/Didan/`; keep the Hebrew terms in a repo-local
   vocab). See `docs/handoff/vale-consumer-cleanup-prompt.md`.

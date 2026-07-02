@@ -29,14 +29,17 @@ jobs:
         with:
           persist-credentials: false
 
-      # shellcheck is pre-installed on the runner; shfmt and ksh are not (ksh
-      # provides the `ksh -n` syntax check, which is stock on macOS but absent on
-      # the Ubuntu runner). Install all three from the runner's Homebrew (not on
-      # PATH by default) so versions match a local `brew install`, and prepend
-      # its bin (ADR 0014's pattern).
-      - name: Install shfmt, shellcheck, and ksh
+      # shellcheck is pre-installed on the runner; shfmt is not. Install shfmt
+      # from the runner's Homebrew (not on PATH by default), matching a local
+      # `brew install`, and prepend its bin (ADR 0014's pattern). ksh is NOT
+      # installed here: lint-shell.sh runs `ksh -n` only when ksh is present
+      # (stock on macOS, absent on the Ubuntu runner), so this generic workflow
+      # skips it rather than paying an install on every consumer to re-check
+      # scripts that came from repo-foundation. A ksh-heavy repo (cert-automation)
+      # installs ksh93 in its own CI to syntax-check its own ksh scripts.
+      - name: Install shfmt
         run: |
-          /home/linuxbrew/.linuxbrew/bin/brew install shfmt shellcheck ksh
+          /home/linuxbrew/.linuxbrew/bin/brew install shfmt
           echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
 
       - name: Lint shell
