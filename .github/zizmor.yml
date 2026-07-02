@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# This file is synced from `Homebrew/.github` by `.github/workflows/sync-from-upstreams.yml`, do not modify it directly.
+
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        Homebrew/actions/*: ref-pin

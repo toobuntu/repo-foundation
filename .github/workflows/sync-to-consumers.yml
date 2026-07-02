@@ -1,0 +1,174 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Push-from-canonical: apply repo-foundation's canonical files to every consumer
+# listed in sync-manifest.yaml and open/update a PR on each one that drifts.
+# Uses a GitHub App (SYNC_APP_CLIENT_ID + SYNC_APP_PRIVATE_KEY) so the bot can
+# push a branch to each consumer; the App must be installed on every consumer.
+
+name: Sync to consumers
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .githooks/**
+      - scripts/**
+      - spec/**
+      - provides/**
+      - docs/agent-principles.md
+      - .github/zizmor.yml
+      - .github/actionlint.yaml
+      - .github/actionlint-matcher.json
+      - .github/actionlint-matcher.json.license
+      - .github/instructions/**
+      - .github/workflows/actionlint.yml
+      - .github/workflows/lint.yml
+      - .github/workflows/spec.yml
+      - .github/actions/sync/**
+      - sync-manifest.yaml
+      - adrs.toml
+      - .pinact.yaml
+      - checkmake.ini
+      - .rspec
+      - Gemfile
+      - Gemfile.lock
+      - .bundle/config
+  schedule:
+    - cron: "0 8 * * 1" # Monday 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "sync-to-consumers-${{ github.ref }}"
+  cancel-in-progress: false
+
+jobs:
+  generate-matrix:
+    if: github.repository_owner == 'toobuntu'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Build consumer matrix from sync-manifest.yaml
+        id: gen
+        run: |
+          matrix="$(ruby -ryaml -rjson -e '
+            m = YAML.load_file("sync-manifest.yaml")
+            print JSON.generate(Array(m["consumers"]).map { |c|
+              slug = c.fetch("repo")
+              { "repo" => slug, "name" => slug.split("/").last }
+            })
+          ')"
+          printf "matrix=%s\n" "$matrix" >> "$GITHUB_OUTPUT"
+
+  sync:
+    needs: generate-matrix
+    if: github.repository_owner == 'toobuntu'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        consumer: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+    steps:
+      - name: Generate a token scoped to the consumer
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.SYNC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ matrix.consumer.name }}
+          # Scope the token to exactly what the sync needs. workflows:write is
+          # required because consumers receive workflow files (actionlint.yml,
+          # lint.yml, spec.yml, copilot-setup-steps.yml) and neither GITHUB_TOKEN
+          # nor an App token lacking it may push .github/workflows/*.
+          permission-contents: write
+          permission-metadata: read
+          permission-pull-requests: write
+          permission-workflows: write
+
+      - name: Check out repo-foundation (source of truth)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Check out the consumer (sync target)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ matrix.consumer.repo }}
+          path: consumer
+          token: ${{ steps.app-token.outputs.token }}
+          # Persisted so the pull-request step below can push the sync branch.
+          persist-credentials: true # zizmor: ignore[artipacked]
+
+      - name: Configure the bot git identity
+        env:
+          # Set these repo variables to a machine-user account to get "Verified"
+          # signed commits (see the signing step below): BOT_EMAIL must match a
+          # verified email on the account whose SSH signing key is used.
+          BOT_NAME: ${{ vars.SYNC_BOT_NAME || 'repo-foundation-sync[bot]' }}
+          BOT_EMAIL: ${{ vars.SYNC_BOT_EMAIL || 'repo-foundation-sync[bot]@users.noreply.github.com' }}
+        run: |
+          git -C consumer config user.name "$BOT_NAME"
+          git -C consumer config user.email "$BOT_EMAIL"
+
+      # Opt-in signed bot commits: set the SYNC_BOT_SIGN repo variable to 'true'
+      # and provide SYNC_APP_SSH_SIGNING_KEY (the bot's SSH private signing key).
+      # setup-commit-signing configures git so the per-file commits the engine
+      # makes below are SSH-signed. For a "Verified" badge the matching public key
+      # must be registered as a signing key on the committing identity (typically
+      # a machine-user whose email matches user.email above) — see session notes.
+      - name: Set up commit signing
+        if: vars.SYNC_BOT_SIGN == 'true'
+        uses: Homebrew/actions/setup-commit-signing@main
+        with:
+          signing_key: ${{ secrets.SYNC_APP_SSH_SIGNING_KEY }}
+
+      - name: Apply canonical configuration
+        id: sync
+        uses: ./.github/actions/sync
+        with:
+          repo: ${{ matrix.consumer.repo }}
+          target_path: ${{ github.workspace }}/consumer
+
+      - name: Open or update the sync pull request
+        if: steps.sync.outputs.pull_request == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ matrix.consumer.repo }}
+          BRANCH: sync-from-foundation
+          PR_TITLE: "Sync shared configuration from repo-foundation"
+        run: |
+          cd consumer
+          git switch --create "$BRANCH"
+          git push --force --set-upstream origin "$BRANCH"
+          open_count="$(gh pr list --head "$BRANCH" --state open --json number --jq 'length')"
+          if [ "$open_count" = "0" ]; then
+            gh pr create --base main --head "$BRANCH" --title "$PR_TITLE" \
+              --body 'Automated sync from [toobuntu/repo-foundation](https://github.com/toobuntu/repo-foundation). Do not edit synced files here; change them in repo-foundation and re-sync.'
+          fi
+
+  conclusion:
+    needs: sync
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate result
+        env:
+          RESULT: ${{ needs.sync.result }}
+        run: |
+          echo "sync result: ${RESULT}"
+          [ "${RESULT}" = "success" ] || [ "${RESULT}" = "skipped" ]

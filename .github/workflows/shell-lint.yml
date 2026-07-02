@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: shell-lint
+
+# shfmt (formatting) + shellcheck (static analysis) on shell, via
+# scripts/lint-shell.sh --tracked — the same script the
+# .githooks/pre-commit.d/05-shell plugin runs with --staged. Synced to
+# non-Homebrew consumers; Homebrew-aligned repos run shfmt + shellcheck through
+# `brew style` instead and do not receive this workflow (ADR 0017).
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions: {}
+
+jobs:
+  shell-lint:
+    if: github.repository_owner == 'toobuntu'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # shellcheck is pre-installed on the runner; shfmt and ksh are not (ksh
+      # provides the `ksh -n` syntax check, which is stock on macOS but absent on
+      # the Ubuntu runner). Install all three from the runner's Homebrew (not on
+      # PATH by default) so versions match a local `brew install`, and prepend
+      # its bin (ADR 0014's pattern).
+      - name: Install shfmt, shellcheck, and ksh
+        run: |
+          /home/linuxbrew/.linuxbrew/bin/brew install shfmt shellcheck ksh
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
+
+      - name: Lint shell
+        run: scripts/lint-shell.sh --tracked

@@ -1,0 +1,114 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Pull-from-upstream: fetch the files repo-foundation mirrors from external repos
+# (the `upstreams` section of sync-manifest.yaml), apply the yq mutations, write a
+# "synced from <upstream>, do not modify it directly" header, annotate SPDX, and
+# open a PR against repo-foundation on drift. Runs before sync-to-consumers so a
+# refreshed upstream file reaches consumers the same week. Supersedes the
+# per-repo sync in homebrew-cask-tools once it lands.
+#
+# A GitHub App token (not GITHUB_TOKEN) keeps the bot's commit attributable and
+# can push any path — including .github/workflows/* should a future upstream file
+# land there (GITHUB_TOKEN cannot). mikefarah yq is preinstalled on ubuntu-latest
+# runners.
+
+name: Sync from upstreams
+
+on:
+  schedule:
+    - cron: "0 7 * * 1" # Monday 07:00 UTC, ahead of sync-to-consumers
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-from-upstreams
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository_owner == 'toobuntu'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.SYNC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-metadata: read
+          permission-pull-requests: write
+          permission-workflows: write
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Persisted so the pull-request step below can push the sync branch.
+          persist-credentials: true # zizmor: ignore[artipacked]
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Fetch upstream files and apply mutations
+        run: |
+          # The inline Ruby contains backticks (markdown code spans in the synced
+          # header); they are Ruby string literals, not shell substitution.
+          # shellcheck disable=SC2016
+          ruby -ryaml -rfileutils -e '
+            manifest = YAML.safe_load(File.read("sync-manifest.yaml"))
+            Array(manifest["upstreams"]).each do |upstream|
+              repo = upstream.fetch("source_repo")
+              ref = upstream.fetch("source_ref", "main")
+              Array(upstream["files"]).each do |file|
+                source = file.fetch("source")
+                target = file.fetch("target")
+                mutations = Array(file["mutations"]).select { |m| m["type"] == "yq" }
+                FileUtils.mkdir_p(File.dirname(target))
+                url = "https://raw.githubusercontent.com/#{repo}/#{ref}/#{source}"
+                system("curl", "-fsSL", url, "-o", target) or abort("fetch failed: #{url}")
+                mutations.each do |mutation|
+                  system("yq", "eval", "--inplace", mutation.fetch("expression"), target) or
+                    abort("yq mutation failed on #{target}")
+                end
+                # JSON carries SPDX via a .license sidecar (added by annotate.sh),
+                # so it gets no inline header.
+                next if File.extname(target) == ".json"
+
+                verb = mutations.empty? ? "by" : "and modified by"
+                header = "# This file is synced from `#{repo}` #{verb} " \
+                         "`.github/workflows/sync-from-upstreams.yml`, do not modify it directly.\n\n"
+                File.write(target, header + File.read(target))
+                puts "fetched #{target}"
+              end
+            end
+          '
+
+      - name: Annotate SPDX headers
+        run: |
+          pipx install reuse
+          bash scripts/annotate.sh
+
+      - name: Open or update the upstream-sync pull request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BRANCH: sync-from-upstreams
+          PR_TITLE: "Sync configuration from upstreams"
+        run: |
+          if git diff --quiet; then
+            echo "No upstream drift."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --create "$BRANCH"
+          git add --all
+          git commit --message "$PR_TITLE"
+          git push --force --set-upstream origin "$BRANCH"
+          open_count="$(gh pr list --head "$BRANCH" --state open --json number --jq 'length')"
+          if [ "$open_count" = "0" ]; then
+            gh pr create --base main --head "$BRANCH" --title "$PR_TITLE" \
+              --body 'Automated refresh of upstream-tracked files (see the upstreams section in sync-manifest.yaml).'
+          fi

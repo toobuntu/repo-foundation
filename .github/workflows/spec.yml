@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# RSpec suite for the canonical git hooks and the CI Unicode scanner. Canonical
+# in toobuntu/repo-foundation and synced (with the spec/ tree, Gemfile, .rspec
+# and .bundle/config) to consumers that adopt the hook test suite.
+
+name: Spec
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions: {}
+
+jobs:
+  spec:
+    # macOS so /bin/sh (bash --posix) and BSD grep match what the hook runs
+    # under on contributors' machines. Portable Ruby is the same Ruby that
+    # `brew ruby` uses locally, so local and CI share one test toolchain.
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Homebrew portable Ruby
+        uses: Homebrew/actions/setup-ruby@main
+        with:
+          portable-ruby: true
+          bundler-cache: true
+
+      - name: Run RSpec
+        run: bundle exec rspec
