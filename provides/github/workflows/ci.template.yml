@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Bootstrap scaffold for a consumer's language build/test workflow. NOT synced:
+# build and test steps are intrinsic to each repo. Copy this once (strip the
+# `.template` infix) and fill in the language jobs.
+#
+# The SHARED jobs are NOT here — they are canonical workflows synced from
+# repo-foundation and run on their own:
+#   - actionlint.yml : workflow syntax (actionlint + zizmor)
+#   - lint.yml       : reuse, lint-unicode, lint-perms, lint-adrs
+#   - spec.yml       : rspec hook tests (repos that adopt the hook test suite)
+# Do not duplicate those jobs here.
+#
+# For a Homebrew-tap repo, model the build/test jobs on
+# homebrew-cask-tools/.github/workflows/ci.yml instead (brew style + brew tests
+# rather than a language toolchain).
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions: {}
+
+jobs:
+  build:
+    if: github.repository_owner == 'toobuntu'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      # Replace with the repo's build and test steps. Example (Go):
+      # - name: Set up Go
+      #   uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+      #   with:
+      #     go-version-file: 'go.mod'
+      #     check-latest: true
+      # - run: go build ./...
+      # - run: go test -count=1 ./...
+      #
+      # Example (Swift, swiftc toolchain — needs `runs-on: macos-latest` above,
+      # since swiftc/xcrun and the macOS SDK are macOS-only). swiftformat and
+      # swiftlint are the CI counterpart of the 40-swift pre-commit plugin:
+      # - run: brew install swiftformat swiftlint
+      # - run: swiftformat --lint .
+      # - run: swiftlint lint --strict
+      # - run: ./scripts/build.sh   # xcrun swiftc … (see powerstatus)
+      - name: Build
+        run: 'echo "TODO: replace with the repo build and test steps"'

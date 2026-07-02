@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./bin/minimal --version)"
+    ]
+  },
+  "sandbox": {
+    "network": {
+      "allowedDomains": [
+        "example.test"
+      ]
+    }
+  }
+}

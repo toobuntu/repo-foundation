@@ -1,0 +1,20 @@
+# SPDX coverage for the baseline-merge region sources in this directory.
+#
+# These files are NOT annotated inline. The sync engine wraps each file's
+# content into a sentinel-delimited managed region inside a consumer's
+# AGENTS.md / CONTRIBUTING.md / .gitignore, and an inline SPDX header would be
+# carried into that region and duplicate the consumer file's own header.
+# Declaring the license here keeps the source content clean while staying
+# REUSE-compliant.
+#
+# settings.baseline.json is deliberately NOT listed: it carries a real
+# settings.baseline.json.license sidecar, which the sync copies to the consumer
+# so the generated .claude/settings.json is itself REUSE-compliant.
+
+version = 1
+
+[[annotations]]
+path = ["AGENTS.baseline.md", "CONTRIBUTING.baseline.md", "gitignore.baseline"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Copyright 2026 Todd Schulman"
+SPDX-License-Identifier = "GPL-3.0-or-later"

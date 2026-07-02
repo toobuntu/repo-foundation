@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Per-repo scaffold for a NON-tap consumer that runs the GitHub Copilot coding
+# agent (babble, an Objective-C or Go repo, etc.). Homebrew TAPS instead get
+# copilot-setup-steps synced from repo-foundation (the homebrew_tap set in
+# sync-manifest.yaml), because Homebrew/brew's base fits a tap; every other repo
+# owns its own — see the ADR in docs/decisions.
+#
+# NOT synced: copy once (strip the `.template` infix) and add the repo's tools to
+# the install list — e.g. `mas` for a brew/mas wrapper like babble, `llvm` for
+# Objective-C/clang, or `go`; or add a setup-ruby step. setup-homebrew already
+# puts `brew` on PATH.
+#
+# copilot-setup-steps drives the Copilot CODING AGENT only; it is NOT used by
+# Copilot Code Review. If you do not run the coding agent here, omit this file.
+
+name: Copilot Setup Steps
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  # The job MUST be called `copilot-setup-steps` or Copilot will not pick it up.
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Set up Homebrew
+        id: set-up-homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          core: false
+          cask: false
+
+      - uses: Homebrew/actions/cache-homebrew-prefix@main
+        with:
+          # Shared toobuntu lint toolchain. Append the repo's tools as needed.
+          install: actionlint pinact reuse shellcheck shfmt zizmor gh jq curl
+          workflow-key: copilot-setup-steps

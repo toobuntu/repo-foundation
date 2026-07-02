@@ -1,0 +1,30 @@
+# Vale prose linter. The canonical org-wide Toobuntu style and its accept
+# vocabulary under .vale/styles/ sync from repo-foundation (ADR 0014); this
+# .vale.ini is per-repo because the scope-block relaxations vary. foundation-init
+# copies this scaffold to .vale.ini (the .template infix is stripped) — then edit
+# the relaxations for this repo.
+#
+# Only error-level alerts gate CI under MinAlertLevel = error. A new rule lands
+# at warning, runs over the corpus, and is promoted to error after a clean pass
+# (ADR 0014). Toobuntu.AmericanSpelling (en_US dialect) runs everywhere — it is
+# correctness, not voice. Vale.Spelling rides at warning until the repo's accept
+# vocabulary covers its domain terms.
+#
+# Install: brew install vale
+StylesPath = .vale/styles
+MinAlertLevel = error
+Vocab = Toobuntu
+
+[*.md]
+BasedOnStyles = Vale, Toobuntu
+Vale.Terms = NO
+Vale.Spelling = warning
+
+[docs/handoff/*.md]
+# Working notes / session handoffs: impersonal voice and the dictionary speller
+# are off; dialect (Toobuntu.AmericanSpelling) stays on. Add repo-specific
+# relaxations below, e.g. a design doc dense with snippets:
+#   [docs/design/*.md]
+#   Vale.Spelling = NO
+Vale.Spelling = NO
+Toobuntu.We = NO
