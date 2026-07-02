@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Bundler install path: third-party gems, neither committed nor first-party.
+# Listed here so reuse/annotate never assert repo-foundation's copyright over
+# upstream code.
+/vendor/
+
+# macOS directory metadata
+.DS_Store

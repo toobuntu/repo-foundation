@@ -1,0 +1,11 @@
+version = 1
+
+# COPYING is a verbatim copy of LICENSES/GPL-3.0-or-later.txt, kept at the
+# repository root so GitHub's license UI detects the project license. It carries
+# no inline SPDX header — it is the license text itself — so its REUSE metadata
+# is declared here (plan §9). reuse-tool recognizes a root file named LICENSE as
+# a license text but not one named COPYING, hence this entry.
+[[annotations]]
+path = "COPYING"
+SPDX-FileCopyrightText = "Copyright 2026 Todd Schulman"
+SPDX-License-Identifier = "GPL-3.0-or-later"
