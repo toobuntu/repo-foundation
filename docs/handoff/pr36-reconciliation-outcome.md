@@ -20,11 +20,17 @@ operational detail that feeds the disposition review in
   dropped (the dedicated `adr-doctor.yml`, the `.mcp.json` sync, the
   SPDX-above-frontmatter placement, the stale `joshrotenberg/brew/adrs`
   tap name).
-* **cask-tools PR #41: close at cutover, do not merge.** Its whole content
-  is upstream `actionlint.yaml` drift adding a `paths:` ignore block for
+* **cask-tools PR #41: close unmerged.** Its whole content is upstream
+  `actionlint.yaml` drift adding a `paths:` ignore block for
   Homebrew/brew's internal `tests.yml` — a block repo-foundation's
   `del(.paths)` mutation strips deliberately. The relayed `ci_core` copy
-  supersedes it with a superset `config-variables` list.
+  supersedes it with a superset `config-variables` list. Closing before
+  the cutover is fine, with one side effect: the scheduled
+  `sync-shared-config.yml` run (Wednesdays 08:00 UTC) force-pushes the
+  sync branch and re-creates the PR while the workflow still exists.
+  To keep it closed in the interim, disable the workflow
+  (`gh workflow disable "Sync shared configuration"`); the cutover then
+  deletes the workflow outright.
 
 ## Part 1 dispositions (implemented here)
 
