@@ -81,7 +81,13 @@ Review and merge per consumer, cross-checking the disposition review.
   content is now in the synced `docs/agent-principles.md`); repoint `AGENTS.md` /
   `CLAUDE.md`. Confirm it carries Homebrew/brew's `.editorconfig` +
   `.shellcheckrc` verbatim and lints via `brew style` (it is excluded from
-  `shell_lint`).
+  `shell_lint`). Cutover from its hand-rolled sync (see
+  `docs/handoff/pr36-reconciliation-outcome.md`): delete
+  `.github/workflows/sync-shared-config.yml` (the engine does not delete
+  files), close its PR #41 unmerged, add the `adrs` MCP server and the
+  `50-adrs` hook line to its `AGENTS.md`/`.mcp.json`, and prefer marking
+  ADRs 0001/0002 `superseded` (pointing at RF 0012/0003) over deleting —
+  deletion would leave the MADR sequence starting at 0003.
 - **cert-automation:** its `.ksh` are covered by the dialect-aware `shell_lint`
   (`shellcheck --shell=ksh` + `ksh -n` where present, `shfmt` skipped), so drop
   the now-canonical `shellcheck` and `reuse` jobs from its `lint.yml`; keep a
@@ -97,4 +103,5 @@ Review and merge per consumer, cross-checking the disposition review.
 ## Then resume the master plan
 
 With the sync humming and consumers aligned, W3 (babble) and the rest proceed.
-W6 (the `isolate` rename) is the next repo-foundation change and takes ADR 0018.
+W6 (the `isolate` rename) is the next repo-foundation change and takes the next
+free ADR number (0018 went to the PR #36 ADR-tooling reconciliation).
