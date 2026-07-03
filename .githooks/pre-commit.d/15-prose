@@ -1,0 +1,40 @@
+#!/bin/sh
+
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Prose pre-commit plugin: vale on staged Markdown. Run by
+# .githooks/pre-commit via the run-parts-style runner. Self-contained:
+# plugins run in a subprocess and do not inherit the base hook's functions.
+# Mastered at this natural path — repo-foundation runs it on its own commits
+# (ADR 0001) — and syncs to the hook-carrying prose_lint consumers
+# (prose_plugin in the manifest). One policy, two triggers: vale reads the
+# repo's own .vale.ini (MinAlertLevel = error), so this gate is exactly the
+# prose.yml CI job applied to the staged paths; the CI job remains the
+# whole-tree backstop. Like the base hook's REUSE stanza, vale reads the
+# WORKING-TREE content of the listed paths, not the staged blob — a path
+# staged clean but dirty on disk is checked as it sits on disk. Run-parts
+# classicalre name (no extension); disable with a dot suffix (15-prose.off).
+# Rationale:
+# https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0019-prose-lint-pre-commit-plugin.md
+
+set -e
+
+staged_z() {
+  git diff --cached --name-only --diff-filter=ACMRT -z |
+    /usr/bin/grep --extended-regexp --null-data "$1" || true
+}
+has_files() { [ "$(staged_z "$1" | wc -c)" -gt 0 ]; }
+
+if has_files '\.md$'; then
+  if [ ! -f .vale.ini ]; then
+    printf 'warning: .vale.ini not found — skipping prose lint (seed it from repo-foundation provides/vale/vale.ini.template)\n' >&2
+    exit 0
+  fi
+  if command -v vale > /dev/null 2>&1; then
+    staged_z '\.md$' | xargs -0 -r vale
+  else
+    printf 'warning: vale not found — skipping prose lint (brew install vale)\n' >&2
+  fi
+fi

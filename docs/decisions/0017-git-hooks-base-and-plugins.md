@@ -116,8 +116,9 @@ language plugins it does not run — it is not a Go, Objective-C, Swift, or tap
 repository — live under `provides/`, at **`provides/githooks/pre-commit.d/`**:
 `10-go`, `20-objc`, `30-brew`, `40-swift`. A plugin repo-foundation runs on its
 own commits is mastered at the natural path `.githooks/pre-commit.d/` instead:
-`05-shell` (repo-foundation is itself a shell repository) and later `50-adrs`
-(ADR 0018). The manifest maps each to a consumer **only** where it applies
+`05-shell` (repo-foundation is itself a shell repository) and later `15-prose`
+and `50-adrs` (ADRs 0019 and 0018). The manifest maps each to a consumer
+**only** where it applies
 (`go_plugin` → zman-didan, `objc_plugin` → blackoutd, `brew_plugin` → the tap,
 `swift_plugin` → Swift consumers), so one master is the single source for every
 consumer of its language. A plugin is **self-contained**:

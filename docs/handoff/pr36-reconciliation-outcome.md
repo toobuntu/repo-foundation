@@ -55,9 +55,12 @@ On top of what the manifest already granted them:
 
 * **All hook-carrying consumers** (blackoutd, zman-didan, babble, bob-book,
   cert-automation, homebrew-cask-tools): `.githooks/pre-commit.d/50-adrs`
-  (inert until `docs/decisions/**` or `adrs.toml` is staged) and the updated
-  `docs/agent-principles.md` with the ADR section. dot-github takes only the
-  updated `agent-principles.md` (no `git_hooks`).
+  (inert until `docs/decisions/**` or `adrs.toml` is staged),
+  `.githooks/pre-commit.d/15-prose` (vale on staged Markdown, added as
+  follow-on scope — ADR 0019; warns and skips until the repo seeds
+  `.vale.ini`), and the updated `docs/agent-principles.md` with the ADR
+  section. dot-github takes only the updated `agent-principles.md` (no
+  `git_hooks`).
 * **homebrew-cask-tools** additionally: `copilot-setup-steps.yml` whose
   install list now ends `… zizmor fzf adrs` (relayed from Homebrew/brew with
   the amended mutation).
