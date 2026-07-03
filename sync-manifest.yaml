@@ -99,7 +99,7 @@ upstreams:
           - type: yq
             expression: >-
               (.jobs.copilot-setup-steps.steps[]
-              | select(.uses // "" | test("Homebrew/actions/cache-homebrew-prefix@"))).with.install |= . + " actionlint reuse pinact zizmor fzf"
+              | select(.uses // "" | test("Homebrew/actions/cache-homebrew-prefix@"))).with.install |= . + " actionlint reuse pinact zizmor fzf adrs"
 
 # ---------------------------------------------------------------------------
 # Reusable component groups, referenced by name from each consumer below.

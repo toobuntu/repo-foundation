@@ -41,5 +41,5 @@ jobs:
       - uses: Homebrew/actions/cache-homebrew-prefix@main
         with:
           # Shared toobuntu lint toolchain. Append the repo's tools as needed.
-          install: actionlint pinact reuse shellcheck shfmt zizmor gh jq curl
+          install: actionlint adrs pinact reuse shellcheck shfmt zizmor gh jq curl
           workflow-key: copilot-setup-steps
