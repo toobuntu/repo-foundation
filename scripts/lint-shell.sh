@@ -4,17 +4,27 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# lint-shell.sh — ksh -n (syntax) + shfmt (formatting) + shellcheck (analysis).
+# lint-shell.sh — ksh -n (syntax) + shfmt (formatting) + shellcheck (analysis),
+# dialect-aware.
 #
 # One implementation, two triggers: the .githooks/pre-commit.d/05-shell plugin
-# runs it with --staged, the shell-lint CI job with --tracked. shfmt reads
-# .editorconfig (two-space, the toobuntu house style) and shellcheck reads
-# .shellcheckrc. Homebrew-aligned repos defer to `brew style` and do NOT ship
-# this script (brew style runs shfmt + shellcheck with Homebrew's own config).
+# runs it with --staged, the shell-lint CI job with --tracked.
 #
-# The static-analysis pass runs at --severity=warning: warning-and-above gates,
-# while the style/info suggestions the .shellcheckrc `enable=`s surface stay
-# advisory (visible on a bare local run, not a CI failure).
+# AT&T ksh93 scripts (a .ksh extension, or a ksh shebang — both /bin/ksh and
+# /usr/bin/env ksh, plus ksh93/ksh88) are checked with `ksh -n` and
+# `shellcheck --shell=ksh`, but NOT shfmt: shfmt has no ksh93 dialect and either
+# reformats it wrongly or fails to parse it, even with -ln mksh (mvdan/sh#614).
+# its own ksh dialect analyzes them without needing the ksh binary, so ksh files
+# are still linted on a runner that lacks ksh (the Ubuntu runner); this is why
+# the synced CI need not install ksh93.
+#
+# sh / bash scripts get shfmt (reads .editorconfig, two-space) + shellcheck
+# (dialect from the shebang). `ksh -n` — a stricter syntax check than
+# bash -n / sh -n — runs over ALL shell wherever ksh is present (stock on
+# macOS), as the authoritative syntax pass. shellcheck runs at --severity=warning
+# (warning-and-above gates; the .shellcheckrc `enable=`s stay advisory).
+#
+# Homebrew-aligned repos defer to `brew style` and do not ship this script.
 #
 # Usage: lint-shell.sh [--staged | --tracked | <path>...]   (default --tracked)
 
@@ -27,8 +37,7 @@ usage() {
 }
 
 # Is $1 a shell script? By extension, or by a shebang naming a shell (every
-# shell name — sh, bash, ksh, dash, zsh — ends in "sh"), so the extension-less
-# hooks and run-parts plugins are caught too.
+# shell name ends in "sh"), so extension-less hooks and plugins are caught.
 is_shell() {
   case "$1" in
   *.sh | *.bash | *.ksh) return 0 ;;
@@ -37,7 +46,16 @@ is_shell() {
   head -n 1 "$1" 2> /dev/null | grep -qE '^#!.*sh([[:space:]]|$)'
 }
 
-# Emit the candidate path set (newline-delimited) for the chosen mode.
+# Is $1 an AT&T ksh93 script? A .ksh extension, or a shebang whose command is
+# ksh / ksh93 / ksh88 — matching both /bin/ksh and /usr/bin/env ksh.
+is_ksh() {
+  case "$1" in
+  *.ksh) return 0 ;;
+  esac
+  [ -f "$1" ] || return 1
+  head -n 1 "$1" 2> /dev/null | grep -qE '^#!.*[/ ]ksh[0-9]*([[:space:]]|$)'
+}
+
 candidates() {
   case "${1:---tracked}" in
   --staged) git diff --cached --name-only --diff-filter=ACMRT ;;
@@ -58,36 +76,54 @@ candidates() {
   esac
 }
 
-tmp=$(mktemp "${TMPDIR:-/tmp}/lint-shell.XXXXXX")
-trap 'rm -f "$tmp"' EXIT INT TERM
+all=$(mktemp "${TMPDIR:-/tmp}/lint-shell.XXXXXX")
+kshf=$(mktemp "${TMPDIR:-/tmp}/lint-shell-ksh.XXXXXX")
+other=$(mktemp "${TMPDIR:-/tmp}/lint-shell-other.XXXXXX")
+trap 'rm -f "$all" "$kshf" "$other"' EXIT INT TERM
 
+# The `if` (not `&&`) keeps each iteration's status 0, so the pipeline does not
+# exit non-zero when the last candidate is not a shell file — which under set -e
+# would abort before any check runs.
 candidates "$@" | while IFS= read -r f; do
-  [ -n "$f" ] && is_shell "$f" && printf '%s\n' "$f"
-done > "$tmp"
+  if [ -n "$f" ] && is_shell "$f"; then printf '%s\n' "$f"; fi
+done > "$all"
 
-if [ ! -s "$tmp" ]; then
+if [ ! -s "$all" ]; then
   printf 'lint-shell: no shell files to check\n'
   exit 0
 fi
 
+# Partition into ksh93 vs sh/bash.
+while IFS= read -r f; do
+  if is_ksh "$f"; then printf '%s\n' "$f" >> "$kshf"; else printf '%s\n' "$f" >> "$other"; fi
+done < "$all"
+
 rc=0
-# ksh -n is a stricter syntax check than bash -n / sh -n and parses bash scripts
-# too; it is macOS's default AT&T ksh93 (/bin/ksh). Run first — a parse error
-# makes the formatter and analyzer moot. (This subsumes the standalone ksh -n CI
-# job cert-automation used to carry.)
+
+# ksh -n: authoritative syntax check over ALL shell, where ksh is present.
 if command -v ksh > /dev/null 2>&1; then
-  while IFS= read -r f; do ksh -n "$f" || rc=1; done < "$tmp"
+  while IFS= read -r f; do ksh -n "$f" || rc=1; done < "$all"
 else
-  printf 'warning: ksh not found — skipping shell syntax check (ksh ships with macOS; apt/brew install ksh on Linux)\n' >&2
+  printf 'note: ksh not found — skipping ksh -n syntax check (stock on macOS; apt/brew install ksh93 on Linux)\n' >&2
 fi
-if command -v shfmt > /dev/null 2>&1; then
-  # shfmt -d exits non-zero (and prints a diff) when a file is not formatted.
-  xargs shfmt -d < "$tmp" || rc=1
-else
-  printf 'warning: shfmt not found — skipping shell formatting check (brew install shfmt)\n' >&2
+
+# shfmt: formatting, sh/bash only (no ksh93 dialect exists).
+# Per-file loops rather than xargs: default xargs splits on any whitespace
+# and can read a leading-dash name as an option. `--` ends option parsing.
+# (The newline-delimited lists still assume no newlines in filenames.)
+if [ -s "$other" ]; then
+  if command -v shfmt > /dev/null 2>&1; then
+    while IFS= read -r f; do shfmt -d -- "$f" || rc=1; done < "$other"
+  else
+    printf 'warning: shfmt not found — skipping shell formatting check (brew install shfmt)\n' >&2
+  fi
 fi
+
+# Static analysis (shellcheck): ksh files use --shell=ksh (no ksh binary
+# needed); sh/bash files let shellcheck pick the dialect from the shebang.
 if command -v shellcheck > /dev/null 2>&1; then
-  xargs shellcheck --severity="$severity" < "$tmp" || rc=1
+  while IFS= read -r f; do shellcheck --severity="$severity" -- "$f" || rc=1; done < "$other"
+  while IFS= read -r f; do shellcheck --shell=ksh --severity="$severity" -- "$f" || rc=1; done < "$kshf"
 else
   printf 'warning: shellcheck not found — skipping shell static analysis (brew install shellcheck)\n' >&2
 fi

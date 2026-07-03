@@ -270,6 +270,24 @@ Worktrees go UNDER the project tree at `worktrees/` (gitignored)
 because the Claude Code sandbox writable area is the project tree
 and its subdirectories — sibling directories are not writable.
 
+## Park merged branches; delete only on the remote
+
+After a branch merges, the local branch is not deleted. It is renamed
+into the `merged/` namespace — prefixed with the PR number that merged
+it — and only the remote copy is deleted:
+
+```sh
+git branch -m feature/foo merged/pr12-feature/foo
+git push origin --delete feature/foo   # or GitHub's delete-on-merge
+```
+
+The `merged/*` branches are cheap rollback handles and provenance
+markers. They are pruned opportunistically, at the maintainer's
+discretion — never as part of routine cleanup an agent performs or
+recommends. Agent hand-off reports and cleanup checklists must say
+"rename to `merged/…`", not "delete the local branch"; remote deletion
+is unaffected.
+
 ## Long options in shell
 
 Use long-form options for readability and grep-ability:
@@ -306,10 +324,13 @@ that shells out — must run on BSD tools:
   other bash-isms. A script that needs those declares `#!/usr/bin/env bash`
   (or `ksh`/`zsh`) explicitly. Do not depend on Linux-only paths (`/proc`,
   `/sys`) or package managers (`apt`, `dpkg`).
-- **Shell is linted.** Shell scripts pass `ksh -n` (syntax; stricter than
-  `bash -n`/`sh -n` and stock on macOS), are `shfmt`-formatted (two-space, per
-  the repository's `.editorconfig`), and are `shellcheck`-clean at
-  `--severity=warning` (per `.shellcheckrc`). The `pre-commit.d/05-shell` plugin
+- **Shell is linted**, dialect-aware. `sh`/`bash` scripts pass `ksh -n`
+  (syntax; stricter than `bash -n`/`sh -n`, stock on macOS), are `shfmt`-formatted
+  (two-space, per `.editorconfig`), and are `shellcheck`-clean at
+  `--severity=warning` (per `.shellcheckrc`). AT&T **ksh93** scripts (a `.ksh`
+  extension or a ksh shebang) are checked with `ksh -n` and
+  `shellcheck --shell=ksh` but **not** `shfmt` — shfmt has no ksh93 dialect and
+  mangles or rejects it (mvdan/sh#614). The `pre-commit.d/05-shell` plugin
   enforces this on staged shell and a `shell-lint` CI job on the whole tree,
   both through `scripts/lint-shell.sh` (ADR 0017). **Homebrew-aligned repositories are the
   exception:** homebrew-cask-tools and babble defer to `brew style`, which runs
@@ -421,6 +442,90 @@ commits now exist at **two different SHAs**: the branch's signed ones and
 truth** and realign `main` to it after the branch lands
 (`git switch main && git reset --hard origin/main`) rather than trying to push
 both — `main`'s unsigned tip would be rejected anyway.
+
+### Promoting follow-up batches from an isolated clone: cherry-pick, not merge
+
+The same SHA-rewrite has a second consequence when the agent works in an
+isolated (remoteless) clone across **multiple hand-offs**. After the first
+promotion re-signs the batch, the clone and the live repo are
+patch-equivalent but SHA-divergent: from git's perspective the lineages are
+unrelated at every point past the first signing. A follow-up batch built in
+the clone sits on the *unsigned* parents, so `git merge --ff-only FETCH_HEAD`
+fails by construction, and a plain merge or rebase would duplicate the
+already-promoted commits under third SHAs.
+
+Promote with cherry-pick and patch-id filtering instead, via
+`scripts/promote-from-isolated.sh [--yes] <clone-path> [<branch>]`.
+`--cherry-pick` compares patch-ids, not SHAs: commits already promoted
+(under different SHAs) are filtered out and only genuinely new work is
+applied, so re-running when there is nothing new is a no-op.
+
+**The picks land unsigned — deliberately.** Unsigned status *is* the
+workflow state: the just-promoted batch is visually distinct
+(`git log --format='%h %G? %s'` shows `N`), freely amendable, and testable;
+`re-sign-unpushed.sh` remains the single blessing step before push, exactly
+as for commits authored directly in the live repo, and the `pre-push` hook
+still rejects unsigned tips. Promotion changes only the transport, never
+the evaluate-then-sign workflow. The full sequence:
+
+```sh
+scripts/promote-from-isolated.sh <clone-path> <branch>  # gated, unsigned picks
+# run the repo's checks; amend freely while unsigned
+scripts/re-sign-unpushed.sh                             # bless the batch
+git push origin <branch>
+```
+
+The script refuses to apply anything until its gates pass: clean tree and
+correct branch; the clone side must be linear (a merge commit on the agent
+branch is an error, not something to pick silently); a left/right **subject
+collision** across the filtered delta is an error — that is the signature of
+a promoted copy amended in the live repo, whose patch-id no longer matches,
+and picking it again would conflict or duplicate; and after the `%m`-marked
+preview it asks for confirmation (`--yes` skips; without it, a non-TTY
+stdin aborts). If a pick still conflicts past the gates, the script prints
+recovery guidance to stderr (`--continue` after resolving, or `--abort` to
+return to the pre-promotion state).
+
+Two design notes, so the boundaries are explicit rather than folklore:
+
+- **The clone's role**: a mutable workspace **until** a commit is promoted,
+  a frozen intent stream afterwards. Reword, split, and reorder freely
+  before the first hand-off; once a commit's copy exists in the live repo,
+  the live copy is the source of truth (same principle as the re-signed
+  branch above) and fixups belong there — or in *new* clone commits.
+  Promotion never replays clone history as such; it applies the derived
+  patch view (`--cherry-pick` filtering is patch-id-based), which is why
+  the clone never needs rebasing onto the signed lineage. Partial
+  promotion, when ever needed, is a manual `git cherry-pick` of the
+  chosen subset — the script deliberately handles only the
+  whole-delta case.
+- **The subject-collision gate is a guardrail, not an identity check.**
+  Git cannot prove "this live commit is an amended copy of that clone
+  commit"; matching subjects across the filtered delta is a proxy that
+  catches the common accident. A false positive (two unrelated commits
+  sharing a subject) blocks the script — promote that batch manually. A
+  false negative (an amend that also reworded the subject) surfaces as a
+  pick conflict, with recovery guidance on stderr.
+
+Division of responsibility:
+
+- **The human promotes.** Object-ID divergence between the clone and the
+  live repo is expected and permanent; never "fix" it.
+- **The agent keeps building on its own clone lineage** and does not chase
+  the signed SHAs. Hand-off reports must say "promote with
+  `scripts/promote-from-isolated.sh <clone-path> <branch>`" — never
+  `merge --ff-only` instructions, which only hold for a first promotion.
+  Rebasing the clone onto the signed lineage is allowed as an optional
+  tidy-up (it empties the "<" side of the preview) but correctness never
+  depends on it.
+- **The agent must not amend clone commits that were already promoted**
+  (that manufactures the subject-collision case); follow-ups go in new
+  commits.
+
+The script ships with a self-contained harness,
+`scripts/promote-from-isolated-test.sh` (throwaway repos under mktemp;
+simulates re-sign divergence, idempotence, the collision and merge gates,
+and the prompt guards) — run it after any change to the promote script.
 
 ### Pre-commit hook network tools under the sandbox (zizmor)
 

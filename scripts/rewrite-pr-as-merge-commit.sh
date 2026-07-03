@@ -45,7 +45,7 @@ parse_args() {
     shift
   fi
 
-  [[ $# -eq 1 ]] || usage
+  (($# == 1)) || usage
   PR="$1"
 }
 
@@ -87,7 +87,7 @@ recreate_branch_if_needed() {
     return
   fi
 
-  if [[ "$RECREATE_BRANCH" -ne 1 ]]; then
+  if ((RECREATE_BRANCH != 1)); then
     echo "ERROR: PR branch '$HEAD_BRANCH' no longer exists on origin." >&2
     echo "       Rerun with --recreate-branch to reconstruct it from" >&2
     echo "       the recorded HEAD SHA ($HEAD_SHA)." >&2

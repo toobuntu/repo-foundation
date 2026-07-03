@@ -29,7 +29,7 @@ not already carry?
 | **shfmt + shellcheck enforcement** in pre-commit + CI | shared-guidelines.md (stated as `brew style` for the tap); cert-automation `lint.yml` (a standalone `shellcheck` job) | **Reconciled** as the canonical `shell_lint` set: `.editorconfig` (2-space), `.shellcheckrc`, `scripts/lint-shell.sh`, `05-shell` plugin, `shell-lint.yml`. Synced to non-Homebrew consumers (ADR 0017). |
 | **`.shellcheckrc`** (5 curated `enable=` optional checks) | `babble/.shellcheckrc` | **Adopted verbatim** as RF's canonical `.shellcheckrc`. |
 | **`.editorconfig`** | absent everywhere | **Created** canonical (2-space shell; the missing config shfmt needs). |
-| **`ksh -n` syntax check** | `cert-automation/lint.yml`; old (ksh-era) babble CI | **Partly reconciled.** `scripts/lint-shell.sh` runs `ksh -n` (a stricter syntax check than `bash -n`/`sh -n`, parses bash too) **when ksh is present** — stock on macOS, so local dev and RF's macOS runs get it. The synced CI does **not** install ksh93 (no value in every consumer re-checking RF-synced scripts). A ksh-heavy repo keeps its own ksh93-installing `ksh -n` job for its own scripts. |
+| **`ksh -n` / ksh93 handling** | `cert-automation/lint.yml`; old (ksh-era) babble CI | **Reconciled** — `scripts/lint-shell.sh` is dialect-aware. ksh93 files (`.ksh` or a ksh shebang, `/bin/ksh` or `/usr/bin/env ksh`) get `ksh -n` (where ksh is present) plus `shellcheck --shell=ksh` — shellcheck's own ksh dialect, no ksh binary needed, so they are analyzed even on the Ubuntu runner — and **skip `shfmt`** (no ksh93 dialect; it mangles/rejects ksh93, mvdan/sh#614). So cert-automation stays a `shell_lint` consumer and the synced CI need not install ksh93; a ksh-heavy repo may still add its own ksh93 `ksh -n` job for the authoritative syntax pass. |
 | **`post-merge` / `post-rewrite` hooks** | `homebrew-cask-tools/.githooks/` | **Repo-specific** (regenerate cask completions/man). Not org-wide; left in cask-tools. |
 | org-wide ADRs (trojan, merge, reuse-lint, ruby-toolchain, analytics, pre-push-signing, pipx, vale) | blackoutd, hct, zman-didan `docs/decisions/` | **Already reconciled** in Session 3 (RF ADRs 0005–0014). No new miss. |
 | `copilot-instructions.md` | blackoutd, cert-automation, hct | **Repo-specific** by design (ADR-era decision); the one shared rule (annotate SPDX) is already in agent-principles.md. |
@@ -41,11 +41,13 @@ not already carry?
   now lives in the synced `docs/agent-principles.md`; its `brew style` line is a
   repo fact for cask-tools' `AGENTS.md`. Remove the file and repoint `AGENTS.md`
   / `CLAUDE.md` at agent-principles.md once the sync lands.
-- **cert-automation's `lint.yml` trims to just its `ksh -n` job**: `shellcheck`
-  is now in the synced `shell-lint.yml` and `reuse` is in the canonical
-  `lint.yml`, so drop those two. Keep the `ksh -n` job (it installs ksh93) — the
-  synced workflow only runs `ksh -n` opportunistically, so cert-automation's own
-  ksh scripts still want a dedicated syntax check.
+- **cert-automation's `.ksh` are covered by the dialect-aware `shell_lint`**
+  (`shellcheck --shell=ksh` + `ksh -n` where present, `shfmt` skipped), and its
+  `reuse` is in the canonical `lint.yml`. So its own `lint.yml` can drop the
+  `shellcheck` and `reuse` jobs; keep a `ksh -n` job (installing ksh93) only if
+  it wants the authoritative syntax pass in CI (the synced workflow runs `ksh -n`
+  opportunistically). Its own scripts also carry real `shellcheck --shell=ksh`
+  findings (install/pki/ssh-key-check) to fix during cleanup.
 - **babble + homebrew-cask-tools** carry Homebrew/brew's `.editorconfig` +
   `.shellcheckrc` verbatim and rely on `brew style`; confirm babble runs
   `brew style` over its shell (it has a `.shellcheckrc` today but no hooks).
