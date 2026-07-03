@@ -306,10 +306,13 @@ that shells out — must run on BSD tools:
   other bash-isms. A script that needs those declares `#!/usr/bin/env bash`
   (or `ksh`/`zsh`) explicitly. Do not depend on Linux-only paths (`/proc`,
   `/sys`) or package managers (`apt`, `dpkg`).
-- **Shell is linted.** Shell scripts pass `ksh -n` (syntax; stricter than
-  `bash -n`/`sh -n` and stock on macOS), are `shfmt`-formatted (two-space, per
-  the repository's `.editorconfig`), and are `shellcheck`-clean at
-  `--severity=warning` (per `.shellcheckrc`). The `pre-commit.d/05-shell` plugin
+- **Shell is linted**, dialect-aware. `sh`/`bash` scripts pass `ksh -n`
+  (syntax; stricter than `bash -n`/`sh -n`, stock on macOS), are `shfmt`-formatted
+  (two-space, per `.editorconfig`), and are `shellcheck`-clean at
+  `--severity=warning` (per `.shellcheckrc`). AT&T **ksh93** scripts (a `.ksh`
+  extension or a ksh shebang) are checked with `ksh -n` and
+  `shellcheck --shell=ksh` but **not** `shfmt` — shfmt has no ksh93 dialect and
+  mangles or rejects it (mvdan/sh#614). The `pre-commit.d/05-shell` plugin
   enforces this on staged shell and a `shell-lint` CI job on the whole tree,
   both through `scripts/lint-shell.sh` (ADR 0017). **Homebrew-aligned repositories are the
   exception:** homebrew-cask-tools and babble defer to `brew style`, which runs

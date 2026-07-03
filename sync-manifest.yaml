@@ -335,7 +335,7 @@ consumers:
     # Ships Swift helper scripts (scripts/cert-notify/*.swift), so it takes the
     # swift_plugin. CONFIRM whether swiftformat/swiftlint should gate those
     # helpers, and CONFIRM sandbox.
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, swift_plugin, scripts_core, repo_config, ci_core, ci_templates, repo_baseline]  # shell_lint supersedes cert-automation's own lint.yml shellcheck job; its ksh -n check stays repo-specific.
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, swift_plugin, scripts_core, repo_config, ci_core, ci_templates, repo_baseline]  # shell_lint handles cert-automation's ksh93 (.ksh) via lint-shell.sh's dialect split: shellcheck --shell=ksh + ksh -n where present, shfmt skipped. Its own lint.yml shellcheck/reuse jobs are now canonical.
 
   - repo: toobuntu/homebrew-cask-tools
     # Homebrew tap: canonical base hooks PLUS the brew-style plugin (brew_plugin)

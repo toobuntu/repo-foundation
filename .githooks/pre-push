@@ -108,7 +108,7 @@ while read -r local_ref local_oid _ remote_oid; do
 
       echo "${verdict}: cannot verify ${local_ref} -- remote tip ${remote_oid}" >&2
       echo "  is not present locally (the remote may have moved); run" >&2
-      echo "  'git fetch ${1:-<remote>}'${fetch_suffix}." >&2
+      echo "  'git fetch ${1:-"<remote>"}'${fetch_suffix}." >&2
       fail_or_warn
       continue
     fi
