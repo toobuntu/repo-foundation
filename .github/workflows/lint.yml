@@ -96,5 +96,5 @@ jobs:
             echo "No docs/decisions directory; skipping adrs doctor."
             exit 0
           fi
-          /home/linuxbrew/.linuxbrew/bin/brew install joshrotenberg/brew/adrs
+          /home/linuxbrew/.linuxbrew/bin/brew install adrs
           /home/linuxbrew/.linuxbrew/bin/adrs doctor
