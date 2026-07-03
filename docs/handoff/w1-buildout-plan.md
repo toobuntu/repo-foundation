@@ -476,7 +476,7 @@ Follow-ups recorded here so they are not lost:
   consumer `<stem>.addenda.json`); `.baseline` infix settled (ADR 0002 amended,
   0001 updated); synced-file licensing decided (ADR 0016). See §6 "Phase D
   outcome".
-- **Phase E:** `policies/`, RF `README.md` + `CONTRIBUTING.md`,
+- **Phase E — DONE (Session 5):** `policies/`, RF `README.md` + `CONTRIBUTING.md`,
   `examples/minimal-repo/`, dot-github coordination; `scripts/foundation-init.sh`
   (consumer bootstrap); `docs/bootstrap/{branch-protection,sync-bot-and-signing}.md`;
   and the **scaffold staleness check** per ADR 0015 — a `foundation doctor` mode
@@ -486,8 +486,37 @@ Follow-ups recorded here so they are not lost:
   have no clean canonical to diff against); one check, two triggers; Dependabot
   keeps the action pins fresh independently. `docs/bootstrap/sync-bot-and-signing.md`
   already landed in Session 2 as a maintainer reference.
-- **Phase F:** REUSE annotate + lint, actionlint, shellcheck, rspec; initial
-  commit series (unsigned; maintainer re-signs the batch).
+  **Outcome:** all of the above landed — README (standard-readme, ADR 0008),
+  CONTRIBUTING, `examples/minimal-repo/`, `foundation-init.sh`,
+  `foundation-doctor.sh` scaffold-drift mode + scheduled workflow (ADR 0015);
+  the legacy `global/` / `project/` trees retired and the stale README /
+  `usage.md` rewritten. Session 5 also absorbed scope that grew during the
+  pass: the git-hooks base+plugin ADR (0017) and the `provides/githooks/`
+  layout; the Swift plugin (`40-swift`) with CI + spec; the canonical
+  `Toobuntu` Vale style; and the shfmt/shellcheck/`ksh -n` `shell_lint` set
+  (`.editorconfig`, `.shellcheckrc`, `lint-shell.sh`, `05-shell`,
+  `shell-lint.yml`), dialect-aware for ksh93 — with the cross-repo audit that
+  surfaced it (`docs/handoff/reconciliation-audit.md`).
+- **Phase F — DONE (Session 5):** REUSE annotate + lint, actionlint, shellcheck,
+  rspec; initial commit series (unsigned; maintainer re-signs the batch).
+  **Outcome:** root `COPYING` + `REUSE.toml`; the whole-tree gate is green —
+  `reuse lint`, `vale`, `adrs doctor` (17 ADRs), `shell-lint`, and
+  `bundle exec rspec`. The initial commit series is on `main` (signed); the
+  Session-5 finalization commits sit on a feature branch unsigned, for the
+  maintainer to re-sign (`scripts/re-sign-unpushed.sh`) before merge.
+
+**W1 build-out status:** Phases A–F are complete; repo-foundation is a working
+canonical source with a green gate. Two items remain before "consumers
+aligned," each scoped as its own session:
+
+- **First sync + consumer cleanup** — the bridge out of W1. Not yet safe to run
+  blind (disposition review, manifest `# CONFIRM`s, engine dry-run, and the
+  maintainer's GitHub prerequisites). See
+  `docs/handoff/first-sync-and-consumer-cleanup.md`.
+- **PR #36 ADR-tooling reconciliation** — later-added scope: fold the ADR-tooling
+  half of `toobuntu/homebrew-cask-tools` PR #36 into RF, and reconcile
+  cask-tools' hand-rolled upstream sync with RF's pipeline. See
+  `docs/handoff/pr36-adr-tooling-reconciliation.md`.
 
 ## 9. Conventions
 
@@ -545,6 +574,7 @@ canonical, but these scope items were missed in Session 1 and must be done:
   set (PR/issue templates, SECURITY.md, profile/README) before wiring it as a
   sync source.
 - Whether the sync bot signs its commits (App key vs none).
-- `sandbox-vm-*.sh` mode 0640 vs lint-perms expectations.
+- `sandbox-vm-*.sh` mode — **resolved (Session 5):** normalized 0640 → 0755 to
+  satisfy lint-perms.
 - Doc/ADR curation depth may warrant a dedicated pass (acceptable to defer
   with a handoff).
