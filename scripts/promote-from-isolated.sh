@@ -43,7 +43,7 @@ if [ "${1:-}" = "--yes" ]; then
   shift
 fi
 
-clone=${1:?usage: promote-from-isolated.sh [--yes] <clone-path> [<branch>]}
+clone=${1:?"usage: promote-from-isolated.sh [--yes] <clone-path> [<branch>]"}
 branch=${2:-$(git branch --show-current)}
 
 if [ -z "${branch}" ]; then
@@ -115,21 +115,21 @@ if [ "${yes}" -ne 1 ]; then
   # Both checks: -t 0 is the standard interactivity signal (catches CI,
   # cron, pipes into the script); the /dev/tty probe covers the rarer
   # tty-less case, since that is where the prompt actually reads.
-  if [ ! -t 0 ] || ! { : </dev/tty; } 2>/dev/null; then
+  if [ ! -t 0 ] || ! { : < /dev/tty; } 2> /dev/null; then
     printf 'error: not interactive; re-run with --yes\n' >&2
     exit 1
   fi
   # -n 1: answer on a single keypress, no Enter needed (-n, not bash 4.1's
   # -N, so the system bash 3.2 works too; Enter alone counts as "no").
   printf 'Promote %s commit(s), unsigned? [y/N] ' "${count}"
-  read -r -n 1 reply </dev/tty
+  read -r -n 1 reply < /dev/tty
   printf '\n'
   case "${reply}" in
-    y | Y) ;;
-    *)
-      printf 'Aborted; nothing applied.\n'
-      exit 1
-      ;;
+  y | Y) ;;
+  *)
+    printf 'Aborted; nothing applied.\n'
+    exit 1
+    ;;
   esac
 fi
 
