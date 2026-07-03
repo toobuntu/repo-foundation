@@ -14,7 +14,7 @@
 # /usr/bin/env ksh, plus ksh93/ksh88) are checked with `ksh -n` and
 # `shellcheck --shell=ksh`, but NOT shfmt: shfmt has no ksh93 dialect and either
 # reformats it wrongly or fails to parse it, even with -ln mksh (mvdan/sh#614).
-# its own ksh dialect analyzes them without needing the ksh binary, so ksh files
+# ShellCheck's own ksh dialect analyzes them without needing the ksh binary, so ksh files
 # are still linted on a runner that lacks ksh (the Ubuntu runner); this is why
 # the synced CI need not install ksh93.
 #
