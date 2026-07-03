@@ -43,7 +43,7 @@ if [ "${1:-}" = "--yes" ]; then
   shift
 fi
 
-clone=${1:?"usage: promote-from-isolated.sh [--yes] <clone-path> [<branch>]"}
+clone=${1:?usage: promote-from-isolated.sh [--yes] <clone-path> [<branch>]}
 branch=${2:-$(git branch --show-current)}
 
 if [ -z "${branch}" ]; then
@@ -65,8 +65,10 @@ fi
 
 git fetch "${clone}" "${branch}"
 
-right_all=$(git rev-list --right-only --cherry-pick HEAD...FETCH_HEAD)
-right=$(git rev-list --no-merges --right-only --cherry-pick HEAD...FETCH_HEAD)
+# --reverse: replay order (oldest first). This list feeds cherry-pick
+# --stdin verbatim, which applies commits in the order given.
+right_all=$(git rev-list --reverse --right-only --cherry-pick HEAD...FETCH_HEAD)
+right=$(git rev-list --reverse --no-merges --right-only --cherry-pick HEAD...FETCH_HEAD)
 
 if [ "${right_all}" != "${right}" ]; then
   printf 'error: the clone branch contains merge commit(s); agent branches must be linear:\n' >&2
@@ -113,28 +115,28 @@ if [ "${yes}" -ne 1 ]; then
   # Both checks: -t 0 is the standard interactivity signal (catches CI,
   # cron, pipes into the script); the /dev/tty probe covers the rarer
   # tty-less case, since that is where the prompt actually reads.
-  if [ ! -t 0 ] || ! { : < /dev/tty; } 2> /dev/null; then
+  if [ ! -t 0 ] || ! { : </dev/tty; } 2>/dev/null; then
     printf 'error: not interactive; re-run with --yes\n' >&2
     exit 1
   fi
   # -n 1: answer on a single keypress, no Enter needed (-n, not bash 4.1's
   # -N, so the system bash 3.2 works too; Enter alone counts as "no").
   printf 'Promote %s commit(s), unsigned? [y/N] ' "${count}"
-  read -r -n 1 reply < /dev/tty
+  read -r -n 1 reply </dev/tty
   printf '\n'
   case "${reply}" in
-  y | Y) ;;
-  *)
-    printf 'Aborted; nothing applied.\n'
-    exit 1
-    ;;
+    y | Y) ;;
+    *)
+      printf 'Aborted; nothing applied.\n'
+      exit 1
+      ;;
   esac
 fi
 
-# --stdin: one ordered, deterministic stream (oldest first, from the
-# --reverse rev-list above). A revision-machinery option, so it does not
-# appear in `git cherry-pick -h`; it is in the man page and applies the
-# commits in the order given.
+# --stdin: one ordered, deterministic stream — oldest first, because
+# ${right} was built with --reverse and cherry-pick --stdin applies the
+# commits in the order given. (--stdin is a revision-machinery option,
+# so it does not appear in `git cherry-pick -h`; it is in the man page.)
 printf '%s\n' "${right}" | git -c commit.gpgsign=false cherry-pick --no-gpg-sign --stdin || {
   status=$?
   printf '\n==> cherry-pick stopped (exit %s). This usually means the histories\n' "${status}" >&2
