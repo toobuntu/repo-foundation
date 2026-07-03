@@ -108,9 +108,12 @@ else
 fi
 
 # shfmt: formatting, sh/bash only (no ksh93 dialect exists).
+# Per-file loops rather than xargs: default xargs splits on any whitespace
+# and can read a leading-dash name as an option. `--` ends option parsing.
+# (The newline-delimited lists still assume no newlines in filenames.)
 if [ -s "$other" ]; then
   if command -v shfmt > /dev/null 2>&1; then
-    xargs shfmt -d < "$other" || rc=1
+    while IFS= read -r f; do shfmt -d -- "$f" || rc=1; done < "$other"
   else
     printf 'warning: shfmt not found — skipping shell formatting check (brew install shfmt)\n' >&2
   fi
@@ -119,8 +122,8 @@ fi
 # Static analysis (shellcheck): ksh files use --shell=ksh (no ksh binary
 # needed); sh/bash files let shellcheck pick the dialect from the shebang.
 if command -v shellcheck > /dev/null 2>&1; then
-  [ -s "$other" ] && { xargs shellcheck --severity="$severity" < "$other" || rc=1; }
-  [ -s "$kshf" ] && { xargs shellcheck --shell=ksh --severity="$severity" < "$kshf" || rc=1; }
+  while IFS= read -r f; do shellcheck --severity="$severity" -- "$f" || rc=1; done < "$other"
+  while IFS= read -r f; do shellcheck --shell=ksh --severity="$severity" -- "$f" || rc=1; done < "$kshf"
 else
   printf 'warning: shellcheck not found — skipping shell static analysis (brew install shellcheck)\n' >&2
 fi
