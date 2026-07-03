@@ -655,6 +655,27 @@ the form `adrs doctor` requires. So write an ADR body with no SPDX and let
 `annotate.sh` add it; never hand-write or hand-place the SPDX block in an
 ADR (or paste it above the frontmatter, which breaks `adrs doctor`).
 
+## Architecture decision records
+
+ADRs are MADR 4.0, authored and linted with `adrs` (homebrew/core:
+`brew install adrs`); each repo carries the synced `adrs.toml`. Org-wide
+ADRs live only in repo-foundation and are referenced by pointer; a repo's
+own ADRs start at its own 0001 (repo-foundation ADR 0004). `adrs doctor`
+is the health gate: the `50-adrs` pre-commit plugin runs it when
+`docs/decisions/**` or `adrs.toml` is staged, and the `lint-adrs` job in
+the synced `lint.yml` is the CI backstop. Doctor errors block; warnings
+(placeholder text, style) do not.
+
+Frontmatter house style: `number`, `title`, `status`, `date`,
+`decision-makers`, with `status` lowercase by convention — the tool is
+case-insensitive and only warns on unknown status values. Use the MADR
+section names doctor expects: `## Context and Problem Statement`,
+`## Decision Outcome`, and `### Consequences` under Decision Outcome.
+SPDX goes inside the YAML frontmatter via `scripts/annotate.sh` (see the
+SPDX / REUSE section above). For AI-assisted authoring, the `adrs` MCP
+server (`adrs mcp serve`) is configured per repo in `.mcp.json` — the
+server set in that file is a per-repo concern, so it is not synced.
+
 ## Universal tools available without prompt
 
 These macOS dev tools are commonly allowlisted in Claude Code
