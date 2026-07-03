@@ -134,4 +134,9 @@ the outcome note is `docs/handoff/pr36-reconciliation-outcome.md`. The
 hook-plugin mechanics are ADR 0017; the layout rule that places this
 master at the natural path is ADR 0001; org-wide ADR location and
 pointers are ADR 0004; copilot-setup-steps distribution is ADR 0015; the
-sync that carries all of it is ADR 0003.
+sync that carries all of it is ADR 0003. The same natural-path rule
+relocated the `05-shell` master out of `provides/` in the same change:
+repo-foundation is itself a shell repository and now runs the plugin on
+its own commits, so its earlier `provides/` placement (premised on
+repo-foundation not running it) no longer applied; ADR 0017's master
+list is amended accordingly.

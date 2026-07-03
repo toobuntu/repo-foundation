@@ -6,9 +6,10 @@
 
 # Shell pre-commit plugin: shfmt + shellcheck on staged shell, via
 # scripts/lint-shell.sh --staged. Run by .githooks/pre-commit through the
-# run-parts-style runner. Syncs to non-Homebrew consumers (shell_plugin in
-# sync-manifest.yaml); Homebrew-aligned repos use the brew plugin (brew style)
-# instead. Run-parts classicalre name (no extension); disable with a dot suffix
+# run-parts-style runner. Mastered at this natural path — repo-foundation is
+# itself a shell repository and runs it on its own commits (ADR 0001). Syncs
+# to non-Homebrew consumers (shell_lint in sync-manifest.yaml);
+# Homebrew-aligned repos use the brew plugin (brew style) instead. Run-parts classicalre name (no extension); disable with a dot suffix
 # (05-shell.off). Numbered low so a formatting fixup surfaces before the
 # language plugins run. The plugin model is ADR 0017.
 

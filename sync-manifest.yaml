@@ -119,11 +119,13 @@ component_sets:
 
   # Per-language pre-commit.d plugin MASTERS (run-parts classicalre names, no
   # extension). RF owns them; each syncs ONLY to consumers of that language, so
-  # one fix propagates. RF runs the base hook itself (.githooks/ at its natural
-  # path) but not these language plugins, so the masters live under
-  # provides/githooks/ — mirroring the consumer's .githooks/ exactly as
-  # provides/github/workflows/ mirrors .github/workflows/ (ADR 0017). The plugin
-  # naming, run-parts rule, and core.hooksPath activation are settled in ADR 0017.
+  # one fix propagates. Placement follows ADR 0001: RF runs the base hook itself
+  # (.githooks/ at its natural path) but not these LANGUAGE plugins, so their
+  # masters live under provides/githooks/ — mirroring the consumer's .githooks/
+  # exactly as provides/github/workflows/ mirrors .github/workflows/ (ADR 0017).
+  # Plugins RF runs on its own commits (05-shell in shell_lint, 50-adrs in
+  # adrs_plugin) are mastered at the natural path instead. The plugin naming,
+  # run-parts rule, and core.hooksPath activation are settled in ADR 0017.
   go_plugin:
     - { source: provides/githooks/pre-commit.d/10-go,   target: .githooks/pre-commit.d/10-go,   mode: canonical }
   objc_plugin:
@@ -165,7 +167,7 @@ component_sets:
     - { source: .shellcheckrc,                           target: .shellcheckrc,                    mode: canonical }
     - { source: scripts/lint-shell.sh,                   target: scripts/lint-shell.sh,            mode: canonical }
     - { source: .github/workflows/shell-lint.yml,        target: .github/workflows/shell-lint.yml, mode: canonical }
-    - { source: provides/githooks/pre-commit.d/05-shell, target: .githooks/pre-commit.d/05-shell,  mode: canonical }
+    - { source: .githooks/pre-commit.d/05-shell,         target: .githooks/pre-commit.d/05-shell,  mode: canonical }
 
   scripts_core:
     - { source: scripts/lint-perms.sh,                 target: scripts/lint-perms.sh,                 mode: canonical }

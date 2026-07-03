@@ -111,13 +111,16 @@ behaves identically everywhere. `scripts/lint-perms.sh` enforces the executable
 bit on the same `[A-Za-z0-9_-]+` name set, so a plugin committed `100644` (which
 would silently never run) fails the perms lint instead.
 
-repo-foundation owns the plugin masters but does not run them — it is not a Go,
-Objective-C, Swift, or tap repository — so by ADR 0001 they live under
-`provides/`, at **`provides/githooks/pre-commit.d/`**: `05-shell`, `10-go`,
-`20-objc`, `30-brew`, `40-swift`. The manifest maps each to a consumer **only**
-where it applies (`go_plugin` → zman-didan, `objc_plugin` → blackoutd,
-`brew_plugin` → the tap, `swift_plugin` → Swift consumers), so one master is the
-single source for every consumer of its language. A plugin is **self-contained**:
+repo-foundation owns the plugin masters; placement follows ADR 0001. The
+language plugins it does not run — it is not a Go, Objective-C, Swift, or tap
+repository — live under `provides/`, at **`provides/githooks/pre-commit.d/`**:
+`10-go`, `20-objc`, `30-brew`, `40-swift`. A plugin repo-foundation runs on its
+own commits is mastered at the natural path `.githooks/pre-commit.d/` instead:
+`05-shell` (repo-foundation is itself a shell repository) and later `50-adrs`
+(ADR 0018). The manifest maps each to a consumer **only** where it applies
+(`go_plugin` → zman-didan, `objc_plugin` → blackoutd, `brew_plugin` → the tap,
+`swift_plugin` → Swift consumers), so one master is the single source for every
+consumer of its language. A plugin is **self-contained**:
 it runs as a subprocess and does not inherit the base's shell functions, so it
 defines its own `staged_z` / `has_files` helpers.
 
