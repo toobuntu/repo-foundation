@@ -144,6 +144,15 @@ component_sets:
   # docs/agent-principles.md).
   swift_plugin:
     - { source: provides/githooks/pre-commit.d/40-swift, target: .githooks/pre-commit.d/40-swift, mode: canonical }
+  # ADR-health plugin: `adrs doctor` when docs/decisions/** or adrs.toml is
+  # staged. Unlike the language plugins, this master lives at the NATURAL path —
+  # repo-foundation authors most org-wide ADRs and runs it on its own commits
+  # (ADR 0001). It maps to every hook-carrying consumer (all but dot-github):
+  # each already receives adrs.toml (repo_config) and keeps repo-specific ADRs
+  # (ADR 0004), and the staged-file gate makes it a no-op elsewhere. CI backstop
+  # is the lint-adrs job in lint.yml (ci_core). See ADR 0018.
+  adrs_plugin:
+    - { source: .githooks/pre-commit.d/50-adrs, target: .githooks/pre-commit.d/50-adrs, mode: canonical }
 
   # Shell linting (shfmt + shellcheck), the config it reads, the shared script,
   # the pre-commit plugin, and the CI job. Synced to NON-Homebrew consumers.
@@ -316,33 +325,33 @@ community_health_source:
 # ---------------------------------------------------------------------------
 consumers:
   - repo: toobuntu/blackoutd
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, objc_plugin, scripts_core, sandbox, repo_config, ci_core, ci_templates, ruby_hook_tests, objc, repo_baseline]
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, objc_plugin, adrs_plugin, scripts_core, sandbox, repo_config, ci_core, ci_templates, ruby_hook_tests, objc, repo_baseline]
 
   - repo: toobuntu/zman-didan
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, go_plugin, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline]  # CONFIRM ruby_hook_tests? zman-didan drops its local Didan style for the synced Toobuntu (prose_lint).
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, go_plugin, adrs_plugin, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline]  # CONFIRM ruby_hook_tests? zman-didan drops its local Didan style for the synced Toobuntu (prose_lint).
 
   - repo: toobuntu/babble
     # babble is a Homebrew / mas-cli / softwareupdate wrapper but NOT a tap, so its
     # copilot-setup-steps is per-repo (copy the scaffold, add `mas`) — see the ADR.
     # CONFIRM ruby_hook_tests once babble is Ruby. CONFIRM swift_plugin if W3
     # revives the JXA quit_alert.swift from archive/ into active source.
-    sets: [agent_docs, prose_lint, git_hooks, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline]
+    sets: [agent_docs, prose_lint, git_hooks, adrs_plugin, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline]
 
   - repo: toobuntu/bob-book
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, scripts_core, repo_config, ci_core, ci_templates, repo_baseline]  # CONFIRM sandbox?
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, adrs_plugin, scripts_core, repo_config, ci_core, ci_templates, repo_baseline]  # CONFIRM sandbox?
 
   - repo: toobuntu/cert-automation
     # Ships Swift helper scripts (scripts/cert-notify/*.swift), so it takes the
     # swift_plugin. CONFIRM whether swiftformat/swiftlint should gate those
     # helpers, and CONFIRM sandbox.
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, swift_plugin, scripts_core, repo_config, ci_core, ci_templates, repo_baseline]  # shell_lint handles cert-automation's ksh93 (.ksh) via lint-shell.sh's dialect split: shellcheck --shell=ksh + ksh -n where present, shfmt skipped. Its own lint.yml shellcheck/reuse jobs are now canonical.
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, swift_plugin, adrs_plugin, scripts_core, repo_config, ci_core, ci_templates, repo_baseline]  # shell_lint handles cert-automation's ksh93 (.ksh) via lint-shell.sh's dialect split: shellcheck --shell=ksh + ksh -n where present, shfmt skipped. Its own lint.yml shellcheck/reuse jobs are now canonical.
 
   - repo: toobuntu/homebrew-cask-tools
     # Homebrew tap: canonical base hooks PLUS the brew-style plugin (brew_plugin)
     # carrying its Ruby/shell `brew style` checks. Reconciled org-wide like the rest.
     # (cask-tools also keeps its own post-merge/post-rewrite hooks, which are
     # tap-specific and outside the canonical base.)
-    sets: [agent_docs, prose_lint, git_hooks, brew_plugin, scripts_core, repo_config, ci_core, ci_templates, homebrew_tap, repo_baseline]
+    sets: [agent_docs, prose_lint, git_hooks, brew_plugin, adrs_plugin, scripts_core, repo_config, ci_core, ci_templates, homebrew_tap, repo_baseline]
 
   - repo: toobuntu/dot-github
     # Mostly a source (see `sources`); as a consumer it takes the agent docs

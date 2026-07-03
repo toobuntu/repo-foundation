@@ -1,0 +1,31 @@
+#!/bin/sh
+
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# ADR-health pre-commit plugin: `adrs doctor` when ADR files are staged. Run
+# by .githooks/pre-commit via the run-parts-style runner. Self-contained:
+# plugins run in a subprocess and do not inherit the base hook's functions.
+# Unlike the language plugins this master lives at its natural path —
+# repo-foundation authors most org-wide ADRs and runs it on its own commits
+# (ADR 0001) — and syncs to every hook-carrying consumer (adrs_plugin in the
+# manifest); the staged-file gate below makes it a no-op in a commit that
+# touches no ADR file, and `adrs doctor` reads only the working tree, so it
+# runs clean in a sandbox. CI backstop is the lint-adrs job in the synced
+# lint.yml. Run-parts classicalre name (no extension); disable with a dot
+# suffix (50-adrs.off). Rationale:
+# https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0018-adr-tooling-distribution.md
+
+set -e
+
+staged() { git diff --cached --name-only --diff-filter=ACMRT | /usr/bin/grep --extended-regexp "$1" || true; }
+
+adr_files=$(staged '^docs/decisions/|^adrs\.toml$')
+if [ -n "$adr_files" ]; then
+  if command -v adrs > /dev/null 2>&1; then
+    adrs doctor
+  else
+    printf 'warning: adrs not found — skipping ADR health check (brew install adrs)\n' >&2
+  fi
+fi
