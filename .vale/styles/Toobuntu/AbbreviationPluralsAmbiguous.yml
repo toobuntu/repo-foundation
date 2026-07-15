@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Second pass over the contexts AbbreviationPlurals deliberately passes.
+#
+# The error-level rule's 2026-07-14 extension lets an acronym + "'s" pass when
+# followed by a participial adjective (VBG/VBN), a predicative infinitive (TO),
+# or a number (CD), because possessives are legitimate there ("RF's existing
+# calls", "is RF's to fix"). That trade also lets a plural misuse in a reduced
+# relative slip by ("the PR's merged yesterday were…"). This companion fires on
+# exactly those four tags at WARNING, which does not gate commits or CI: it
+# surfaces the ambiguous cases for a human read. Expect it to warn on
+# legitimate possessives in these contexts too — that is the design, not a
+# defect; resolve each warning by reading, not rewording.
+extends: sequence
+message: "If this abbreviation is a plural, drop the apostrophe (PRs, not PR's); a possessive here is fine — confirm which it is."
+link: https://www.elastic.co/docs/contribute-docs/style-guide/grammar-spelling#making-abbreviations-plural
+level: warning
+tokens:
+  - pattern: '\b[A-Z]{2,}'
+  - pattern: "'s"
+  - tag: 'VBG|VBN|TO|CD'

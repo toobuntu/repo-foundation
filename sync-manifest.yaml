@@ -228,6 +228,7 @@ component_sets:
     - { source: .vale/styles/Toobuntu/AmericanSpelling.yml,     target: .vale/styles/Toobuntu/AmericanSpelling.yml,     mode: canonical }
     - { source: .vale/styles/Toobuntu/We.yml,                  target: .vale/styles/Toobuntu/We.yml,                  mode: canonical }
     - { source: .vale/styles/Toobuntu/AbbreviationPlurals.yml, target: .vale/styles/Toobuntu/AbbreviationPlurals.yml, mode: canonical }
+    - { source: .vale/styles/Toobuntu/AbbreviationPluralsAmbiguous.yml, target: .vale/styles/Toobuntu/AbbreviationPluralsAmbiguous.yml, mode: canonical }
     - { source: .vale/styles/Toobuntu/MergeConflictMarkers.yml, target: .vale/styles/Toobuntu/MergeConflictMarkers.yml, mode: canonical }
     - { source: .vale/styles/Toobuntu/NonStandardQuotes.yml,   target: .vale/styles/Toobuntu/NonStandardQuotes.yml,   mode: canonical }
     - { source: .vale/styles/Toobuntu/SentenceSpacing.yml,     target: .vale/styles/Toobuntu/SentenceSpacing.yml,     mode: canonical }

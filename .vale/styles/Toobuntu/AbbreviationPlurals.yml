@@ -15,6 +15,13 @@
 # noun-only test false-positives on possessive+adjective; the added adjective
 # tags (JJ*) let didan enforce this at error without flagging legitimate
 # possessives.
+#
+# 2026-07-14 extension, same precision-over-recall reasoning: possessives are
+# also followed by participial adjectives tagged as verbs ("RF's existing gh
+# calls" — VBG; "the PR's synced files" — VBN), by a predicative infinitive
+# ("each is RF's to fix" — TO), and by numbers ("the PR's 3 commits" — CD).
+# Adding those tags trades away rare plural misuses in participle contexts
+# ("the PR's merged yesterday were…") to keep the rule enforceable at error.
 extends: sequence
 message: "Pluralize an abbreviation without an apostrophe (e.g. PRs, not PR's)."
 link: https://www.elastic.co/docs/contribute-docs/style-guide/grammar-spelling#making-abbreviations-plural
@@ -22,5 +29,5 @@ level: error
 tokens:
   - pattern: '\b[A-Z]{2,}'
   - pattern: "'s"
-  - tag: 'NN|NNS|NNP|NNPS|JJ|JJR|JJS'
+  - tag: 'NN|NNS|NNP|NNPS|JJ|JJR|JJS|VBG|VBN|TO|CD'
     negate: true
