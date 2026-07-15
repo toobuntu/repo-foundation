@@ -349,6 +349,19 @@ meaning. A contributor who was not in the originating conversation should
 understand the sentence on first read. This is the prose counterpart to
 "comments minimum": fewer words, each one literal.
 
+## Language: positivity bias
+
+Prefer language with a positivity bias in all output — docs, prompts,
+summaries, commit messages, chat. Never use crime words ("steal,"
+"stolen") or other needlessly negative words when a word with a
+positive connotation expresses the intended meaning just as
+effectively: prefer "incorporate," "adopt/adapt," "borrow," "make
+use of," "learn from," "prior art." This is not a request for
+flowery or euphemistic prose — plain and literal still governs — it
+is that the negative word must be *necessary* to earn its place.
+Reusing openly licensed work is never "stealing"; frame it as
+cross-pollination and adopt/adapt/skip decisions.
+
 ## Commit messages and PRs
 
 - When a turn modifies tracked files, propose a commit decomposition
