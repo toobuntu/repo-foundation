@@ -1453,6 +1453,24 @@ schedule disable, § 15 status correction).
   scope findings in consumer files that merely share the name. If a
   consumer ever needs a paths rule, it enters RF's mirrored copy as
   a deliberate, commented addition — never relayed blind.
+- **§ 15 audit inputs the queue was missing (maintainer,
+  2026-07-15)**: blackoutd carries its own RF-reconciliation notes —
+  `docs/handoff/repo-foundation-tooling.2026-06-14.md` and
+  `docs/handoff/w1-scaffolding-reconcile.2026-06-15.md` — REQUIRED
+  reading for the repairs session and the § 15 audit run (each
+  consumer's own reconcile notes are dispositions waiting to be
+  consumed; sweep every consumer's docs/handoff/ for the same genre
+  before the audit). Two new RF-management candidates from the same
+  look: **blackoutd docs/branch-protection.md** — branch-protection
+  documentation looks RF-manageable with per-repo mutations keyed on
+  the workflow jobs each consumer actually runs (required checks
+  differ per repo; relates to docs/bootstrap/branch-protection.md
+  and the 18.1 guard's required-by-name backstop) — and
+  **docs/releases.md** (release-process doc; assess canonical vs
+  baseline-merge vs per-repo). To be clear about state: the
+  reconciliation itself has NOT run yet — nothing was "missed" from
+  a pass that has not happened; these entries make sure it cannot be
+  missed when it does.
 - **Session-map correction (continuity proof case)**: the PR #36
   ADR-tooling reconciliation session already happened — its 8
   commits sit unpushed on feature/pr36-adr-tooling (all unsigned,
