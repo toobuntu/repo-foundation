@@ -162,11 +162,11 @@ All repos in this project require signed commits (policy: `commit.gpgsign = true
 ### Agent: commit unsigned
 
 ```sh
-GIT_TERMINAL_PROMPT=0 git -c commit.gpgsign=false commit --no-gpg-sign \
+ZIZMOR_OFFLINE=true GIT_TERMINAL_PROMPT=0 git commit --no-gpg-sign \
     --file /tmp/claude/msg.txt < /dev/null
 ```
 
-- `-c commit.gpgsign=false` and `--no-gpg-sign` both disable signing (belt and suspenders — the config override stops the hang even if some path re-reads `commit.gpgsign`).
+- `--no-gpg-sign` disables signing. Do NOT add `-c commit.gpgsign=false`: it is redundant with the flag, and the string matches the `git -c commit.gpgsign=false commit *` entry in `sandbox.excludedCommands`, whose unsandboxed routing hangs the commit in the agent harness (validated 2026-07-21 — see the zizmor section below; the entry is slated for removal).
 - `< /dev/null` closes stdin so nothing can block on an interactive prompt (the signing askpass, a credential helper, an editor).
 - `GIT_TERMINAL_PROMPT=0` stops git itself from prompting on a TTY.
 - `--file` (with the message written to a sandbox-writable file first, e.g. `/tmp/claude/msg.txt`) instead of multi-line `-m` arguments: long multi-line `-m` commands are a known hang in the Claude Code harness — the call is auto-backgrounded and the commit never completes.
@@ -223,8 +223,8 @@ The script ships with a self-contained harness, `scripts/promote-from-isolated-t
 
 When a commit stages a `.github/workflows/*.yml` file, the `pre-commit` hook runs `zizmor --quiet .`. zizmor (1.25.x) builds an HTTP client at startup — even for local audits — and on macOS reads the system proxy config via `SCDynamicStoreCreate`. Under Seatbelt the `configd` mach service is unreachable, so that returns NULL and zizmor **panics** (`system-configuration … Attempted to create a NULL object`) — a crash, not a lint finding. It is **not** fixable via `sandbox.network.allowedDomains`: the panic precedes any URL contact (a bogus `ALL_PROXY` still crashes). Only running zizmor **outside** Seatbelt fixes it.
 
-- **Unsandboxed (online) — configured, not yet validated:** `git -c commit.gpgsign=false commit *` and `zizmor *` are now in `sandbox.excludedCommands`. But the agent's recipe is prefixed `GIT_TERMINAL_PROMPT=0 git …`, which may not match the pattern — so the commit (and its hook's zizmor) may still run sandboxed. **Unverified**: confirm by committing a workflow change and checking the hook's zizmor doesn't crash; if it does, add the prefixed form to `excludedCommands` or drop the env prefix.
-- **Fallback (the live path until the above is validated):** prepend `ZIZMOR_OFFLINE=true` (value `true`/`false`, not `1`) to the commit — the hook's zizmor runs offline (only online audits are suppressed; they need network and a `--gh-token` anyway), so the **full** hook still runs, no `--no-verify` or sandbox widening. Don't set it globally in `env`.
+- **Validated (2026-07-21):** the two `sandbox.excludedCommands` entries behave differently. `zizmor *` **works** — a standalone `zizmor --quiet .` runs unsandboxed, no panic, in seconds. zizmor picks its mode by credential discovery: with the gh CLI logged in (the maintainer's shell) it auto-detects the token and runs online; where no credential is readable (the agent sandbox denies `~/.config/gh`) it falls back to offline mode, which is the right behavior for a lint gate anyway. The `git -c commit.gpgsign=false commit *` entry **hangs the commit** in the agent harness: an env-prefixed commit matching it stalls before git executes (reproduced 3×; the identical command without `-c commit.gpgsign=false` commits in seconds). Recommended disposition: drop the git entry (a commit gate should not depend on the network; the hook's zizmor is covered below), keep the zizmor entry for ad-hoc online audits.
+- **The commit recipe:** run `git commit --no-gpg-sign …` **without** `-c commit.gpgsign=false` (the `--no-gpg-sign` flag alone disables signing; the `-c` form matches the hanging exclusion), and prepend `ZIZMOR_OFFLINE=true` (value `true`/`false`, not `1`) — the hook's zizmor runs offline and sandboxed (only online audits are suppressed; they need network and a `--gh-token` anyway), so the **full** hook still runs, no `--no-verify` or sandbox widening. Don't set it globally in `env`.
 
 ## Avoiding interactive shell hooks in tool calls
 

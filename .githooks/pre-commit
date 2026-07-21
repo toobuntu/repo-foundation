@@ -9,8 +9,21 @@
 # Project- and language-specific checks live in .githooks/pre-commit.d/
 # plugins (run below), not in this base, so the base can be synced verbatim
 # to every consumer.
+#
+# Debugging: PRE_COMMIT_VERBOSE=1 announces each stage with a timestamp on
+# stderr (which check is running, which plugin), so a slow or hanging commit
+# shows where it stopped. PRE_COMMIT_TRACE=1 additionally turns on `set -x`
+# for a full execution trace. Both are read from the environment:
+#   PRE_COMMIT_VERBOSE=1 git commit …
+#   PRE_COMMIT_TRACE=1 git commit …
 
 set -e
+
+[ -n "${PRE_COMMIT_TRACE:-}" ] && set -x
+say() {
+  [ -n "${PRE_COMMIT_VERBOSE:-}${PRE_COMMIT_TRACE:-}" ] || return 0
+  printf 'pre-commit %s: %s\n' "$(date '+%H:%M:%S')" "$*" >&2
+}
 
 # staged() emits matching staged paths newline-delimited; its consumer
 # reads them with `IFS= read -r` (whitespace-safe, though not proof against
@@ -76,6 +89,7 @@ if [ -d .githooks/pre-commit.d ]; then
       LC_ALL=C /usr/bin/grep --extended-regexp --quiet '^[A-Za-z0-9_-]+$' ||
       continue
     [ -x "$hook" ] || continue
+    say "plugin ${hook##*/}"
     "$hook" || exit $?
   done
 fi
@@ -90,6 +104,7 @@ if [ ! -x scripts/lint-perms.sh ]; then
   printf '       git update-index --chmod=+x scripts/lint-perms.sh\n' >&2
   exit 1
 fi
+say "lint-perms --staged"
 scripts/lint-perms.sh --staged
 
 # --- Invisible Unicode check (CVE-2021-42574 — Trojan Source) ---
@@ -175,6 +190,7 @@ read_bidi_allow() {
 
 all_staged=$(staged '.')
 if [ -n "$all_staged" ]; then
+  say "invisible-Unicode scan"
   default_pattern=$(build_pattern "")
   bidi_found=""
   while IFS= read -r _bfile; do
@@ -220,11 +236,13 @@ fi
 # tree and takes none, so has_files gates whether to run it at all.
 if has_files '\.github/workflows/.*\.ya?ml$'; then
   if command -v actionlint > /dev/null 2>&1; then
+    say "actionlint on staged workflows"
     staged_z '\.github/workflows/.*\.ya?ml$' | xargs -0 -r actionlint
   else
     printf "warning: actionlint not found — skipping workflow lint (brew install actionlint)\n" >&2
   fi
   if command -v zizmor > /dev/null 2>&1; then
+    say "zizmor workflow scan"
     if zizmor --quiet .; then
       :
     else
@@ -262,6 +280,7 @@ fi
 # so consumers that adopt REUSE.toml are still checked correctly here.
 if [ -z "${REUSE_LINT_SKIP:-}" ]; then
   if command -v reuse > /dev/null 2>&1; then
+    say "REUSE lint-file on staged"
     if ! staged_z '.' |
       xargs -0 -r reuse --no-multiprocessing lint-file --quiet; then
       # Re-run without --quiet to surface the report. `|| true` keeps
