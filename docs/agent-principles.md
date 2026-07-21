@@ -260,6 +260,17 @@ These are standard temp-dir locations. They don't widen reach into anything sens
 
 **`make` and `launchctl`**: any `make` target that writes outside the project tree (e.g., `make install` writing to `/usr/local`, `make dev` writing to `~/Library/LaunchAgents/`) goes in `sandbox.excludedCommands` so the project tree restriction is lifted for that one operation. The permission system still applies (these are usually in `permissions.ask`).
 
+## Sandbox clones and the macOS tmp reaper
+
+macOS deletes /tmp (/private/tmp) entries not accessed OR modified in three days: /usr/libexec/tmp_cleaner (a find over -atime/-mtime) runs daily at midnight via /System/Library/LaunchDaemons/com.apple.tmp_cleaner.plist (StartCalendarInterval). A Tier 3 sandbox clone parked under /private/tmp across a multi-day session loses exactly its untouched files — including hardlinked loose git objects, since local `git clone` hardlinks the object store. The source repo loses nothing (hardlinks: the original inode survives), but the clone silently rots: worktree files vanish and `git restore` starts failing with "unable to read sha1 file". Observed on babble-w3, 2026-07-08.
+
+Rules:
+
+- **Prefer a non-reaped parent.** `sandbox-enter.sh` defaults `--parent` to `~/.cache/sandboxes` (created on demand; not subject to tmp_cleaner). /private/tmp remains fine for clones that live less than a day.
+- **If a clone must sit in /tmp**, touch-refresh it at each session start so nothing crosses the 3-day line — e.g. `find <clone> -exec touch -a {} +` — and plan to promote and destroy within a day or two anyway.
+- **Session hygiene:** at every session start in an existing clone, read `git status` critically. A wall of unexplained `D` (worktree deletions) in an untouched clone is reaper damage, not your doing: stop, salvage pending work as files/patches to /tmp/claude/, and do not trust the clone for promotes.
+- Corollary the reaper gives for free: /tmp/msg-<slug>.txt commit message files are preserved for ~3 days and then self-clean.
+
 ## Bundler hygiene (Ruby projects)
 
 A project that uses Bundler should ship `.bundle/config` with `BUNDLE_PATH: vendor/bundle` and `BUNDLE_DISABLE_SHARED_GEMS: true` so `bundle install` writes to `./vendor/bundle/` instead of the system Ruby. Without this, Bundler falls back to the active Ruby's gem dir, which on macOS is `/Library/Ruby/Gems/` — a system path the agent should never write to.
