@@ -13,11 +13,12 @@
 # Self-contained test harness for sign-push.sh (throwaway repos under
 # mktemp, promote-from-isolated-test.sh pattern). Real signing via a
 # throwaway SSH key; real pushes via a local bare "origin" -- no network.
-# Covers every exit path: 0 (no-op states, re-sign+push, merge rebuild),
-# 2 (signed-but-unpushed hints), 3 (diverged origin), 4 (own unsigned side),
-# and the foreign-committer tolerance.
+# Covers every exit path: 0 (no-op states, sign+push, merge rebuild,
+# --no-push), 2 (signed-but-unpushed hints), 3 (diverged origin,
+# non-interactive -- the TTY confirm path needs a pty and is verified
+# manually), 4 (own unsigned side), and the foreign-committer tolerance.
 #
-# Usage: re-sign-unpushed-test.sh [path-to-script-under-test]
+# Usage: sign-push-test.sh [path-to-script-under-test]
 
 set -eu
 
@@ -59,12 +60,13 @@ c() { # c <repo> <msg> [extra git-commit args...]
   git -C "$_r" commit -q -m "$_m" "$@"
 }
 
-run() { # run <want-exit> <name> <repo>
+run() { # run <want-exit> <name> <repo> [script-flags...]
   _want=$1
   _name=$2
   _repo=$3
+  shift 3
   set +e
-  sh "$SCRIPT" "$_repo" > "$OUT" 2>&1
+  sh "$SCRIPT" "$@" "$_repo" > "$OUT" 2>&1
   _got=$?
   set -e
   if [ "$_got" -eq "$_want" ]; then
@@ -191,8 +193,21 @@ c "$R" spine1
 git -C "$R" merge -q --no-ff --no-edit side
 c "$R" spine2
 orig=$(git -C "$R" rev-parse HEAD)
+# The rebuilt merge must keep its original author identity and date
+# (commit-tree takes the author from the environment; the script exports it).
+merge_author_before=$(git -C "$R" log -1 --format='%an <%ae> %aD' \
+  "$(git -C "$R" rev-list --merges --max-count=1 HEAD)")
 run 0 "merge-preserving rebuild + push" "$R"
 expect_out 'rebuilding spine' "rebuild message"
+merge_author_after=$(git -C "$R" log -1 --format='%an <%ae> %aD' \
+  "$(git -C "$R" rev-list --merges --max-count=1 HEAD)")
+[ "$merge_author_after" = "$merge_author_before" ] &&
+  printf 'ok   merge author preserved\n' ||
+  {
+    printf 'FAIL merge author drifted: %s -> %s\n' \
+      "$merge_author_before" "$merge_author_after"
+    fails=$((fails + 1))
+  }
 [ "$(git -C "$R" rev-list --merges --count origin/main..HEAD)" = 0 ] || true
 [ "$(git -C "$R" rev-list --merges --count HEAD)" = 1 ] &&
   printf 'ok   merge topology preserved\n' ||
@@ -249,6 +264,25 @@ git -C "$R" merge -q --no-ff --no-edit side
 run 0 "foreign unsigned side tolerated" "$R"
 expect_out 'leaving it (only the tip is gated)' "foreign-side note"
 expect_out 'rebuilding spine' "rebuild proceeded past foreign side"
+
+# 13. --no-push: sign only, print the push command, origin untouched
+R=$(new_repo)
+c "$R" one
+mk_origin "$R"
+git -C "$R" push -qu origin main
+c "$R" two
+run 0 "--no-push signs without pushing" "$R" --no-push
+expect_out 'NOT pushing' "--no-push message"
+expect_out 'To push: git -C' "--no-push hint"
+# Scope to the unpushed range: commit "one" was pushed unsigned above, and
+# published history is deliberately never rewritten.
+no_n_in "$R" "origin/main..HEAD" "--no-push signatures"
+[ "$(git -C "$R" rev-parse origin/main)" != "$(git -C "$R" rev-parse HEAD)" ] &&
+  printf 'ok   origin untouched under --no-push\n' ||
+  {
+    printf 'FAIL origin moved despite --no-push\n'
+    fails=$((fails + 1))
+  }
 
 printf '\n%s\n' "----------------------------------------"
 if [ "$fails" -eq 0 ]; then

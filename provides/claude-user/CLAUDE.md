@@ -118,7 +118,7 @@ Agent commit + signing procedure under sandbox isolation:
 - For the airtight version — base on the oldest *unsigned* commit (so a
   remoteless repo, or one with already-signed unpushed commits, isn't
   needlessly re-signed) plus a fast-forward-or-lease-pinned-force push —
-  use `repo-foundation/scripts/re-sign-unpushed.sh [repo...]` (defaults
+  use `repo-foundation/scripts/sign-push.sh [repo...]` (defaults
   to the current repo). The inline snippet above stays the quick path for
   a repo that has a remote.
 

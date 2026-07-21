@@ -30,9 +30,9 @@ RF's copy already has `reuse --no-multiprocessing lint --json` (line 112). babbl
 Org rule (lint-shell.sh): `ksh -n` runs over ALL shell. RF canonicals currently emit six warnings babble fixed locally (reference: babble commit "Use printf for usage banner; pass ksh -n"):
 
 - `lint-perms.sh:33` — `=` inside `[[ ]]` → `==`
-- `lint-unicode.sh`, `re-sign-unpushed.sh`, `sandbox-enter.sh` (×2), `sandbox-exit.sh` — `-eq`/`-gt` inside `[[ ]]` → `(( ))`
+- `lint-unicode.sh`, `sign-push.sh`, `sandbox-enter.sh` (×2), `sandbox-exit.sh` — `-eq`/`-gt` inside `[[ ]]` → `(( ))`
 
-### 1.4 Exec bits: re-sign-unpushed.sh and rewrite-pr-as-merge-commit.sh ship 100644
+### 1.4 Exec bits: sign-push.sh and rewrite-pr-as-merge-commit.sh ship 100644
 
 babble's `lint-perms.sh --tracked` caught both as non-executable on copy-in. Fix modes in RF (`chmod 755` + `git update-index --chmod=+x`) so consumers don't inherit the violation.
 
@@ -109,7 +109,7 @@ Adopt in RF's contributing/agent docs (source: babble W3 session, 2026-07-05):
 - Add checkbashisms to scripts/lint-shell.sh's checker set (stock via Homebrew formula; catches sh-shebang bashisms the other tools miss).
 - babble is being renamed toobuntu/homebrew-babble ahead of the v0.6.0 gate: update sync-manifest.yaml's consumer repo slug, and babble now qualifies for the homebrew_tap component set (copilot-setup-steps from upstream) in addition to brew_plugin.
 - reject-conventional-commits.yml + .githooks/commit-msg now staged in babble (reference implementation for the §1.5 upstream-pull + commit-msg module + checksum drift guard).
-- re-sign-unpushed.sh: the rebase --exec pass runs WITHOUT --rebase-merges while the unpushed range can legitimately contain a merge commit (babble hit this: stacked-branch merge + re-sign after a rejected push). Today it silently linearizes the branch and replays the merged-in side as patch-id duplicates. Fix: detect a merge in the range and either add --rebase-merges to the exec pass or refuse with guidance ("re-sign before merging, or rerun with --rebase-merges"). The pre-push hook's suggested one-liner has the same gap — mirror the fix there.
+- sign-push.sh: the rebase --exec pass runs WITHOUT --rebase-merges while the unpushed range can legitimately contain a merge commit (babble hit this: stacked-branch merge + re-sign after a rejected push). Today it silently linearizes the branch and replays the merged-in side as patch-id duplicates. Fix: detect a merge in the range and either add --rebase-merges to the exec pass or refuse with guidance ("re-sign before merging, or rerun with --rebase-merges"). The pre-push hook's suggested one-liner has the same gap — mirror the fix there.
 - (Confirmed for §5 shellcheck item: disable= directives accept only SC codes; named checks like require-double-brackets are an SC1072 parse error — names are valid only in enable=. brew style forces --shell=bash --enable=all in style.rb, which is why sh-shebang files receive bash-dialect optional findings at all.)
 
 ## 6. CodeRabbit findings deferred to RF canonicals (2026-07-07, PR #8)
@@ -124,13 +124,13 @@ All verified against babble copies; each is for RF to fix so consumers stay byte
 
 ## 7. Addenda (2026-07-07, second pass)
 
-- re-sign-unpushed.sh merge-topology item, refined by a live failure: plain rebase linearizes, and even --rebase-merges REPLAYS the merged-in side when those commits are inside the range, minting patch-id duplicates that conflict on every later merge. Safe orders: re-sign before merging, or amend the unsigned commit at a detached HEAD and re-merge. The script should detect a merge in range and print exactly that guidance.
+- sign-push.sh merge-topology item, refined by a live failure: plain rebase linearizes, and even --rebase-merges REPLAYS the merged-in side when those commits are inside the range, minting patch-id duplicates that conflict on every later merge. Safe orders: re-sign before merging, or amend the unsigned commit at a detached HEAD and re-merge. The script should detect a merge in range and print exactly that guidance.
 - Also clarify in the script's usage/help that it PUSHES (the lease-pinned force push is the blessing step); consumers keep appending redundant git push because the name says only "re-sign".
 - Lint-stack adoption stance (babble session): ruff yes; markdownlint-cli2 yes but only with an org config (MD013 off, rules tuned to CodeRabbit's actual findings; coordinate with the vale prose stack); ast-grep no (bare engine, no ruleset to pre-empt); act for exercising ubuntu-runner workflows locally (macOS jobs do not run under act).
 
 ## 8. re-sign push UX + commit-msg perms (2026-07-07, third pass)
 
-- re-sign-unpushed.sh: the fully-signed early return skips the push section silently (babble hit it with a signed merge commit). Reference fix on babble branch b2-followups: report, fall through to the push logic, and rename the no-remote message accordingly.
+- sign-push.sh: the fully-signed early return skips the push section silently (babble hit it with a signed merge commit). Reference fix on babble branch b2-followups: report, fall through to the push logic, and rename the no-remote message accordingly.
 - lint-perms.sh PERMS_PATTERN gains commit-msg in the top-level-hook alternation once RF adopts the commit-msg stage (babble already ships the hook; pattern's header designates the extension point).
 - brew style vs RF formatting on shared .sh canonicals, settled recommendation: there is NO per-file or per-rule shfmt exemption (in-file directives are shellcheck-only; Homebrew's shfmt.sh transforms apply to every changed .sh). The two format targets conflict at the flag level (space-redirects and same-line do vs Homebrew's opposites), so one byte-canonical cannot satisfy both. Make formatting a SYNC-TIME TRANSFORM: the consumer-sync engine already supports per-file mutations — add a "format with Homebrew's shfmt" mutation for Homebrew-aligned consumers, so RF keeps its canonical layout, consumers receive deterministically brew-style-clean copies, and drift is zero by construction.
 
@@ -145,13 +145,13 @@ mvdan/sh#1037 + man page: shfmt honors EditorConfig `ignore = true` when walking
 
 The babble-w3 clone (created Jul 3 under /private/tmp/claude) lost worktree files AND hardlinked loose git objects to macOS's periodic tmp cleanup (~3 days without access) while the session paused across days. Local `git clone` hardlinks loose objects, so the source repo lost nothing — but promotes from a reaped clone become unreliable. sandbox-enter.sh should either default --parent to a non-reaped location (e.g. ~/tmp or ~/.cache/sandboxes) or document the 3-day hazard loudly and touch-refresh on entry. Session hygiene: check the clone's `git status` for phantom deletions at every session start, and promote/destroy within a day or two.
 
-## 11. re-sign-unpushed.sh v2 + rename question (2026-07-08)
+## 11. sign-push.sh v2 + rename question (2026-07-08)
 
-Canonical candidate at /tmp/claude/re-sign-unpushed.sh (org formatting, validated: dash -n, ksh -n, checkbashisms, shellcheck clean): fall-through publish, --set-upstream for unborn remote branches, per-outcome messages, detached-HEAD guard, header documenting sign+publish as one blessing step. Rename question (Todd): the fall-through design is right — the script's contract was always "bless" (that is why it pushes) — and the name now undersells it. Recommendation: rename to sign-and-push.sh AT RF ADOPTION TIME (pre-first-sync is the cheapest moment: only RF, the sync manifest entry, ~/.claude/CLAUDE.md, and agent-principles reference it; consumers have not synced yet). If renamed, update the pre-push hook hint text too. Keeping the old name is acceptable if reference churn is unwanted; in that case the header contract line must stay.
+Canonical candidate at /tmp/claude/sign-push.sh (org formatting, validated: dash -n, ksh -n, checkbashisms, shellcheck clean): fall-through publish, --set-upstream for unborn remote branches, per-outcome messages, detached-HEAD guard, header documenting sign+publish as one blessing step. Rename question (Todd): the fall-through design is right — the script's contract was always "bless" (that is why it pushes) — and the name now undersells it. Recommendation: rename to sign-and-push.sh AT RF ADOPTION TIME (pre-first-sync is the cheapest moment: only RF, the sync manifest entry, ~/.claude/CLAUDE.md, and agent-principles reference it; consumers have not synced yet). If renamed, update the pre-push hook hint text too. Keeping the old name is acceptable if reference churn is unwanted; in that case the header contract line must stay.
 
 ## 12. re-sign v3: settled design + rename (2026-07-08, supersedes § 11's rec)
 
-Design (Todd's ruling): publish is the COMPLETION of a re-sign, not a generic push. v3 at /tmp/claude/re-sign-unpushed.sh (org formatting; dash/ksh/checkbashisms/shellcheck clean): re-signed → publish with narration (--set-upstream / ff / lease; local-only repos — no origin — sign and stop, restoring the case v2 dropped); nothing to re-sign → never push; up-to-date exits 0, pending push prints the exact git push command and exits 2; detached HEAD skipped; multi-repo loop aggregates exit codes. Rename recommendation: re-sign-and-publish.sh — keeps the load-bearing "re-sign" stem (its identity and original purpose), adds the publish contract; NOT git-publish.sh, which invites generic-push usage the exit-2 path deliberately refuses. Rename at adoption (pre-first-sync = cheapest; update manifest entry, ~/.claude/CLAUDE.md, agent-principles, pre-push hint together).
+Design (Todd's ruling): publish is the COMPLETION of a re-sign, not a generic push. v3 at /tmp/claude/sign-push.sh (org formatting; dash/ksh/checkbashisms/shellcheck clean): re-signed → publish with narration (--set-upstream / ff / lease; local-only repos — no origin — sign and stop, restoring the case v2 dropped); nothing to re-sign → never push; up-to-date exits 0, pending push prints the exact git push command and exits 2; detached HEAD skipped; multi-repo loop aggregates exit codes. Rename recommendation: re-sign-and-publish.sh — keeps the load-bearing "re-sign" stem (its identity and original purpose), adds the publish contract; NOT git-publish.sh, which invites generic-push usage the exit-2 path deliberately refuses. Rename at adoption (pre-first-sync = cheapest; update manifest entry, ~/.claude/CLAUDE.md, agent-principles, pre-push hint together).
 
 ## 13. Sandbox placement docs (2026-07-08)
 
@@ -172,7 +172,7 @@ Both /tmp/claude variants now handle merges in the rewrite range automatically i
 ### 12d. v7 + test suite (2026-07-08, final for this workstream)
 
 - Guard refined per Todd's review: exit-4 now prints an EXACT recipe (discovers the side branch via `git branch --contains`; falls back to a create-branch recipe when none holds the commit), and unsigned side commits by OTHER committers are tolerated with a note — the pre-push gate rejects only an unsigned tip, and signing someone else's commits is not the script's business. Refusal applies only to your own unsigned unpushed side commits.
-- scripts/re-sign-unpushed-test.sh: self-contained suite (promote-from-isolated-test.sh pattern; mktemp repos, throwaway SSH key + local allowedSignersFile, bare-repo origins for REAL pushes, no network). 35 assertions, all green: exits 0/2/3/4, both hints, set-upstream + ff pushes verified against origin, merge rebuild (topology, byte-identical content, signatures), refusal recipe + repo-untouched, foreign-committer tolerance. The harness already caught one real bug class: without gpg.ssh.allowedSignersFile, ssh signatures verify as not-good — pin it in any test env; user machines have it globally.
+- scripts/sign-push-test.sh: self-contained suite (promote-from-isolated-test.sh pattern; mktemp repos, throwaway SSH key + local allowedSignersFile, bare-repo origins for REAL pushes, no network). 35 assertions, all green: exits 0/2/3/4, both hints, set-upstream + ff pushes verified against origin, merge rebuild (topology, byte-identical content, signatures), refusal recipe + repo-untouched, foreign-committer tolerance. The harness already caught one real bug class: without gpg.ssh.allowedSignersFile, ssh signatures verify as not-good — pin it in any test env; user machines have it globally.
 - RF intake: bring script + test together; run the suite in spec.yml or as a standalone job; reformat layout with RF's shfmt on intake (files ship brew-compatible for babble's CI).
 
 ### 12e. brew style --fix REWRITES POSIX tests to [] (2026-07-08)
@@ -189,7 +189,7 @@ babble's docs/handoff.md § B.5 references `sandbox-exit.sh --mode=destroy`, but
 
 ## 14. Name settled (2026-07-08, Todd): sign-push.sh
 
-The script lands in RF as scripts/sign-push.sh (test: scripts/sign-push-test.sh). Update on intake: the sync-manifest entry (currently re-sign-unpushed.sh in scripts_core), ~/.claude/CLAUDE.md's reference, agent-principles' commit-procedure section, the pre-push hook's hint text, and babble's copy at the first sync. Payloads sit beside these notes: sign-push.sh, sign-push-test.sh (test's default script path already updated), rf-sandbox-hygiene.md.
+The script lands in RF as scripts/sign-push.sh (test: scripts/sign-push-test.sh). Update on intake: the sync-manifest entry (currently sign-push.sh in scripts_core), ~/.claude/CLAUDE.md's reference, agent-principles' commit-procedure section, the pre-push hook's hint text, and babble's copy at the first sync. Payloads sit beside these notes: sign-push.sh, sign-push-test.sh (test's default script path already updated), rf-sandbox-hygiene.md.
 
 ## 15. Pre-sync freshness audit — REQUIRED before the first consumer sync (2026-07-13)
 

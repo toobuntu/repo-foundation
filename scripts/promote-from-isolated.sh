@@ -16,7 +16,7 @@
 #
 # Workflow contract: unsigned == under evaluation. The picks land unsigned
 # so the promoted batch is visually distinct (%G? = N), freely amendable,
-# and testable; signing via re-sign-unpushed.sh is the final blessing, and
+# and testable; signing via sign-push.sh is the final blessing, and
 # the pre-push hook rejects unsigned tips. This script only replaces the
 # transport (ff-merge broke because promotion re-signs rewrite SHAs, so the
 # clone and this repo are patch-equivalent but SHA-divergent after the
@@ -150,4 +150,4 @@ printf '%s\n' "${right}" | git -c commit.gpgsign=false cherry-pick --no-gpg-sign
 printf '==> Promoted %s commit(s), unsigned (%%G? = N):\n' "${count}"
 git log --reverse --format='  %h %G? %s' "HEAD~${count}..HEAD"
 printf '==> Next: run the checks; amend freely while unsigned; then\n'
-printf '    re-sign-unpushed.sh and push (the pre-push hook rejects unsigned tips).\n'
+printf '    sign-push.sh and push (the pre-push hook rejects unsigned tips).\n'

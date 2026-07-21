@@ -195,12 +195,12 @@ The same SHA-rewrite has a second consequence when the agent works in an isolate
 
 Promote with cherry-pick and patch-id filtering instead, via `scripts/promote-from-isolated.sh [--yes] <clone-path> [<branch>]`. `--cherry-pick` compares patch-ids, not SHAs: commits already promoted (under different SHAs) are filtered out and only genuinely new work is applied, so re-running when there is nothing new is a no-op.
 
-**The picks land unsigned — deliberately.** Unsigned status *is* the workflow state: the just-promoted batch is visually distinct (`git log --format='%h %G? %s'` shows `N`), freely amendable, and testable; `re-sign-unpushed.sh` remains the single blessing step before push, exactly as for commits authored directly in the live repo, and the `pre-push` hook still rejects unsigned tips. Promotion changes only the transport, never the evaluate-then-sign workflow. The full sequence:
+**The picks land unsigned — deliberately.** Unsigned status *is* the workflow state: the just-promoted batch is visually distinct (`git log --format='%h %G? %s'` shows `N`), freely amendable, and testable; `sign-push.sh` remains the single blessing step before push, exactly as for commits authored directly in the live repo, and the `pre-push` hook still rejects unsigned tips. Promotion changes only the transport, never the evaluate-then-sign workflow. The full sequence:
 
 ```sh
 scripts/promote-from-isolated.sh <clone-path> <branch>  # gated, unsigned picks
 # run the repo's checks; amend freely while unsigned
-scripts/re-sign-unpushed.sh                             # bless the batch
+scripts/sign-push.sh                             # bless the batch
 git push origin <branch>
 ```
 

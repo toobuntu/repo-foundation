@@ -190,7 +190,7 @@ component_sets:
     - { source: scripts/lint-unicode.sh,               target: scripts/lint-unicode.sh,               mode: canonical }
     - { source: scripts/annotate.sh,                   target: scripts/annotate.sh,                   mode: canonical }
     - { source: scripts/rewrite-pr-as-merge-commit.sh, target: scripts/rewrite-pr-as-merge-commit.sh, mode: canonical }
-    - { source: scripts/re-sign-unpushed.sh,           target: scripts/re-sign-unpushed.sh,           mode: canonical }
+    - { source: scripts/sign-push.sh,           target: scripts/sign-push.sh,           mode: canonical }
     # foundation-doctor runs in each consumer (the scaffold-drift workflow calls
     # it). foundation-init is RF-only — a consumer does not bootstrap others — so
     # it is intentionally NOT synced.

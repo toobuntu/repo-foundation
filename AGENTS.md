@@ -50,7 +50,7 @@ Add SPDX headers by running `scripts/annotate.sh` — never hand-write them; thi
 - The sync engine and `sync-manifest.yaml` are a contract. A change to a mode, the header logic, or the sentinel format can rewrite a file in every consumer. Run `spec/integration/sync_files_spec.rb` and reason about every consumer.
 - Canonical files are byte-identical across consumers. Never put a consumer-specific name or path in a `mode: canonical` file (it would sync that leak everywhere) — keep them org-neutral.
 - Org-wide ADRs live only here and are referenced by pointer (ADR 0004). Do not add per-repo copies, and do not renumber a published ADR.
-- The pre-push hook rejects unsigned commits in the pushed range. A sandboxed agent commits unsigned and the maintainer re-signs the batch (`scripts/re-sign-unpushed.sh`) before pushing — see `docs/agent-principles.md`.
+- The pre-push hook rejects unsigned commits in the pushed range. A sandboxed agent commits unsigned and the maintainer re-signs the batch (`scripts/sign-push.sh`) before pushing — see `docs/agent-principles.md`.
 
 ## Repository-specific tools
 

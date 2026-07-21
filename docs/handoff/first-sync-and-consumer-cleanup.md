@@ -34,7 +34,7 @@ Read every "would update" line against the disposition review. Investigate any s
 
 ## Maintainer's manual prerequisites (GitHub side)
 
-From `workspace/repo-foundation/bootstrap-actions.md`: re-sign the batch (`scripts/re-sign-unpushed.sh`) and push repo-foundation; create the GitHub App (or reuse cask-tools'), set `SYNC_APP_CLIENT_ID` (var) and `SYNC_APP_PRIVATE_KEY` (secret) on repo-foundation, and install the App on every consumer. The agent cannot do these.
+From `workspace/repo-foundation/bootstrap-actions.md`: re-sign the batch (`scripts/sign-push.sh`) and push repo-foundation; create the GitHub App (or reuse cask-tools'), set `SYNC_APP_CLIENT_ID` (var) and `SYNC_APP_PRIVATE_KEY` (secret) on repo-foundation, and install the App on every consumer. The agent cannot do these.
 
 ## Run the first sync
 
