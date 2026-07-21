@@ -7,7 +7,7 @@
 # lint-shell.sh — ksh -n (syntax) + shfmt (formatting) + shellcheck (analysis),
 # dialect-aware.
 #
-# One implementation, two triggers: the .githooks/pre-commit.d/05-shell plugin
+# One implementation, two triggers: the .githooks/pre-commit.d/10-shell plugin
 # runs it with --staged, the shell-lint CI job with --tracked.
 #
 # AT&T ksh93 scripts (a .ksh extension, or a ksh shebang — both /bin/ksh and
@@ -113,7 +113,7 @@ fi
 # (The newline-delimited lists still assume no newlines in filenames.)
 if [ -s "$other" ]; then
   if command -v shfmt > /dev/null 2>&1; then
-    while IFS= read -r f; do shfmt -d -- "$f" || rc=1; done < "$other"
+    while IFS= read -r f; do shfmt --diff -- "$f" || rc=1; done < "$other"
   else
     printf 'warning: shfmt not found — skipping shell formatting check (brew install shfmt)\n' >&2
   fi

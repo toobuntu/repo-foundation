@@ -1,0 +1,57 @@
+#!/bin/sh
+
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Markdown pre-commit plugin: rumdl on staged Markdown, via the repo's
+# .rumdl.toml (soft-wrap normalize + structure). Run by .githooks/pre-commit
+# through the run-parts-style runner. Self-contained: plugins run in a
+# subprocess and do not inherit the base hook's functions. Mastered at this
+# natural path — repo-foundation runs it on its own commits (ADR 0001) — and
+# syncs to the hook-carrying consumers (markdown_lint in the manifest).
+# In the 10- format-check tier with 10-prose and 10-shell. Run-parts
+# classicalre name (no extension); disable with a dot suffix (10-markdown.off).
+# Rationale:
+# https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0020-markdown-structure-lint.md
+#
+# Files synced from repo-foundation are byte-identical to their canonical
+# source, so this plugin must never reformat them (same rule as 20-brew): it
+# skips any staged file carrying the "do not modify it directly" sync header.
+# In repo-foundation itself those files carry no such header, so it normalizes
+# and re-stages its own Markdown; in a consumer the header is present, so the
+# synced copy is left untouched. rumdl also honors .rumdl.toml's [global]
+# exclude even for explicit file arguments, so a staged CLAUDE.md pointer is
+# skipped regardless.
+
+set -e
+
+staged() { git diff --cached --name-only --diff-filter=ACMRT | /usr/bin/grep --extended-regexp "$1" || true; }
+
+# Echo the args that do NOT carry the repo-foundation sync header.
+exclude_synced() {
+  [ "$#" -gt 0 ] || return 0
+  /usr/bin/grep --files-without-match "do not modify it directly" "$@" 2> /dev/null || true
+}
+
+md_files=$(staged '\.md$')
+if [ -n "$md_files" ]; then
+  if command -v rumdl > /dev/null 2>&1; then
+    # shellcheck disable=SC2086  # newline-delimited list, like the base hook's staged()
+    own_md=$(exclude_synced $md_files)
+    if [ -n "$own_md" ]; then
+      # Normalize the consumer's own staged Markdown (soft-wrap paragraphs and
+      # list items, align tables) and re-stage the result — the auto-fix + re-
+      # stage pattern of 20-brew and 20-swift. Like the base hook's REUSE stanza
+      # this reads the working tree, not the staged blob.
+      printf '%s\n' "$own_md" | xargs rumdl fmt > /dev/null 2>&1 || true
+      printf '%s\n' "$own_md" | xargs git add
+      # Fail on anything not auto-fixable — e.g. a code line over the cap that
+      # needs a `<!-- rumdl-disable MD013 -->` / `<!-- rumdl-enable MD013 -->`
+      # block around it.
+      printf '%s\n' "$own_md" | xargs rumdl check
+    fi
+  else
+    printf 'warning: rumdl not found — skipping Markdown lint (brew install rumdl)\n' >&2
+  fi
+fi

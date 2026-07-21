@@ -98,3 +98,25 @@ jobs:
           fi
           /home/linuxbrew/.linuxbrew/bin/brew install adrs
           /home/linuxbrew/.linuxbrew/bin/adrs doctor
+
+  markdownlint:
+    # Markdown structure + org-wide soft-wrap: rumdl reading the repo's
+    # .rumdl.toml, which is the single source of truth. The 10-markdown
+    # pre-commit plugin runs the same `rumdl check` on staged files. Skips
+    # cleanly in a repo that has no .rumdl.toml yet (ADR 0020).
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Run rumdl
+        run: |
+          if [ ! -f .rumdl.toml ]; then
+            echo "No .rumdl.toml; skipping rumdl."
+            exit 0
+          fi
+          /home/linuxbrew/.linuxbrew/bin/brew install rumdl
+          /home/linuxbrew/.linuxbrew/bin/rumdl check .

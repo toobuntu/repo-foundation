@@ -6,7 +6,7 @@ require "fileutils"
 require "open3"
 require "tmpdir"
 
-# Behavioral tests for provides/githooks/pre-commit.d/40-swift, the Swift
+# Behavioral tests for provides/githooks/pre-commit.d/20-swift, the Swift
 # pre-commit plugin (swiftformat auto-fix + re-stage, then swiftlint).
 #
 # The plugin is invoked directly in a throwaway git repository with stub
@@ -14,7 +14,7 @@ require "tmpdir"
 # self-contained and need no real Swift toolchain. The stubs shadow any real
 # install, keeping the present-tool cases deterministic on any machine.
 
-SWIFT_PLUGIN_PATH = File.join(REPO_ROOT, "provides", "githooks", "pre-commit.d", "40-swift")
+SWIFT_PLUGIN_PATH = File.join(REPO_ROOT, "provides", "githooks", "pre-commit.d", "20-swift")
 
 module SwiftPluginHelpers
   # Create a temp git repo on a feature branch, prepend a stub bin dir to PATH,
@@ -75,7 +75,7 @@ def logging_stub(name, exit_code: 0, append_to_args: nil)
   body
 end
 
-RSpec.describe "pre-commit plugin: 40-swift" do
+RSpec.describe "pre-commit plugin: 20-swift" do
   include SwiftPluginHelpers
 
   it "is a no-op (exit 0) when no .swift files are staged" do

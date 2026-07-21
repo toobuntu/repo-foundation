@@ -9,7 +9,7 @@
 # functions. Syncs only to Homebrew-tap consumers (brew_plugin in the manifest);
 # `brew style` is tap-specific, so a generic Ruby repo would get a different
 # plugin (e.g. bundle exec rubocop). Run-parts classicalre name (no extension);
-# disable with a dot suffix (30-brew.off).
+# disable with a dot suffix (20-brew.off).
 #
 # Files synced from repo-foundation must stay byte-identical to their canonical
 # source, so this plugin must never reformat them. It skips any staged file

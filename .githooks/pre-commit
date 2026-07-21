@@ -58,9 +58,9 @@ fi
 # A consuming repo adds its own pre-commit logic via drop-in scripts in
 # .githooks/pre-commit.d/, run here (each in a subprocess) in sorted order
 # -- the Unix /etc/cron.d convention. Prefix names with a 2-digit number for
-# ordering (10-go, 20-foo). Names follow Debian run-parts' default rule:
+# ordering (20-go, 20-foo). Names follow Debian run-parts' default rule:
 # entirely [A-Za-z0-9_-] (no dot, no extension); a name with a dot is skipped,
-# so a dot suffix (10-go.off, *.disabled, *.sample) disables a plugin.
+# so a dot suffix (20-go.off, *.disabled, *.sample) disables a plugin.
 # scripts/lint-perms.sh enforces the execute bit on the same name set. Run
 # early so anything a plugin stages is visible to the canonical checks below
 # (perms, bidi, REUSE), which then verify the result.

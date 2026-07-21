@@ -15,8 +15,8 @@
 # whole-tree backstop. Like the base hook's REUSE stanza, vale reads the
 # WORKING-TREE content of the listed paths, not the staged blob — a path
 # staged clean but dirty on disk is checked as it sits on disk. Run-parts
-# classicalre name (no extension); disable with a dot suffix (15-prose.off).
-# Rationale:
+# classicalre name (no extension); disable with a dot suffix (10-prose.off).
+# In the 10- format-check tier with 10-markdown and 10-shell. Rationale:
 # https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0019-prose-lint-pre-commit-plugin.md
 
 set -e

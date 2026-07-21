@@ -49,7 +49,7 @@ jobs:
       #
       # Example (Swift, swiftc toolchain — needs `runs-on: macos-latest` above,
       # since swiftc/xcrun and the macOS SDK are macOS-only). swiftformat and
-      # swiftlint are the CI counterpart of the 40-swift pre-commit plugin:
+      # swiftlint are the CI counterpart of the 20-swift pre-commit plugin:
       # - run: brew install swiftformat swiftlint
       # - run: swiftformat --lint .
       # - run: swiftlint lint --strict

@@ -7,7 +7,7 @@
 # run-parts-style pre-commit.d/ runner. Self-contained on purpose: plugins
 # run in a subprocess and do not inherit the base hook's shell functions.
 # Filename has no extension by the run-parts classicalre rule (see the base
-# hook and scripts/lint-perms.sh); disable by adding a dot suffix (10-go.off).
+# hook and scripts/lint-perms.sh); disable by adding a dot suffix (20-go.off).
 
 set -e
 
