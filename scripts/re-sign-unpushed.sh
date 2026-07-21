@@ -16,6 +16,12 @@
 #      origin, and skipped when the branch has no remote-tracking ref (e.g. a
 #      local-only repo).
 #
+# Verify the batch:
+#   git log --format='%h %G? %cd %s' @{u}..HEAD        # all G = signed
+# Keep %G? scoped to the unpushed range: verification spawns
+# gpg.ssh.program twice per displayed signature, so history-wide %G?
+# logs are slow by design.
+#
 # The .githooks/pre-push gate is the backstop -- it rejects any commit this
 # misses. POSIX sh; no bashisms.
 
