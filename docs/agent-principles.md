@@ -217,7 +217,7 @@ Division of responsibility:
 - **The agent keeps building on its own clone lineage** and does not chase the signed SHAs. Hand-off reports must say "promote with `scripts/promote-from-isolated.sh <clone-path> <branch>`" — never `merge --ff-only` instructions, which only hold for a first promotion. Rebasing the clone onto the signed lineage is allowed as an optional tidy-up (it empties the "<" side of the preview) but correctness never depends on it.
 - **The agent must not amend clone commits that were already promoted** (that manufactures the subject-collision case); follow-ups go in new commits.
 
-The script ships with a self-contained harness, `scripts/promote-from-isolated-test.sh` (throwaway repos under mktemp; simulates re-sign divergence, idempotence, the collision and merge gates, and the prompt guards) — run it after any change to the promote script.
+The script is covered by `spec/integration/promote_from_isolated_spec.rb` (throwaway repos under mktemp; simulates re-sign divergence, idempotence, the collision and merge gates, and the prompt guards), run by the RSpec suite in CI. `sign-push.sh` has the parallel `spec/integration/sign_push_spec.rb`.
 
 ### Pre-commit hook network tools under the sandbox (zizmor)
 

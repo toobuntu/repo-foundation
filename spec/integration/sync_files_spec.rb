@@ -9,8 +9,16 @@ require "tmpdir"
 
 # The engine reads and writes UTF-8 (it sets Encoding.default_external). Match
 # that here so reading a merged file that carries non-ASCII consumer content
-# (e.g. an em-dash in a heading) does not raise under a C / US-ASCII test locale.
-Encoding.default_external = Encoding::UTF_8
+# (e.g. an em-dash in a heading) does not raise under a C / US-ASCII test
+# locale. Assigning Encoding.default_external emits a warning under $VERBOSE
+# (config.warnings = true); silence just this deliberate global.
+begin
+  _verbose = $VERBOSE
+  $VERBOSE = nil
+  Encoding.default_external = Encoding::UTF_8
+ensure
+  $VERBOSE = _verbose
+end
 
 # Behavioral tests for the push-from-canonical engine
 # .github/actions/sync/sync-files.rb. The engine resolves SOURCE_ROOT from
