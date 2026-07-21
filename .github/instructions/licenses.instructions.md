@@ -1,6 +1,7 @@
 ---
 applyTo: "LICENSES/**"
 ---
+
 <!--
 SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
 
