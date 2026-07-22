@@ -30,7 +30,7 @@ scripts/annotate.sh
 
 ### YAML frontmatter and SPDX placement
 
-Markdown files with YAML frontmatter (Architectural Decision Records, Claude Code skills, MkDocs pages) need care. Two patterns both pass `reuse lint`, but only one is safe everywhere. Let `scripts/annotate.sh` decide: it runs `reuse annotate --style=html` for `.md` files, which is frontmatter-aware and inserts the SPDX block after the closing `---` (the form Claude Code's strict skill loader requires); ADRs that already carry inline SPDX inside the frontmatter are recognized as compliant and left alone.
+Markdown files with YAML frontmatter (Architectural Decision Records, Claude Code skills, MkDocs pages) need care: the SPDX block must not push the frontmatter off file position 1, or the tools that parse it (`adrs doctor`, Claude Code's skill loader) break. Let `scripts/annotate.sh` decide: it runs `reuse annotate --style=html` for `.md` files, which is frontmatter-aware and inserts the SPDX block as `#` comments *inside* the frontmatter, above the other keys — so the frontmatter still opens at line 1 and parses cleanly. Never hand-place the SPDX block above or after the frontmatter.
 
 ## Commits and pull requests
 
