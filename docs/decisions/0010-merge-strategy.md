@@ -56,7 +56,7 @@ This makes the correct choice the default and prevents accidental strategy chang
 ### Consequences
 
 - Good, because PR groupings remain visible after merge — `git log --graph --oneline` shows each PR as a topology branch with a merge commit at the join.
-- Good, because original commit dates and authorship are preserved unchanged. Squash merge collapses authorship to the merger; rebase merge rewrites commit dates.
+- Good, because authorship and both the author and committer dates are preserved unchanged. Squash merge collapses authorship to the merger; rebase merge rewrites committer dates.
 - Good, because intermediate commits remain available to `git bisect`, preserving the project's ability to localize regressions.
 - Good, because the merge commit message references the PR number and title, providing a stable link from history to GitHub.
 - Bad, because `git log` (without `--graph`) shows more commits than squash merge would; reviewers wanting a "summary" view need to read PR titles or use `--first-parent`.

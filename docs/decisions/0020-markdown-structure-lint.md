@@ -67,14 +67,14 @@ The ruleset is seeded from Homebrew's docs config (`mdl`: `.mdlrc` + `.mdl_style
 
 ### CodeRabbit reconciliation
 
-- The **`markdownlint`** tool is **off**: repo-foundation gates the same rules itself (the `16-markdown` plugin and the CI job), so a second CodeRabbit pass only re-reports the repo's own gate.
+- The **`markdownlint`** tool is **off**: repo-foundation gates the same rules itself (the `10-markdown` plugin and the CI job), so a second CodeRabbit pass only re-reports the repo's own gate.
 - The **`languagetool`** grammar checker stays **on**: it is a distinct tool from Vale, which enforces house style and vocabulary rather than grammar, and its comments can be declined.
 - **`path_instructions`** carry the house conventions the AI reviewer keeps missing: the BSD-userland `grep --null-data` / `xargs --no-run-if-empty` idioms, the self-contained pre-commit-plugin helper pattern (ADR 0017), and the SPDX-inside-ADR-frontmatter rule.
 - `.coderabbit.yaml` is canonical and synced to every consumer via `repo_config`.
 
 ### Distribution
 
-The `markdown_lint` component set (`.rumdl.toml` plus the `16-markdown` plugin) maps to every hook-carrying consumer; the `markdownlint` CI job rides the canonical `lint.yml` (`ci_core`); `rumdl` joins the Copilot install lists (the `upstreams` tap mutation and the non-tap scaffold, per ADR 0015); and `.coderabbit.yaml` rides `repo_config`. The `16-markdown` master sits at the natural path because repo-foundation runs it on its own commits (ADR 0001), following `05-shell`, `15-prose`, and `50-adrs`.
+The `markdown_lint` component set (`.rumdl.toml` plus the `10-markdown` plugin) maps to every hook-carrying consumer; the `markdownlint` CI job rides the canonical `lint.yml` (`ci_core`); `rumdl` joins the Copilot install lists (the `upstreams` tap mutation and the non-tap scaffold, per ADR 0015); and `.coderabbit.yaml` rides `repo_config`. The `10-markdown` master sits at the natural path because repo-foundation runs it on its own commits (ADR 0001), alongside `10-prose`, `10-shell`, and `50-adrs`.
 
 ### Consequences
 

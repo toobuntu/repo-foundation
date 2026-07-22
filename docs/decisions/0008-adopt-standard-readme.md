@@ -46,7 +46,7 @@ Chosen option: **A, standard-readme**. It is the only option that is a *specific
 
 ### Confirmation
 
-A README passes a structure review: required sections present, in spec order, with License last and a sub-120-character single-line description. Enforce the structural part in CI with `remark` + `standard-readme-preset` (a GitHub Action running `remark --use remark-preset-lint-standard-readme`); residual judgment (description quality, accurate Usage) stays with review. New repos created from this scaffolding adopt the structure; existing repos are brought into compliance opportunistically.
+A README passes a structure review: required sections present, in spec order, with License last and a sub-120-character single-line description. Enforce the structural part in CI with `remark` + `standard-readme-preset` (a GitHub Action running `remark --use standard-readme-preset`); residual judgment (description quality, accurate Usage) stays with review. New repos created from this scaffolding adopt the structure; existing repos are brought into compliance opportunistically.
 
 ## More Information
 
