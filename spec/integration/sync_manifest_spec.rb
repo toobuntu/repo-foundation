@@ -37,6 +37,22 @@ RSpec.describe "sync-manifest.yaml contract" do
                                ".githooks/pre-commit.d/10-markdown")
   end
 
+  it "maps the homebrew_sandbox class fragment only to Homebrew-aligned consumers" do
+    with_fragment = consumers.select { |c| c["sets"].include?("homebrew_sandbox") }.map { |c| c["repo"] }
+    expect(with_fragment).to contain_exactly("toobuntu/homebrew-cask-tools", "toobuntu/homebrew-babble")
+  end
+
+  it "pairs every fragment with a baseline-merge for the same target in each consumer" do
+    consumers.each do |consumer|
+      resolved = consumer["sets"].flat_map { |name| sets.fetch(name) }
+      resolved.select { |c| c["mode"] == "fragment" }.each do |fragment|
+        generated = resolved.any? { |c| c["mode"] == "baseline-merge" && c["target"] == fragment["target"] }
+        expect(generated).to be(true),
+                             "#{consumer['repo']}: fragment #{fragment['source']} has no baseline-merge generating #{fragment['target']}"
+      end
+    end
+  end
+
   it "sends markdown_lint to every hook-carrying consumer" do
     without = consumers.select { |c| c["sets"].include?("git_hooks") }
                        .reject { |c| c["sets"].include?("markdown_lint") }

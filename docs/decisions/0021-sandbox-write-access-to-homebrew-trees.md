@@ -6,7 +6,7 @@
 number: 21
 title: Sandbox write access to Homebrew's vendor, cmd, and test trees
 status: accepted
-date: 2026-07-21
+date: 2026-07-22
 decision-makers:
   - toobuntu
 ---
@@ -30,13 +30,13 @@ Boundary:
 
 Placement:
 
-- **In each Homebrew-aligned consumer's `.claude/settings.addenda.json`** (chosen): the baseline-merge deep-merges it into that consumer's generated `.claude/settings.json`, so only the repos that need it carry it.
+- **In an RF-owned class fragment mapped to the Homebrew-aligned consumers** (chosen; refined 2026-07-22 from per-consumer addenda): `provides/repo/settings.homebrew.json`, folded by the sync between the baseline and each consumer's own addenda (the `homebrew_sandbox` set; ADR 0016). One declaration, exactly the consumers that need it.
 - **In the synced baseline `provides/repo/settings.baseline.json`** — rejected: it would grant every consumer, including the non-Homebrew ones (zman-didan, cert-automation, bob-book), write access they never use.
 - **In repo-foundation's own `.claude/settings.json`** — rejected: RF does not need it (above), so it would be dead config, and it is not the template consumers inherit anyway.
 
 ## Decision Outcome
 
-Chosen: allow writes to exactly the three directories, declared **only** in each Homebrew-aligned consumer's `.claude/settings.addenda.json` (the array unions into that consumer's generated settings under ADR 0016's baseline-merge). The synced baseline (`provides/repo/settings.baseline.json`) deliberately carries no `allowWrite`, so non-Homebrew consumers stay unaffected; repo-foundation's own settings carry none either. The boundary was validated in the babble-w3 session (2026-07-15; `docs/handoff/rf-upstream-notes.md` § 3). Everything else under `Library/Homebrew` — `brew.rb`, the DSL, git metadata — stays read-only, which is the boundary that matters: the three writable trees are exactly where brew's own developer workflow writes (vendored gems, external-command hardlinks, spec fixtures). Cache traffic needs no grant at all — `HOMEBREW_CACHE` and `HOMEBREW_TEMP` pointed at `$TMPDIR` keep `brew style` and plain `brew typecheck` fully sandboxed once gems are current.
+Chosen: allow writes to exactly the three directories, declared **once** in the RF-owned class fragment `provides/repo/settings.homebrew.json` and mapped only to the Homebrew-aligned consumers (the `homebrew_sandbox` set; the engine folds it into each consumer's generated settings between the baseline and that consumer's own addenda — ADR 0016, amended 2026-07-22). The synced baseline (`provides/repo/settings.baseline.json`) deliberately carries no `allowWrite`, so non-Homebrew consumers stay unaffected; repo-foundation's own settings carry none either. The boundary was validated in the babble-w3 session (2026-07-15; `docs/handoff/rf-upstream-notes.md` § 3). Everything else under `Library/Homebrew` — `brew.rb`, the DSL, git metadata — stays read-only, which is the boundary that matters: the three writable trees are exactly where brew's own developer workflow writes (vendored gems, external-command hardlinks, spec fixtures). Cache traffic needs no grant at all — `HOMEBREW_CACHE` and `HOMEBREW_TEMP` pointed at `$TMPDIR` keep `brew style` and plain `brew typecheck` fully sandboxed once gems are current.
 
 ### Consequences
 

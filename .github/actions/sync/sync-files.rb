@@ -57,7 +57,7 @@ Encoding.default_external = Encoding::UTF_8
 # never sets it.
 SOURCE_ROOT = Pathname(ENV.fetch("SYNC_SOURCE_ROOT") { Pathname(__dir__).join("..", "..", "..").to_s }).expand_path
 
-VALID_MODES = %w[canonical template generate baseline-merge].freeze
+VALID_MODES = %w[canonical template generate baseline-merge fragment].freeze
 HEADER_SIGNATURE = "do not modify it directly"
 
 # SPDX block prepended to generated files (which are not copied from a source
@@ -289,10 +289,14 @@ end
 # target is generated, not hand-edited — JSON carries no comment for a "do not
 # edit" header, so the boundary is the file split: repo-foundation owns the
 # baseline, the consumer owns the addenda, the target is the merge of the two.
-def build_json_merge(source_file, target_file)
+# Layers, in order (a later layer wins scalars; arrays union; objects merge):
+#   baseline -> class fragments (RF-owned, shared by a class of consumers,
+#   ADR 0016) -> the consumer's own <stem>.addenda.json.
+def build_json_merge(source_file, target_file, fragments = [])
   base = JSON.parse(source_file.read)
+  merged = fragments.reduce(base) { |acc, fragment| deep_merge(acc, JSON.parse(fragment.read)) }
   addenda_file = target_file.dirname / "#{target_file.basename(target_file.extname)}.addenda.json"
-  merged = addenda_file.file? ? deep_merge(base, JSON.parse(addenda_file.read)) : base
+  merged = deep_merge(merged, JSON.parse(addenda_file.read)) if addenda_file.file?
   "#{JSON.pretty_generate(merged)}\n"
 end
 
@@ -300,8 +304,8 @@ end
 # target, preserving everything the consumer owns. A comment-less JSON target
 # takes the deep-merge path; every other target gets a sentinel-delimited region
 # rendered in its own comment syntax.
-def build_baseline_merge(source_file, target_file, label_begin, label_end)
-  return build_json_merge(source_file, target_file) if target_file.extname == ".json" || source_file.extname == ".json"
+def build_baseline_merge(source_file, target_file, label_begin, label_end, fragments = [])
+  return build_json_merge(source_file, target_file, fragments) if target_file.extname == ".json" || source_file.extname == ".json"
 
   source = source_file.read
   style = comment_style(target_file, source)
@@ -364,6 +368,26 @@ components.each do |component|
   abort "invalid mode '#{mode}' for #{component['source']}" unless VALID_MODES.include?(mode)
 end
 
+# --- collect class fragments (ADR 0016) ---------------------------------------
+# A fragment is an RF-owned shared delta for a class of consumers. It writes no
+# file of its own; the baseline-merge for the same JSON target folds it in
+# between the baseline and the consumer's addenda. Fail fast on a fragment that
+# nothing consumes, a non-JSON pairing, or a missing source -- each is a
+# manifest bug, not a per-consumer condition.
+fragments_by_target = Hash.new { |hash, key| hash[key] = [] }
+components.each do |component|
+  next unless component["mode"] == "fragment"
+
+  source_file = SOURCE_ROOT / component.fetch("source")
+  target_rel = component.fetch("target")
+  abort "fragment source missing: #{component['source']}" unless source_file.file?
+  abort "fragment must be JSON: #{component['source']} -> #{target_rel}" unless source_file.extname == ".json" && target_rel.end_with?(".json")
+  unless components.any? { |c| c["mode"] == "baseline-merge" && c["target"] == target_rel }
+    abort "fragment #{component['source']} targets #{target_rel}, but no baseline-merge component in this consumer's sets generates it"
+  end
+  fragments_by_target[target_rel] << source_file
+end
+
 # --- apply each component ----------------------------------------------------
 puts "Syncing #{consumer_slug} -> #{target_root}#{dry_run ? ' (dry run)' : ''}"
 changed_any = false
@@ -386,7 +410,10 @@ components.each do |component|
     when "generate"
       [build_generate(source_file, target_root, source_rel, header_template), 0o644]
     when "baseline-merge"
-      [build_baseline_merge(source_file, target_file, merge_label_begin, merge_label_end), 0o644]
+      [build_baseline_merge(source_file, target_file, merge_label_begin, merge_label_end,
+                            fragments_by_target[target_rel]), 0o644]
+    when "fragment"
+      next # folded into the matching baseline-merge target above
     end
 
   next if new_content.nil? # e.g. baseline-merge JSON, deferred

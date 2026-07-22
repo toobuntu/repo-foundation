@@ -1,0 +1,11 @@
+{
+  "sandbox": {
+    "filesystem": {
+      "allowWrite": [
+        "/opt/homebrew/Library/Homebrew/vendor",
+        "/opt/homebrew/Library/Homebrew/cmd",
+        "/opt/homebrew/Library/Homebrew/test"
+      ]
+    }
+  }
+}

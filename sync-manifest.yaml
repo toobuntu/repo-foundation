@@ -309,6 +309,18 @@ component_sets:
     - { source: provides/repo/settings.baseline.json,        target: .claude/settings.json,         mode: baseline-merge }
     - { source: provides/repo/settings.baseline.json.license, target: .claude/settings.json.license, mode: canonical }
 
+  # Class fragment (ADR 0016, amended 2026-07-22): an RF-owned settings delta
+  # shared by a CLASS of consumers — a delta promotes from consumer addenda to
+  # RF management once n >= 2 repos need it. mode: fragment writes no file of
+  # its own; the engine folds it into the same consumer's baseline-merge JSON
+  # target between the baseline and that consumer's own addenda (later layer
+  # wins scalars; arrays union). Requires repo_baseline (which carries the
+  # settings baseline-merge this folds into). Homebrew-aligned repos get write
+  # access to brew's vendor/, cmd/, and test/ trees for the brew dev-commands
+  # (ADR 0021).
+  homebrew_sandbox:
+    - { source: provides/repo/settings.homebrew.json, target: .claude/settings.json, mode: fragment }
+
 # ---------------------------------------------------------------------------
 # GitHub "default community health files" served as org-wide fallbacks from the
 # repo literally named `.github` (which must be PUBLIC). For any toobuntu repo
@@ -368,7 +380,7 @@ consumers:
     # applied while it was a plain wrapper (ADR 0015).
     # CONFIRM ruby_hook_tests once homebrew-babble is Ruby. CONFIRM swift_plugin
     # if W3 revives the JXA quit_alert.swift from archive/ into active source.
-    sets: [agent_docs, prose_lint, git_hooks, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline]
+    sets: [agent_docs, prose_lint, git_hooks, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline, homebrew_sandbox]
 
   - repo: toobuntu/bob-book
     sets: [agent_docs, prose_lint, git_hooks, shell_lint, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, repo_baseline]  # CONFIRM sandbox?
@@ -384,7 +396,7 @@ consumers:
     # carrying its Ruby/shell `brew style` checks. Reconciled org-wide like the rest.
     # (cask-tools also keeps its own post-merge/post-rewrite hooks, which are
     # tap-specific and outside the canonical base.)
-    sets: [agent_docs, prose_lint, git_hooks, brew_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, homebrew_tap, repo_baseline]
+    sets: [agent_docs, prose_lint, git_hooks, brew_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, homebrew_tap, repo_baseline, homebrew_sandbox]
 
   - repo: toobuntu/dot-github
     # Mostly a source (see `sources`); as a consumer it takes the agent docs

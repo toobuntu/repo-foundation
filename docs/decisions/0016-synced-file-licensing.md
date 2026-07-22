@@ -6,7 +6,7 @@
 number: 16
 title: License a synced file by which repository owns it
 status: accepted
-date: 2026-06-24
+date: 2026-07-22
 decision-makers:
   - toobuntu
 ---
@@ -39,6 +39,7 @@ Chosen: **license by ownership.**
 
 - **Mirrors (`canonical` / `template` / `generate`)** keep repo-foundation's inline SPDX header. The file is repo-foundation's GPL work, mirrored under a "do not modify it directly" header; declaring repo-foundation's license is the honest statement of provenance, and the consumer's sync pull request is compliant on arrival.
 - **Merges (`baseline-merge`)** carry the consumer's license. The managed-region source in repo-foundation is therefore license-neutral: its SPDX is declared in `provides/repo/REUSE.toml` so no header is wrapped into the consumer's file, and the consumer's own header (or its own `REUSE.toml`/sidecar) supplies the license. The one exception is `provides/repo/settings.baseline.json`, whose `.license` sidecar IS synced, because the generated `.claude/settings.json` is a whole generated file rather than a region inside a consumer-owned one.
+- **Class fragments (`fragment`; added 2026-07-22)** extend the merge tier with a middle layer. A settings delta that starts life in one consumer's `settings.addenda.json` promotes to RF management once a second consumer needs it (the rule-of-three instinct applied at n = 2): it becomes an RF-owned fragment (e.g. `provides/repo/settings.homebrew.json`), mapped only to the consumers of that class, and the engine folds it into the baseline-merge JSON target **between** the baseline and the consumer's own addenda — baseline → class fragments → addenda, later layer wins scalars, arrays union. Ownership per layer stays single: baseline = org LCD (RF), fragment = shared class delta (RF), addenda = consumer-unique (consumer). Licensing follows the merge rule above: a fragment is a merge input, never synced as a file, so it rides `provides/repo/REUSE.toml` and the generated target's sidecar still comes from `settings.baseline.json.license`.
 - **Exception for a single mirror**: a consumer that genuinely needs a different license for one mirrored file adds a `precedence = "override"` entry for that path in its own `REUSE.toml`. The exception is explicit, auditable, and local to the consumer — not the default.
 
 A non-`GPL-3.0-or-later` consumer is served without re-stamping: `reuse lint` requires only that each referenced license's text be present in `LICENSES/`, not that the repo be single-license. The consumer carries `GPL-3.0-or-later.txt` (for the mirrors) alongside its own license text; `reuse download --all` — run post-sync by `foundation-init` or in the consumer's `lint-reuse` job — fetches any referenced-but-missing license text idempotently; and the consumer annotates its *own* files with its own license via `ANNOTATE_LICENSE=<spdx-id> scripts/annotate.sh`. The result is an honest mixed-license repository, each file labeled by its owner.
