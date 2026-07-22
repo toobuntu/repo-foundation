@@ -200,8 +200,7 @@ Promote with cherry-pick and patch-id filtering instead, via `scripts/promote-fr
 ```sh
 scripts/promote-from-isolated.sh <clone-path> <branch>  # gated, unsigned picks
 # run the repo's checks; amend freely while unsigned
-scripts/sign-push.sh                             # bless the batch
-git push origin <branch>
+scripts/sign-push.sh                             # sign the batch, then push
 ```
 
 The script refuses to apply anything until its gates pass: clean tree and correct branch; the clone side must be linear (a merge commit on the agent branch is an error, not something to pick silently); a left/right **subject collision** across the filtered delta is an error — that is the signature of a promoted copy amended in the live repo, whose patch-id no longer matches, and picking it again would conflict or duplicate; and after the `%m`-marked preview it asks for confirmation (`--yes` skips; without it, a non-TTY stdin aborts). If a pick still conflicts past the gates, the script prints recovery guidance to stderr (`--continue` after resolving, or `--abort` to return to the pre-promotion state).

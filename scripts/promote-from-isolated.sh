@@ -149,5 +149,5 @@ printf '%s\n' "${right}" | git -c commit.gpgsign=false cherry-pick --no-gpg-sign
 
 printf '==> Promoted %s commit(s), unsigned (%%G? = N):\n' "${count}"
 git log --reverse --format='  %h %G? %s' "HEAD~${count}..HEAD"
-printf '==> Next: run the checks; amend freely while unsigned; then\n'
-printf '    sign-push.sh and push (the pre-push hook rejects unsigned tips).\n'
+printf '==> Next: run the checks; amend freely while unsigned, then run\n'
+printf '    sign-push.sh (it signs, then pushes; pre-push rejects unsigned tips).\n'
