@@ -72,7 +72,7 @@ All paths are under `~/devel/claude/desktop/`. Old (flat) → new (bucketed):
 Default is dry-run (diff); `--apply` writes in place. The caller chooses the paths — that is how snapshots stay excluded.
 
 ```sh
-S=~/devel/claude/desktop/toobuntu/repo-foundation/docs/handoff/reorg-ref-rewrite.ksh
+S=~/devel/claude/desktop/toobuntu/repo-foundation/docs/handoff/archive/reorg-ref-rewrite.ksh
 
 # Repos (re-root a session at toobuntu/ first — see §8). Dry-run, then apply:
 ksh "$S" ~/devel/claude/desktop/toobuntu        # review the diff

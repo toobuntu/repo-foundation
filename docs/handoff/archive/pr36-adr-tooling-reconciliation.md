@@ -28,7 +28,7 @@ For each item, decide **RF-canonical** (a `provides/` template + a manifest entr
 2. **`.mcp.json` + `.vscode/mcp.json`** (the `adrs` MCP server). The master plan lists an RF `.mcp.json` as pending. Decide the canonical form and whether it is RF-only or synced.
 3. **`copilot-setup-steps.yml` + `sync-shared-config.yml` fragments** that install `adrs` in agent sandboxes. `copilot-setup-steps.yml` is already an RF upstream (ADR 0015); fold any `adrs`-install step into that canonical.
 4. **`.githooks/pre-commit` fragment running `adrs doctor`.** Consider a `provides/githooks/pre-commit.d/50-adrs` plugin (mirrors the language-plugin pattern of ADR 0017), synced to consumers that keep local ADRs. Gate it on staged `docs/decisions/**` so it is a no-op elsewhere and runs clean in the sandbox.
-5. **ADR-policy prose** in cask-tools `AGENTS.md` / `docs/shared-guidelines.md`. Reconcile any org-wide rule into `docs/agent-principles.md` or the relevant ADR; leave cask-tools-specific facts local. (`shared-guidelines.md` is already slated for deletion once the synced `agent-principles.md` lands — see `docs/handoff/reconciliation-audit.md`.)
+5. **ADR-policy prose** in cask-tools `AGENTS.md` / `docs/shared-guidelines.md`. Reconcile any org-wide rule into `docs/agent-principles.md` or the relevant ADR; leave cask-tools-specific facts local. (`shared-guidelines.md` is already slated for deletion once the synced `agent-principles.md` lands — see `docs/handoff/archive/reconciliation-audit.md`.)
 
 ## Part 2 — reconcile cask-tools' hand-rolled upstream sync with RF's pipeline
 

@@ -155,7 +155,7 @@ Design (Todd's ruling): publish is the COMPLETION of a re-sign, not a generic pu
 
 ## 13. Sandbox placement docs (2026-07-08)
 
-Ready-to-insert agent-principles section + sandbox-enter.sh change spec: /tmp/claude/rf-sandbox-hygiene.md (tmp_cleaner mechanics, ~/.cache/sandboxes default, touch-refresh rule, git-status session hygiene).
+Ready-to-insert agent-principles section + sandbox-enter.sh change spec: /tmp/claude/archive/rf-sandbox-hygiene.md (tmp_cleaner mechanics, ~/.cache/sandboxes default, touch-refresh rule, git-status session hygiene).
 
 ### 12a. Amendment (2026-07-08): name is sign-push.sh; push vocabulary
 
@@ -189,7 +189,7 @@ babble's docs/handoff.md § B.5 references `sandbox-exit.sh --mode=destroy`, but
 
 ## 14. Name settled (2026-07-08, Todd): sign-push.sh
 
-The script lands in RF as scripts/sign-push.sh (test: scripts/sign-push-test.sh). Update on intake: the sync-manifest entry (currently sign-push.sh in scripts_core), ~/.claude/CLAUDE.md's reference, agent-principles' commit-procedure section, the pre-push hook's hint text, and babble's copy at the first sync. Payloads sit beside these notes: sign-push.sh, sign-push-test.sh (test's default script path already updated), rf-sandbox-hygiene.md.
+The script lands in RF as scripts/sign-push.sh (test: scripts/sign-push-test.sh). Update on intake: the sync-manifest entry (currently sign-push.sh in scripts_core), ~/.claude/CLAUDE.md's reference, agent-principles' commit-procedure section, the pre-push hook's hint text, and babble's copy at the first sync. Payloads sit beside these notes: sign-push.sh, sign-push-test.sh (test's default script path already updated), archive/rf-sandbox-hygiene.md.
 
 ## 15. Pre-sync freshness audit — REQUIRED before the first consumer sync (2026-07-13)
 

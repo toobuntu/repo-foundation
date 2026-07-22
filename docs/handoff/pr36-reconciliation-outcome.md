@@ -6,7 +6,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Outcome — PR #36 ADR-tooling reconciliation
 
-Result of the session opened by `pr36-adr-tooling-reconciliation.md` (2026-07-03). The decisions are recorded in ADR 0018; this note carries the operational detail that feeds the disposition review in `first-sync-and-consumer-cleanup.md`.
+Result of the session opened by `archive/pr36-adr-tooling-reconciliation.md` (2026-07-03). The decisions are recorded in ADR 0018; this note carries the operational detail that feeds the disposition review in `first-sync-and-consumer-cleanup.md`.
 
 ## Verdicts
 
