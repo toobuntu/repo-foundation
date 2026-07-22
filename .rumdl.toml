@@ -14,16 +14,17 @@
 
 [global]
 # rumdl respects .gitignore, so vendor/ is skipped. `exclude` lists the Markdown
-# that is not a standalone document and so cannot satisfy first-line-heading
-# (MD041): CLAUDE.md is a one-line "@AGENTS.md" pointer with no H1 (Homebrew's
-# CLAUDE.md is the same), and the *.baseline.md sources are merge fragments, not
-# documents. This IS the MD041 exception list — add a path here when a new
-# legitimate non-document surfaces, rather than turning MD041 off tree-wide.
+# that is not a document at all: CLAUDE.md is a one-line "@AGENTS.md" pointer
+# with no H1 (Homebrew's CLAUDE.md is the same). The *.baseline.md merge
+# fragments are NOT excluded — they must reflow exactly like the consumer
+# documents their managed regions land in (otherwise a consumer's `rumdl fmt`
+# rewraps the injected region and the next sync resets it, churn) — they get a
+# scoped MD041 exemption via provides/repo/.rumdl.toml instead. Add a path
+# here only for a new pointer-style non-document; prefer a per-directory
+# config for anything that is real prose.
 exclude = [
   "**/CLAUDE.md",
   "**/*.instructions.md",
-  "provides/repo/AGENTS.baseline.md",
-  "provides/repo/CONTRIBUTING.baseline.md",
 ]
 # MD033 inline HTML: off (Homebrew also excludes it). Our docs use angle-bracket
 # placeholders — <repo>, <branch>, <org>/<repo>, <url> — which a Markdown linter
