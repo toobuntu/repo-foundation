@@ -3,6 +3,9 @@
   "model": "opus",
   "effortLevel": "xhigh",
   "showThinkingSummaries": true,
+  "attribution": {
+    "pr": ""
+  },
   "permissions": {
     "deny": [
       "Bash(rm -rf:*)",
