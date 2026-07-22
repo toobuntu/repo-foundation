@@ -187,7 +187,7 @@ git rebase --exec 'git commit --amend --no-edit --gpg-sign' origin/main
 
 ### Consequence: a re-signed branch diverges from a stale `main`
 
-If you committed unsigned on `main` and then re-signed on a feature branch (or ran the rebase with `origin/main` as the base while on the branch), the "same" commits now exist at **two different SHAs**: the branch's signed ones and `main`'s old unsigned ones. Treat the **re-signed branch as the source of truth** and realign `main` to it after the branch lands (`git switch main && git reset --hard origin/main`) rather than trying to push both — `main`'s unsigned tip would be rejected anyway.
+If you committed unsigned on `main` and then re-signed on a feature branch (or ran the rebase with `origin/main` as the base while on the branch), the "same" commits now exist at **two different SHAs**: the branch's signed ones and `main`'s old unsigned ones. Treat the **re-signed branch as the source of truth** and realign `main` to it after the branch lands (`git switch main && git reset --hard origin/main`) rather than trying to push both — `main`'s unsigned tip would be rejected anyway. A fast-forward will *not* work here: local `main` and `origin/main` have diverged (the same trees at different SHAs), so `reset --hard` is the correct tool. But it discards whatever local `main` points at, so first confirm `main` carries nothing you mean to keep beyond those superseded unsigned commits — `git status` clean, and `git log origin/main..main` shows only the stale copies. If it holds other work, branch or cherry-pick it off before the reset.
 
 ### Promoting follow-up batches from an isolated clone: cherry-pick, not merge
 
@@ -266,7 +266,7 @@ macOS deletes /tmp (/private/tmp) entries not accessed OR modified in three days
 Rules:
 
 - **Prefer a non-reaped parent.** `sandbox-enter.sh` defaults `--parent` to `~/.cache/sandboxes` (created on demand; not subject to tmp_cleaner). /private/tmp remains fine for clones that live less than a day.
-- **If a clone must sit in /tmp**, touch-refresh it at each session start so nothing crosses the 3-day line — e.g. `find <clone> -exec touch -a {} +` — and plan to promote and destroy within a day or two anyway.
+- **If a clone must sit in /tmp**, touch-refresh it at each session start so nothing crosses the 3-day line — e.g. `find <clone> -exec touch -am {} +` (both atime and mtime, so the file survives whichever timestamp the reaper's `find` keys on) — and plan to promote and destroy within a day or two anyway.
 - **Session hygiene:** at every session start in an existing clone, read `git status` critically. A wall of unexplained `D` (worktree deletions) in an untouched clone is reaper damage, not your doing: stop, salvage pending work as files/patches to /tmp/claude/, and do not trust the clone for promotes.
 - Corollary the reaper gives for free: /tmp/msg-<slug>.txt commit message files are preserved for ~3 days and then self-clean.
 

@@ -1,5 +1,13 @@
 #!/usr/bin/env ksh
 #
+# ARCHIVED / SPENT ONE-OFF (2026-06-16 reorg; kept for provenance only, do
+# NOT reuse as-is). Known limitation: the substitutions guard the RIGHT
+# boundary but not the LEFT, so a path like "mydesktop/babble" would be
+# wrongly rewritten. This was harmless for its single run — the caller
+# passed only the maintainer's known "~/devel/claude/desktop/…" paths, where
+# no such left-embedded case occurs — but any reuse must first anchor the
+# match on the left (e.g. a leading "/" or start-of-token before "desktop/").
+#
 # reorg-ref-rewrite — boundary-aware rewrite of pre-reorg
 # ~/devel/claude/desktop path references, per the 2026-06-16 git-reorg
 # move map. ONE-OFF: the move map below is hardcoded to THIS reorg.
