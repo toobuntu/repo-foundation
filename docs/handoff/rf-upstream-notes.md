@@ -155,7 +155,7 @@ Design (Todd's ruling): publish is the COMPLETION of a re-sign, not a generic pu
 
 ## 13. Sandbox placement docs (2026-07-08)
 
-Ready-to-insert agent-principles section + sandbox-enter.sh change spec: /tmp/claude/archive/rf-sandbox-hygiene.md (tmp_cleaner mechanics, ~/.cache/sandboxes default, touch-refresh rule, git-status session hygiene).
+Ready-to-insert agent-principles section + sandbox-enter.sh change spec: `docs/handoff/archive/rf-sandbox-hygiene.md` (tmp_cleaner mechanics, ~/.cache/sandboxes default, touch-refresh rule, git-status session hygiene). Implemented 2026-07-21; the spec is archived.
 
 ### 12a. Amendment (2026-07-08): name is sign-push.sh; push vocabulary
 

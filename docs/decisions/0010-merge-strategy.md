@@ -88,7 +88,7 @@ The repository's "Pull request" settings on GitHub must show only "Allow merge c
 
 - Good, linear history.
 - Bad, PR identity is lost — commits appear interleaved with whatever else lands on main between the rebase and any subsequent merges.
-- Bad, commit dates are rewritten to the rebase time, distorting the authoring timeline.
+- Bad, committer dates are rewritten to the rebase time (author dates survive), so history tools that sort by committer date show the rebase moment, not when the work happened.
 - Bad, no merge commit means the PR number is not in history (only in the linked GitHub issue/PR data).
 - Bad, accidental rebase-merge requires history rewriting (the `rewrite-pr-as-merge-commit.sh` script) to recover.
 
