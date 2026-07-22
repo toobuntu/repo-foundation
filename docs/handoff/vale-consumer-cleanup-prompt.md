@@ -29,11 +29,11 @@ The style is in `repo-foundation/.vale.ini` (RF's own) and `repo-foundation/prov
 
 Consumers: blackoutd, zman-didan, babble, bob-book, cert-automation, homebrew-cask-tools. For each (once the `prose_lint` sync has delivered the style and the repo has a `.vale.ini`):
 
-1. Run `vale .` from the repo root. Fix every **error-level** alert:
+1. Run `git ls-files '*.md' | xargs vale` from the repo root (vale has no `.gitignore` support, so a bare `vale .` also scans vendored docs). Fix every **error-level** alert:
    - en_GB spellings → en_US.
    - First-person plural → impersonal phrasing. Where first person is genuinely the right voice (prose-heavy docs, not code/config), either backtick a quoted example (Vale skips the `code` scope) or add a per-glob `Toobuntu.We = NO` relaxation in that repo's `.vale.ini`. **bob-book** is largely prose, not code, so expect legitimate first-person there — relax the prose globs rather than rewrite voice, and bring any ambiguous case to the maintainer.
    - `PR's`-style abbreviation plurals → `PRs`.
-2. Run `vale --minAlertLevel=warning .` to see the non-gating findings; fix the easy ones (curly quotes, `and/or`, term casing) opportunistically.
+2. Run `git ls-files '*.md' | xargs vale --minAlertLevel=warning` to see the non-gating findings; fix the easy ones (curly quotes, `and/or`, term casing) opportunistically.
 3. Reduce `Vale.Spelling` noise by adding **genuine** domain terms to a vocab. Put org-wide tech terms in repo-foundation's `Toobuntu/accept.txt` (then re-sync); put **repo-specific** terms (a project's jargon) in a repo-local vocab and add it to `Vocab =` in that repo's `.vale.ini`.
 
 ## Special case: zman-didan migrates off its local `Didan` style
