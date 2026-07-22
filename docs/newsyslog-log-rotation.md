@@ -39,10 +39,10 @@ logfilename  [owner:group]  mode  count  size  when  flags  [/pidfile]  [signum]
 
 ```text
 # /etc/newsyslog.d/myapp.conf
-/Users/*/Library/Logs/myapp.log   alice:staff  640  4  *  $W0  GZ
+/Users/alice/Library/Logs/myapp*.log   alice:staff  640  4  *  $W0  GZ
 ```
 
-The `*` in the path is a glob, so the `G` flag is required. For a single known user, a literal path without `G` is simpler:
+The `*` in the path is a glob, so the `G` flag is required; the glob stays inside one user's directory so the fixed `alice:staff` ownership is correct for every match. (A cross-user glob like `/Users/*/Library/Logs/myapp.log` cannot pair with a single owner — rotated files would all land under one user's ownership; give each user their own entry instead.) For a single known file, a literal path without `G` is simpler:
 
 ```text
 /Users/alice/Library/Logs/myapp.log   alice:staff  640  4  *  $W0  Z
