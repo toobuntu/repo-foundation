@@ -74,7 +74,7 @@ The ruleset is seeded from Homebrew's docs config (`mdl`: `.mdlrc` + `.mdl_style
 
 ### Distribution
 
-The `markdown_lint` component set (`.rumdl.toml` plus the `10-markdown` plugin) maps to every hook-carrying consumer; the `markdownlint` CI job rides the canonical `lint.yml` (`ci_core`); `rumdl` joins the Copilot install lists (the `upstreams` tap mutation and the non-tap scaffold, per ADR 0015); and `.coderabbit.yaml` rides `repo_config`. The `10-markdown` master sits at the natural path because repo-foundation runs it on its own commits (ADR 0001), alongside `10-prose`, `10-shell`, and `50-adrs`.
+The `markdown_lint` component set (`.rumdl.toml` plus the `10-markdown` plugin) maps to every hook-carrying consumer; the `markdownlint` CI job rides the canonical `lint.yml` (`ci_core`); `rumdl` joins the Copilot install lists (the `upstreams` tap mutation and the non-tap scaffold, per ADR 0015); and `.coderabbit.yaml` rides `repo_config`. The `10-markdown` master sits at the natural path because repo-foundation runs it on its own commits (ADR 0001), alongside `10-shell`, `15-prose`, and `50-adrs`; `15-prose` is numbered after it on purpose, because vale must lint the text this plugin reformats and re-stages (ADR 0019).
 
 ### Consequences
 

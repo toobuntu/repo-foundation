@@ -31,7 +31,7 @@ Verified along the way (`adrs` 0.8.0): `status` case does not matter to `adrs do
 
 On top of what the manifest already granted them:
 
-- **All hook-carrying consumers** (blackoutd, zman-didan, babble, bob-book, cert-automation, homebrew-cask-tools): `.githooks/pre-commit.d/50-adrs` (inert until `docs/decisions/**` or `adrs.toml` is staged), `.githooks/pre-commit.d/10-prose` (vale on staged Markdown, added as follow-on scope — ADR 0019; warns and skips until the repo seeds `.vale.ini`), and the updated `docs/agent-principles.md` with the ADR section. dot-github takes only the updated `agent-principles.md` (no `git_hooks`).
+- **All hook-carrying consumers** (blackoutd, zman-didan, babble, bob-book, cert-automation, homebrew-cask-tools): `.githooks/pre-commit.d/50-adrs` (inert until `docs/decisions/**` or `adrs.toml` is staged), `.githooks/pre-commit.d/15-prose` (vale on staged Markdown, added as follow-on scope — ADR 0019; warns and skips until the repo seeds `.vale.ini`), and the updated `docs/agent-principles.md` with the ADR section. dot-github takes only the updated `agent-principles.md` (no `git_hooks`).
 - **homebrew-cask-tools** additionally: `copilot-setup-steps.yml` whose install list now ends `… zizmor fzf adrs` (relayed from Homebrew/brew with the amended mutation).
 - **Non-tap consumers** running the Copilot coding agent: nothing synced — their per-repo `copilot-setup-steps.yml` is seeded from the scaffold, which now includes `adrs`; existing per-repo copies add it during their cleanup pass if they want ADR tooling in the agent sandbox.
 

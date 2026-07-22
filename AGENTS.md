@@ -34,7 +34,7 @@ git ls-files '*.md' | xargs vale   # prose (Toobuntu style)
 actionlint && zizmor .      # workflow syntax and security
 ```
 
-Vale has no `.gitignore` support (upstream, by design), so a bare `vale .` also scans vendored gem docs under `vendor/bundle/`. Run it over the tracked files instead — `git ls-files '*.md' | xargs vale` respects `.gitignore` and is the primary form; `vale --glob='!vendor/**' .` is an alternate but excludes only the one named tree. CI's `prose.yml` and the `10-prose` hook are unaffected — neither sees `vendor/`.
+Vale has no `.gitignore` support (upstream, by design), so a bare `vale .` also scans vendored gem docs under `vendor/bundle/`. Run it over the tracked files instead — `git ls-files '*.md' | xargs vale` respects `.gitignore` and is the primary form; `vale --glob='!vendor/**' .` is an alternate but excludes only the one named tree. CI's `prose.yml` and the `15-prose` hook are unaffected — neither sees `vendor/`.
 
 Add SPDX headers by running `scripts/annotate.sh` — never hand-write them; this includes ADRs (see the SPDX/REUSE section of `docs/agent-principles.md`).
 

@@ -4,14 +4,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 number: 19
-title: Run the prose lint pre-commit via a 10-prose plugin
+title: Run the prose lint pre-commit via a 15-prose plugin
 status: accepted
-date: 2026-07-03
+date: 2026-07-21
 decision-makers:
   - toobuntu
 ---
 
-# Run the prose lint pre-commit via a 10-prose plugin
+# Run the prose lint pre-commit via a 15-prose plugin
 
 ## Context and Problem Statement
 
@@ -32,20 +32,20 @@ ADR 0014 established Vale with the org-wide Toobuntu style as the prose gate, ru
 
 ## Decision Outcome
 
-Chosen: a **`10-prose` plugin** at `.githooks/pre-commit.d/10-prose`, running `vale` over the staged `.md` files.
+Chosen: a **`15-prose` plugin** at `.githooks/pre-commit.d/15-prose`, running `vale` over the staged `.md` files.
 
 - **Identical policy to CI.** The plugin invokes bare `vale`, which reads the repo's own `.vale.ini` (`MinAlertLevel = error`): error-level alerts block the commit exactly as they would block the `prose.yml` job; warning-level rules report without gating. One policy, two triggers — the same split `scripts/lint-perms.sh` and `scripts/lint-shell.sh` already use.
 - **Self-gating.** It runs only when a `.md` file is staged; it warns and skips when `vale` is not installed (`brew install vale`) or when the repo has no `.vale.ini` (pointing at `provides/vale/vale.ini.template`). CI remains the backstop for both.
 - **Mastered at the natural path**, because repo-foundation runs it on its own commits — the ADR 0001 rule, following the `10-shell` and `50-adrs` precedent recorded in ADR 0018.
 - **Distributed via the `prose_plugin` set** to the hook-carrying `prose_lint` consumers (blackoutd, zman-didan, babble, bob-book, cert-automation, homebrew-cask-tools). dot-github takes no hooks and no prose lint, so it is not mapped.
-- `10-prose` shares the `10-` format-check tier with `10-shell` and `10-markdown`; that tier runs before the `20-` language checks, and ordering among the format plugins is not significant.
+- `15-prose` sits in the format-check tier with `10-shell` and `10-markdown`, which runs before the `20-` language checks. Its number is deliberately 15, not 10: `10-markdown` reformats staged Markdown (`rumdl fmt`) and re-stages it, and the prose lint must run against that final text, so the dependency is explicit in the number rather than an accident of lexicographic sorting within a shared prefix. (Amended 2026-07-21; the plugin was `10-prose` at acceptance.)
 
 ### Consequences
 
 - Good, because a prose error blocks the commit that introduces it rather than the pull request an hour later, at the cost of a sub-second `vale` run on the staged Markdown.
 - Good, because hook and CI cannot diverge: both read the same `.vale.ini`, so promoting a rule (ADR 0014's warning-to-error path) changes both gates in one edit.
 - Bad, because like the base hook's REUSE stanza, `vale` reads the working-tree content of the staged paths, not the staged blob; a path staged clean but dirty on disk is checked as it sits on disk. Accepted for the same reason: pinning staged content is fragile in shell, and CI's whole-tree run is the backstop.
-- Neutral, because a consumer that received the plugin but never seeded `.vale.ini` gets a one-line warning per Markdown commit until it either seeds the config or disables the plugin (`10-prose.off`).
+- Neutral, because a consumer that received the plugin but never seeded `.vale.ini` gets a one-line warning per Markdown commit until it either seeds the config or disables the plugin (`15-prose.off`).
 
 ## More Information
 

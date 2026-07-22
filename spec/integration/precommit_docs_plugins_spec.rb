@@ -7,13 +7,13 @@ require "open3"
 require "tmpdir"
 
 # Behavioral tests for the three documentation pre-commit plugins mastered at
-# the natural path: 10-prose (vale), 10-markdown (rumdl), and 50-adrs
+# the natural path: 15-prose (vale), 10-markdown (rumdl), and 50-adrs
 # (adrs doctor). Same pattern as the Swift plugin spec: each plugin runs in a
 # throwaway git repository with stub executables prepended to PATH, so the
 # tests need no real vale/rumdl/adrs and shadow any installed copy.
 
 DOCS_PLUGINS = {
-  prose:    File.join(REPO_ROOT, ".githooks", "pre-commit.d", "10-prose"),
+  prose:    File.join(REPO_ROOT, ".githooks", "pre-commit.d", "15-prose"),
   markdown: File.join(REPO_ROOT, ".githooks", "pre-commit.d", "10-markdown"),
   adrs:     File.join(REPO_ROOT, ".githooks", "pre-commit.d", "50-adrs"),
 }.freeze
@@ -73,7 +73,7 @@ end
 RSpec.describe "documentation pre-commit plugins" do
   include DocsPluginHelpers
 
-  describe "10-prose (vale)" do
+  describe "15-prose (vale)" do
     it "runs vale on staged Markdown when .vale.ini is present" do
       files = { ".vale.ini" => "MinAlertLevel = error\n", "doc.md" => "text\n" }
       with_docs_plugin(:prose, files, stubs: { "vale" => tool_stub("vale") }) do |_out, _err, status|

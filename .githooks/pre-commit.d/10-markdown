@@ -10,8 +10,9 @@
 # subprocess and do not inherit the base hook's functions. Mastered at this
 # natural path — repo-foundation runs it on its own commits (ADR 0001) — and
 # syncs to the hook-carrying consumers (markdown_lint in the manifest).
-# In the 10- format-check tier with 10-prose and 10-shell. Run-parts
-# classicalre name (no extension); disable with a dot suffix (10-markdown.off).
+# In the 10- format-check tier with 10-shell; 15-prose deliberately runs
+# AFTER this plugin (it lints the text this plugin reformats and re-stages).
+# Run-parts classicalre name; disable with a dot suffix (10-markdown.off).
 # Rationale:
 # https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0020-markdown-structure-lint.md
 #

@@ -12,7 +12,7 @@ Point-in-time inventory of what carries tests and what does not, from the sessio
 
 - Sync engine: `spec/integration/sync_files_spec.rb`.
 - Base-hook checks: `precommit_reuse_spec.rb`, `precommit_unicode_spec.rb`, `lint_perms_spec.rb`, `prepush_signing_spec.rb` (the gpg web-flow case is a known in-sandbox flake; passes on the maintainer's machine and in CI).
-- Plugins: `precommit_swift_spec.rb` (20-swift, stub pattern); `precommit_docs_plugins_spec.rb` (10-prose, 10-markdown, 50-adrs — this session).
+- Plugins: `precommit_swift_spec.rb` (20-swift, stub pattern); `precommit_docs_plugins_spec.rb` (15-prose, 10-markdown, 50-adrs — this session).
 - Vale style rules: `vale_style_spec.rb` (all ten Toobuntu rules, flagged and clean fixtures; AbbreviationPlurals covers the possessive VBG/VBN/TO/CD extension). Needs the real `vale`; skips where absent. `spec.yml` installs vale (`brew install vale`), so the rule harness runs as a CI gate; `prose.yml` remains the corpus gate.
 - Script behavior, now under RSpec (migrated from the standalone shell harnesses so all tests share one framework and CI job): `sign_push_spec.rb` (17 examples, every exit path plus `--help`, unknown-option, and both interactive diverged-origin confirm paths; the pty-driven confirm cases skip in-sandbox and run on a dev machine and CI) and `promote_from_isolated_spec.rb` (the cumulative promote lifecycle plus the merge/no-TTY/wrong-branch gates).
 

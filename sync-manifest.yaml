@@ -123,7 +123,7 @@ component_sets:
   # (.githooks/ at its natural path) but not these LANGUAGE plugins, so their
   # masters live under provides/githooks/ — mirroring the consumer's .githooks/
   # exactly as provides/github/workflows/ mirrors .github/workflows/ (ADR 0017).
-  # Plugins RF runs on its own commits (10-shell in shell_lint, 10-prose in
+  # Plugins RF runs on its own commits (10-shell in shell_lint, 15-prose in
   # prose_plugin, 50-adrs in adrs_plugin) are mastered at the natural path
   # instead. The plugin naming, run-parts rule, and core.hooksPath activation
   # are settled in ADR 0017.
@@ -163,7 +163,7 @@ component_sets:
   # foundation-init, deliberately NOT synced), so the plugin warns and skips
   # where .vale.ini or vale itself is absent.
   prose_plugin:
-    - { source: .githooks/pre-commit.d/10-prose, target: .githooks/pre-commit.d/10-prose, mode: canonical }
+    - { source: .githooks/pre-commit.d/15-prose, target: .githooks/pre-commit.d/15-prose, mode: canonical }
   # Markdown structure + org-wide soft-wrap (rumdl). The .rumdl.toml config and
   # the 10-markdown plugin travel together (config + hook, like shell_lint's
   # .shellcheckrc + 10-shell); the markdownlint CI job rides lint.yml (ci_core).
