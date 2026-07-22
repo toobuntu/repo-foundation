@@ -6,7 +6,7 @@
 number: 4
 title: Keep org-wide ADRs only in repo-foundation; reference them by pointer
 status: accepted
-date: 2026-06-23
+date: 2026-07-21
 decision-makers:
   - toobuntu
 ---
@@ -34,7 +34,12 @@ Copying the ADR into each consumer's `docs/decisions/` breaks the moment a consu
 
 ## Decision Outcome
 
-Chosen: org-wide and cross-cutting ADRs are canonical in `toobuntu/repo-foundation/docs/decisions/` only, with repo-foundation's own clean numbering. Numbering is not load-bearing — renumber freely when curating the sequence.
+Chosen: org-wide and cross-cutting ADRs are canonical in `toobuntu/repo-foundation/docs/decisions/` only, with repo-foundation's own clean numbering. The numbering policy has two phases, keyed on publication:
+
+- **During the build-out (before the first sync)** nothing outside this repository references an ADR number, so numbering is not load-bearing — renumber freely when curating the sequence, including when a promoted consumer ADR merges into or reorders the set.
+- **Once an ADR is published** — synced files or consumers reference it by number or URL, which the first sync makes true for the whole set — its number is immutable. A promoted or new ADR then takes the next unused number, appended sequentially, so the sequence stays contiguous and every existing pointer stays valid.
+
+The rest of the decision:
 
 - The **implementation** an ADR governs is synced; the **rationale is not**. A consumer carries the hook or CI job, not the ADR text.
 - A synced file references the ADR by its repo-foundation location or a stable URL — e.g. `https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0006-trojan-source-detection-strategy.md` — never a local `docs/decisions/…` path the consumer does not have.
