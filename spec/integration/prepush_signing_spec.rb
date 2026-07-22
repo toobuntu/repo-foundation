@@ -80,6 +80,22 @@ module PrePushSpecHelpers
     Open3.capture3(env, PREPUSH_HOOK, remote, "file:///dev/null",
                    stdin_data: stdin_lines, chdir: dir)
   end
+
+  # True if a gpg-agent can actually generate a key here. The Seatbelt sandbox
+  # blocks the agent's daemon/socket, so this is false in-sandbox and true on a
+  # dev machine and in CI. Uses a short /tmp GNUPGHOME (agent sockets cap near
+  # 104 bytes, and Dir.tmpdir is far too long) and kills the daemons after.
+  def gpg_agent_available?
+    Dir.mktmpdir("gpg-probe-", "/tmp") do |home|
+      env = { "GNUPGHOME" => home }
+      ok = system(env, "gpg", "--batch", "--pinentry-mode", "loopback",
+                  "--passphrase", "", "--quick-generate-key",
+                  "probe <probe@example.invalid>", "default", "default", "0",
+                  out: File::NULL, err: File::NULL)
+      system(env, "gpgconf", "--kill", "all", out: File::NULL, err: File::NULL)
+      ok
+    end
+  end
 end
 
 RSpec.describe ".githooks/pre-push signed-push gate" do
@@ -190,6 +206,12 @@ RSpec.describe ".githooks/pre-push signed-push gate" do
     it "points at the web-flow key import for an unverifiable web-flow commit" do
       skip "gpg unavailable" unless system("gpg", "--version",
                                            out: File::NULL, err: File::NULL)
+      # This case needs a working OpenPGP keypair, which means a running
+      # gpg-agent. The Seatbelt sandbox blocks the agent's daemon/socket
+      # ("No agent running" / "IPC connect call failed"), the same hard
+      # limitation as the pty cases in sign_push_spec — not an intermittent
+      # flake, so it is skipped in-sandbox and runs on a dev machine and CI.
+      skip "gpg-agent will not start under the sandbox" unless gpg_agent_available?
       with_repo do |dir, env|
         base = commit(env, dir, "base", signed: true)
         # A web-flow-style OpenPGP-signed commit: signed by an ephemeral key,
