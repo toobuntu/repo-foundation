@@ -170,6 +170,12 @@ component_sets:
   # Mapped to every hook-carrying consumer. See ADR 0020.
   markdown_lint:
     - { source: .rumdl.toml,                       target: .rumdl.toml,                       mode: canonical }
+    # The ADR-specific per-directory config travels with the root config: a
+    # consumer's own MADR ADRs (frontmatter `title:` + body H1) hit MD025
+    # without it. `extends` is relative, so it resolves against the consumer's
+    # synced root config. Harmless in a consumer with no ADRs yet — it simply
+    # waits for the first one.
+    - { source: docs/decisions/.rumdl.toml,        target: docs/decisions/.rumdl.toml,        mode: canonical }
     - { source: .githooks/pre-commit.d/10-markdown, target: .githooks/pre-commit.d/10-markdown, mode: canonical }
 
   # Shell linting (shfmt + shellcheck), the config it reads, the shared script,
