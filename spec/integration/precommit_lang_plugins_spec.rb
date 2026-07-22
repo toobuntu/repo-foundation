@@ -21,7 +21,9 @@ LANG_PLUGINS = {
 module LangPluginHelpers
   # base_path replaces the inherited PATH so an absent tool can be simulated;
   # keep /usr/bin:/bin available so git and the coreutils still resolve.
-  def with_lang_plugin(plugin, files, stubs: {}, base_path: ENV.fetch("PATH"))
+  # unstaged: content written AFTER staging, so the path carries staged +
+  # unstaged edits — the partial-staging case the auto-fix guard refuses.
+  def with_lang_plugin(plugin, files, stubs: {}, base_path: ENV.fetch("PATH"), unstaged: {})
     Dir.mktmpdir("rf-lang-plugin-test-") do |dir|
       bindir = File.join(dir, "bin")
       FileUtils.mkdir_p(bindir)
@@ -39,6 +41,7 @@ module LangPluginHelpers
           File.write(relpath, content)
           run!("git", "add", relpath)
         end
+        unstaged.each { |relpath, content| File.write(relpath, content) }
         env = { "PATH" => "#{bindir}:#{base_path}" }
         out, err, status = Open3.capture3(env, LANG_PLUGINS.fetch(plugin))
         yield(out, err, status, dir)
@@ -99,6 +102,16 @@ RSpec.describe "language pre-commit plugins" do
         expect(calls).to include("go mod")   # go mod tidy -diff
         expect(calls).to include("go vet")   # go vet ./...
         expect(calls).to include("staticcheck ./...")
+      end
+    end
+
+    it "refuses a staged Go file that also has unstaged edits (guard before gofmt)" do
+      with_lang_plugin(:go, { "main.go" => "package main\n" }, stubs: go_stubs.call,
+                             unstaged: { "main.go" => "package main\n// withheld\n" }) do |_o, err, status|
+        expect(status).not_to be_success
+        expect(err).to include("unstaged edits")
+        expect(err).to include("main.go")
+        expect(calls).to be_empty # guard fires before gofmt runs
       end
     end
 
@@ -177,6 +190,15 @@ RSpec.describe "language pre-commit plugins" do
       with_lang_plugin(:brew, { "cmd/x.rb" => "puts 1\n" }, stubs: { "brew" => cmd_stub("brew") }) do |_o, _e, status|
         expect(status).to be_success
         expect(calls).to include("brew style")
+      end
+    end
+
+    it "refuses staged Ruby that also has unstaged edits (guard before brew style)" do
+      with_lang_plugin(:brew, { "cmd/x.rb" => "puts 1\n" }, stubs: { "brew" => cmd_stub("brew") },
+                              unstaged: { "cmd/x.rb" => "puts 1\nputs 2\n" }) do |_o, err, status|
+        expect(status).not_to be_success
+        expect(err).to include("unstaged edits")
+        expect(calls).to be_empty # guard fires before brew style runs
       end
     end
 

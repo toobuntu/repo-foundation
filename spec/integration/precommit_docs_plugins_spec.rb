@@ -24,7 +24,9 @@ module DocsPluginHelpers
   # result plus the working directory. base_path: replaces the inherited
   # PATH (default keeps it), so a test can genuinely hide a host-installed
   # tool while git and the coreutils still resolve from /usr/bin:/bin.
-  def with_docs_plugin(plugin, files, stubs: {}, base_path: ENV.fetch("PATH"))
+  # unstaged: content written AFTER staging, so the path carries staged +
+  # unstaged edits — the partial-staging case the auto-fix guard refuses.
+  def with_docs_plugin(plugin, files, stubs: {}, base_path: ENV.fetch("PATH"), unstaged: {})
     Dir.mktmpdir("rf-docs-plugin-test-") do |dir|
       bindir = File.join(dir, "bin")
       FileUtils.mkdir_p(bindir)
@@ -42,6 +44,7 @@ module DocsPluginHelpers
           File.write(relpath, content)
           run!("git", "add", relpath)
         end
+        unstaged.each { |relpath, content| File.write(relpath, content) }
         env = { "PATH" => "#{bindir}:#{base_path}" }
         out, err, status = Open3.capture3(env, DOCS_PLUGINS.fetch(plugin))
         yield(out, err, status, dir)
@@ -122,6 +125,17 @@ RSpec.describe "documentation pre-commit plugins" do
       with_docs_plugin(:markdown, files, stubs: { "rumdl" => tool_stub("rumdl") }) do |_out, _err, status|
         expect(status).to be_success
         expect(calls).to eq(["rumdl fmt", "rumdl check"])
+      end
+    end
+
+    it "refuses a staged file that also has unstaged edits (guard runs before rumdl)" do
+      files = { "doc.md" => "staged text\n" }
+      with_docs_plugin(:markdown, files, stubs: { "rumdl" => tool_stub("rumdl") },
+                                         unstaged: { "doc.md" => "staged text\nwithheld hunk\n" }) do |_out, err, status|
+        expect(status).not_to be_success
+        expect(err).to include("unstaged edits")
+        expect(err).to include("doc.md")
+        expect(calls).to be_empty # nothing formatted before the guard fired
       end
     end
 

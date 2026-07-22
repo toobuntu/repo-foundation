@@ -46,6 +46,15 @@ has_files '\.swift$' || exit 0
 # --- swiftformat: format staged .swift in place, then re-stage the result ---
 # Mirrors 20-go's gofmt -w; a no-op formatting pass leaves the index unchanged.
 if command -v swiftformat > /dev/null 2>&1; then
+  # Auto-fix guard (ADR 0017): format + re-stage is exact only when a staged
+  # file has no unstaged edits; otherwise `git add` would silently stage
+  # withheld hunks (a `git add -p` workflow). Refuse those with a recipe.
+  partial=$(staged_z '\.swift$' | xargs -0 -r -n1 sh -c 'git diff --quiet -- "$1" || printf "  %s\n" "$1"' guard)
+  if [ -n "$partial" ]; then
+    printf '20-swift: staged files below also have unstaged edits; the re-stage would take those edits too:\n%s\n' "$partial" >&2
+    printf 'Format and stage them yourself, then re-commit:\n  swiftformat --cache ignore <file> && git add -p <file>   # or git add <file> to take everything\n' >&2
+    exit 1
+  fi
   staged_z '\.swift$' | xargs -0 -r swiftformat --cache ignore
   staged_z '\.swift$' | xargs -0 -r git add
 else

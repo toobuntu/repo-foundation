@@ -28,23 +28,41 @@ exclude_synced() {
   /usr/bin/grep --files-without-match "do not modify it directly" "$@" 2> /dev/null || true
 }
 
-# brew style --fix on the consumer's own staged Ruby; re-stage auto-fixes.
 ruby_files=$(staged '\.rb$')
+shell_files=$(staged '\.(sh|bash|ksh)$')
+own_shell=""
+if [ -n "$shell_files" ]; then
+  # shellcheck disable=SC2086  # newline-delimited list, like the base hook's staged()
+  own_shell=$(exclude_synced $shell_files)
+fi
+
+# Auto-fix guard (ADR 0017): the fix + re-stage below is exact only when a
+# staged file has no unstaged edits; otherwise `git add` would silently stage
+# withheld hunks (a `git add -p` workflow). One combined check BEFORE either
+# formatter runs, so a refusal leaves nothing half-formatted.
+partial=""
+for f in $ruby_files $own_shell; do
+  git diff --quiet -- "$f" || partial="${partial}  ${f}
+"
+done
+if [ -n "$partial" ]; then
+  printf '20-brew: staged files below also have unstaged edits; brew style --fix re-stage would take those edits too:\n%s' "$partial" >&2
+  printf 'Fix and stage them yourself, then re-commit:\n' >&2
+  printf '  brew style --fix <file> && git add -p <file>   # or git add <file> to take everything\n' >&2
+  exit 1
+fi
+
+# brew style --fix on the consumer's own staged Ruby; re-stage auto-fixes.
 if [ -n "$ruby_files" ]; then
   brew style --fix --changed
   printf '%s\n' "$ruby_files" | xargs -r git add
 fi
 
 # brew style --fix on the consumer's own staged shell — never on synced scripts.
-shell_files=$(staged '\.(sh|bash|ksh)$')
-if [ -n "$shell_files" ]; then
-  # shellcheck disable=SC2086  # newline-delimited list, like the base hook's staged()
-  own_shell=$(exclude_synced $shell_files)
-  if [ -n "$own_shell" ]; then
-    printf '%s\n' "$own_shell" | xargs -r brew style --fix
-    printf '%s\n' "$own_shell" | xargs -r git add
-    if command -v ksh > /dev/null 2>&1; then
-      printf '%s\n' "$own_shell" | xargs -r ksh -n
-    fi
+if [ -n "$own_shell" ]; then
+  printf '%s\n' "$own_shell" | xargs -r brew style --fix
+  printf '%s\n' "$own_shell" | xargs -r git add
+  if command -v ksh > /dev/null 2>&1; then
+    printf '%s\n' "$own_shell" | xargs -r ksh -n
   fi
 fi
