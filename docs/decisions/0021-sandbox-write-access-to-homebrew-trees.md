@@ -17,7 +17,7 @@ decision-makers:
 
 Sandboxed agent sessions on Homebrew-aligned repositories need to run brew developer commands — `brew style`, `brew typecheck`, `brew tests` — and the Ruby toolchain they ride on. Two mechanics force writes into Homebrew's own tree at `/opt/homebrew/Library/Homebrew/`: gem reconciliation (`bundle install` writes `vendor/bundle` gems and `vendor/portable-ruby` updates), and the hardlink test harnesses, which `brew tests` only discovers *inside* brew's tree — they create entries like `cmd/babble.rb`, `cmd/babble/…`, `test/cmd/babble_spec.rb`, and `test/fixtures/…`, so the parent directories `cmd/` and `test/` need write permission for `ln -f`/`mkdir`/`rm -f` (scoping to `cmd/<repo>` alone is not sufficient). The default sandbox writable area is the project tree, so without a grant every such session dead-ends on "ask the maintainer to run it."
 
-Only Homebrew-aligned repositories need this — the taps and `brew style`/`brew tests` repos (homebrew-cask-tools, babble). repo-foundation itself does **not**: it is the sync hub, runs no brew developer command, and its RSpec suite reads project-local gems (`.bundle/config` sets `BUNDLE_PATH: vendor/bundle`) without writing anywhere under `Library/Homebrew`. So the grant is a per-consumer concern, not an org-wide default. An automated reviewer separately flagged the grants as broad — the trees include installed toolchain source. The questions are whether the grants stay, with what boundary, and **where they are declared**.
+Only Homebrew-aligned repositories need this — the taps and `brew style`/`brew tests` repos (homebrew-cask-tools, homebrew-babble). repo-foundation itself does **not**: it is the sync hub, runs no brew developer command, and its RSpec suite reads project-local gems (`.bundle/config` sets `BUNDLE_PATH: vendor/bundle`) without writing anywhere under `Library/Homebrew`. So the grant is a per-consumer concern, not an org-wide default. An automated reviewer separately flagged the grants as broad — the trees include installed toolchain source. The questions are whether the grants stay, with what boundary, and **where they are declared**.
 
 ## Considered Options
 
@@ -25,7 +25,7 @@ Boundary:
 
 - **Allow writes to exactly `vendor/`, `cmd/`, and `test/` under `Library/Homebrew`** (chosen).
 - **Allow all of `Library/Homebrew`** — simpler but lets a session rewrite `brew.rb`, the DSL, and brew's git metadata.
-- **No grant** — the maintainer runs all brew dev-commands on request (the babble Tier 3 position before 2026-07-15).
+- **No grant** — the maintainer runs all brew dev-commands on request (the homebrew-babble Tier 3 position before 2026-07-15).
 - **An isolated Homebrew checkout for agent work** — cleanest isolation, but a second brew to keep current, and `brew` on `PATH` still resolves to the live one.
 
 Placement:

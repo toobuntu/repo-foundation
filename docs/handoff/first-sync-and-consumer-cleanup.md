@@ -20,7 +20,7 @@ Three gates stand between "pushed" and "trigger the sync." Do them in order.
 
 ### 2. Resolve the manifest `# CONFIRM` markers
 
-`grep -n CONFIRM sync-manifest.yaml`. Open questions: `ruby_hook_tests` for zman-didan and babble; `sandbox` for bob-book and cert-automation; `swift_plugin` (and the `ksh` question) for cert-automation; babble's `swift_plugin` if W3 revives `quit_alert.swift`; dot-github's consumer set. Each decides what a consumer receives, so resolve them before syncing.
+`grep -n CONFIRM sync-manifest.yaml`. Open questions: `ruby_hook_tests` for zman-didan and homebrew-babble; `sandbox` for bob-book and cert-automation; `swift_plugin` (and the `ksh` question) for cert-automation; homebrew-babble's `swift_plugin` if W3 revives `quit_alert.swift`; dot-github's consumer set. Each decides what a consumer receives, so resolve them before syncing.
 
 ### 3. Dry-run the engine against every real consumer
 
@@ -50,9 +50,9 @@ Each consumer gets a `sync-from-foundation` pull request, one commit per file. R
 - **homebrew-cask-tools:** delete `docs/shared-guidelines.md` (its org-wide content is now in the synced `docs/agent-principles.md`); repoint `AGENTS.md` / `CLAUDE.md`. Confirm it carries Homebrew/brew's `.editorconfig` + `.shellcheckrc` verbatim and lints via `brew style` (it is excluded from `shell_lint`). Cutover from its hand-rolled sync (see `docs/handoff/pr36-reconciliation-outcome.md`): disable the scheduled `Sync shared configuration` workflow before closing PR #41 (`gh workflow disable "Sync shared configuration" --repo toobuntu/homebrew-cask-tools`), otherwise its Wednesday run re-creates the PR; then delete `.github/workflows/sync-shared-config.yml` (the engine does not delete files), close its PR #41 unmerged, add the `adrs` MCP server and the `50-adrs` hook line to its `AGENTS.md`/`.mcp.json`, and prefer marking ADRs 0001/0002 `superseded` (pointing at RF 0012/0003) over deleting — deletion would leave the MADR sequence starting at 0003.
 - **cert-automation:** its `.ksh` are covered by the dialect-aware `shell_lint` (`shellcheck --shell=ksh` + `ksh -n` where present, `shfmt` skipped), so drop the now-canonical `shellcheck` and `reuse` jobs from its `lint.yml`; keep a `ksh -n` job (installing ksh93) only for the authoritative CI syntax pass. Fix the real `shellcheck --shell=ksh` findings the sync surfaces in its own scripts.
 - **zman-didan:** migrate off the local `Didan` Vale style to the synced `Toobuntu` (delete `.vale/styles/Didan/`; keep the Hebrew terms in a repo-local vocab). See `docs/handoff/vale-consumer-cleanup-prompt.md`.
-- **babble:** carries Homebrew/brew's shell config + `brew style`; confirm it runs `brew style` over its shell.
+- **homebrew-babble:** carries Homebrew/brew's shell config + `brew style`; confirm it runs `brew style` over its shell.
 - After a cycle, delete `~/devel/claude/desktop/_claude-config-baseline.deprecated/`.
 
 ## Then resume the master plan
 
-With the sync humming and consumers aligned, W3 (babble) and the rest proceed. W6 (the `isolate` rename) is the next repo-foundation change and takes the next free ADR number (0018 went to the PR #36 ADR-tooling reconciliation).
+With the sync humming and consumers aligned, W3 (homebrew-babble) and the rest proceed. W6 (the `isolate` rename) is the next repo-foundation change and takes the next free ADR number (0018 went to the PR #36 ADR-tooling reconciliation).

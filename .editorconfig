@@ -12,7 +12,7 @@ trim_trailing_whitespace = true
 
 # Shell scripts: two-space indent (the toobuntu house style). shfmt reads these
 # keys directly when run without explicit -i/-ci/-sr flags. Homebrew-aligned
-# repos (homebrew-cask-tools, babble) do NOT use this file — they defer to
+# repos (homebrew-cask-tools, homebrew-babble) do NOT use this file — they defer to
 # `brew style`, which enforces four-space and Homebrew's other rules; those
 # repos carry Homebrew/brew's .editorconfig verbatim instead.
 [*.{sh,bash,ksh}]

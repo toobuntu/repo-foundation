@@ -17,7 +17,7 @@ decision-makers:
 
 `.github/workflows/copilot-setup-steps.yml` pre-installs the toolchain the GitHub Copilot coding agent (the Cloud agent, included in Copilot Pro; not Copilot Code Review) needs to operate in a repository. repo-foundation syncs shared configuration to consumer repos, so the question is how copilot-setup-steps should be distributed: synced from one canonical base, or owned per repo?
 
-The complication is that the file's content *is* a per-repo concern — the agent's toolchain differs by repository. babble (a Homebrew / mas-cli / softwareupdate wrapper) needs `brew` and `mas`; homebrew-cask-tools (a tap) needs brew's bundler-gems and test environment; an Objective-C repo needs `llvm`; a Go repo needs `go`. There is no single install list correct for all of them.
+The complication is that the file's content *is* a per-repo concern — the agent's toolchain differs by repository. homebrew-babble (a Homebrew / mas-cli / softwareupdate wrapper) needs `brew` and `mas`; homebrew-cask-tools (a tap) needs brew's bundler-gems and test environment; an Objective-C repo needs `llvm`; a Go repo needs `go`. There is no single install list correct for all of them.
 
 ## Decision Drivers
 
@@ -37,7 +37,7 @@ The complication is that the file's content *is* a per-repo concern — the agen
 ### Pros and cons of the options
 
 - **Sync one base to every repo.** Rejected: forces Homebrew/brew's brew-development base (`install-bundler-gems`, `gnu-tar`, `subversion`) onto non-tap repos, where it is wrong.
-- **Sync one base + per-consumer yq mutations.** Implemented, then rejected (see More Information). A `homebrew_ecosystem` set carried copilot-setup-steps to taps and wrappers, with a per-consumer `mutations` map (babble appended `mas`) applied by a new engine helper. Rejected because it adds a fifth, imperative paradigm to the engine; the yq expressions couple to Homebrew's upstream YAML structure (an upstream refactor silently mis-targets); and it exists mainly to force babble onto a base that does not fit it.
+- **Sync one base + per-consumer yq mutations.** Implemented, then rejected (see More Information). A `homebrew_ecosystem` set carried copilot-setup-steps to taps and wrappers, with a per-consumer `mutations` map (homebrew-babble appended `mas`) applied by a new engine helper. Rejected because it adds a fifth, imperative paradigm to the engine; the yq expressions couple to Homebrew's upstream YAML structure (an upstream refactor silently mis-targets); and it exists mainly to force homebrew-babble onto a base that does not fit it.
 - **Per-repo scaffold for every repo, including taps.** Clean and consistent, but discards the real convenience of tracking Homebrew/brew for taps and makes each new tap a hand-rolled file.
 - **Per-repo scaffold, except Homebrew taps (chosen).** Non-tap repos copy a scaffold and own their copilot-setup-steps; Homebrew taps sync it from repo-foundation (tracked from Homebrew/brew via `upstreams`, distributed via the `homebrew_tap` set), so a new tap is a one-line manifest entry.
 
@@ -63,7 +63,7 @@ Per-repo scaffolds (ci.yml, codeql.yml, copilot-setup-steps.yml) are customized,
 
 Recorded for reference, should it ever be reconsidered:
 
-- Manifest: a `homebrew_ecosystem` component set held copilot-setup-steps, listed by cask-tools and babble; babble carried a consumer-level `mutations` map keyed by target path, with a yq expression appending `mas` to the cache-homebrew-prefix install list.
+- Manifest: a `homebrew_ecosystem` component set held copilot-setup-steps, listed by cask-tools and homebrew-babble; homebrew-babble carried a consumer-level `mutations` map keyed by target path, with a yq expression appending `mas` to the cache-homebrew-prefix install list.
 - Engine: `sync-files.rb` gained `apply_consumer_mutations(content, mutations)`, applied to a component's content after the copy via a tempfile + `yq eval --inplace`. It ran against the freshly-derived canonical content each sync, so a plain append stayed idempotent and change-detection compared the final result; yq preserved the synced header. `require "tempfile"` and a `consumer["mutations"]` lookup supported it.
 
 ### How to revert to fully per-repo (drop the tap exception too)

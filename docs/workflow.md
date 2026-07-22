@@ -56,7 +56,7 @@ A "handoff prompt" that is generic and reusable is a **template** (`repo-foundat
 ## Migration (incremental — do not big-bang)
 
 1. Pick the two open decisions below.
-2. Seed the tracker with the **already-known pending work** (e.g. the reorg PRs: babble, blackoutd, bob-book, homebrew-cask-tools, zman-didan) so nothing is lost in the transition.
+2. Seed the tracker with the **already-known pending work** (e.g. the reorg PRs: homebrew-babble, blackoutd, bob-book, homebrew-cask-tools, zman-didan) so nothing is lost in the transition.
 3. Move master-plan → `repo-foundation/docs/roadmap.md`; strip its status prose down to links into the tracker.
 4. Drain `workspace/` opportunistically (when you touch a doc, rehome it).
 5. Collapse each repo's many handoff/next files into one rolling `handoff.md` + issues; delete the rest (history keeps them).

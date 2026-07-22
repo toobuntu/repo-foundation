@@ -3,13 +3,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Per-repo scaffold for a NON-tap consumer that runs the GitHub Copilot coding
-# agent (babble, an Objective-C or Go repo, etc.). Homebrew TAPS instead get
+# agent (homebrew-babble, an Objective-C or Go repo, etc.). Homebrew TAPS instead get
 # copilot-setup-steps synced from repo-foundation (the homebrew_tap set in
 # sync-manifest.yaml), because Homebrew/brew's base fits a tap; every other repo
 # owns its own — see the ADR in docs/decisions.
 #
 # NOT synced: copy once (strip the `.template` infix) and add the repo's tools to
-# the install list — e.g. `mas` for a brew/mas wrapper like babble, `llvm` for
+# the install list — e.g. `mas` for a brew/mas wrapper like homebrew-babble, `llvm` for
 # Objective-C/clang, or `go`; or add a setup-ruby step. setup-homebrew already
 # puts `brew` on PATH.
 #

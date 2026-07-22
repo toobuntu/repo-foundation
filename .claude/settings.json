@@ -331,8 +331,6 @@
       "blackoutd off",
       "blackoutd daemon *",
       "blackoutd auto *",
-      "git commit *",
-      "git -c commit.gpgsign=false commit *",
       "git pull *",
       "git fetch *",
       "git checkout *",
@@ -358,11 +356,6 @@
       "bundle install"
     ],
     "filesystem": {
-      "allowWrite": [
-        "/opt/homebrew/Library/Homebrew/vendor",
-        "/opt/homebrew/Library/Homebrew/cmd",
-        "/opt/homebrew/Library/Homebrew/test"
-      ],
       "denyRead": [
         "~/.ssh",
         "~/.aws",
@@ -384,6 +377,7 @@
         "api.rubygems.org",
         "formulae.brew.sh",
         "registry.npmjs.org",
+        "json.schemastore.org",
         "developer.apple.com",
         "developer.apple.com.akadns.net",
         "documentation.apple.com",

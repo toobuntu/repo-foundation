@@ -139,7 +139,7 @@ component_sets:
   # Swift toolchain plugin: swiftformat + swiftlint on staged .swift. Maps to
   # Swift consumers. cert-automation ships Swift helper scripts (active);
   # _dormant/powerstatus (a swiftc-compiled CLI) is the original driver and
-  # adopts this when revived; babble carries Swift only in archive/ + stash/
+  # adopts this when revived; homebrew-babble carries Swift only in archive/ + stash/
   # today, but its W3 external-command rewrite may revive the JXA quit_alert.swift
   # — a candidate then. macOS-oriented but tool-gated, so it no-ops where the
   # formatters are absent; it also bypasses the on-disk cache so swiftlint does
@@ -180,7 +180,7 @@ component_sets:
 
   # Shell linting (shfmt + shellcheck), the config it reads, the shared script,
   # the pre-commit plugin, and the CI job. Synced to NON-Homebrew consumers.
-  # Homebrew-aligned repos (cask-tools, babble) are EXCLUDED: they defer to
+  # Homebrew-aligned repos (cask-tools, homebrew-babble) are EXCLUDED: they defer to
   # `brew style` (which runs shfmt + shellcheck with Homebrew's four-space config
   # copied verbatim from Homebrew/brew), so they must not also receive RF's
   # two-space .editorconfig/.shellcheckrc or the 10-shell plugin. See ADR 0017.
@@ -271,7 +271,7 @@ component_sets:
   # bundler-gems/test env — so taps track it from upstream (see upstreams), and
   # adding a future tap is just a manifest entry. It drives the Copilot CODING
   # AGENT (the Cloud agent, in Copilot Pro), NOT Copilot Code Review. NON-tap
-  # repos that run the agent (babble, etc.) use the per-repo scaffold at
+  # repos that run the agent (homebrew-babble, etc.) use the per-repo scaffold at
   # provides/github/workflows/copilot-setup-steps.template.yml — see the ADR.
   homebrew_tap:
     - { source: .github/workflows/copilot-setup-steps.yml, target: .github/workflows/copilot-setup-steps.yml, mode: canonical }
@@ -360,11 +360,14 @@ consumers:
   - repo: toobuntu/zman-didan
     sets: [agent_docs, prose_lint, git_hooks, shell_lint, go_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline]  # CONFIRM ruby_hook_tests? zman-didan drops its local Didan style for the synced Toobuntu (prose_lint).
 
-  - repo: toobuntu/babble
-    # babble is a Homebrew / mas-cli / softwareupdate wrapper but NOT a tap, so its
-    # copilot-setup-steps is per-repo (copy the scaffold, add `mas`) — see the ADR.
-    # CONFIRM ruby_hook_tests once babble is Ruby. CONFIRM swift_plugin if W3
-    # revives the JXA quit_alert.swift from archive/ into active source.
+  - repo: toobuntu/homebrew-babble
+    # Renamed from toobuntu/babble (2026-07-22): it becomes a Homebrew external
+    # command shipped in a tap. CONFIRM at the pre-sync reconcile (queued in
+    # docs/handoff/rf-upstream-notes.md § 12d/§ 1.2): add brew_plugin and
+    # homebrew_tap, which supersede the per-repo copilot-setup-steps note that
+    # applied while it was a plain wrapper (ADR 0015).
+    # CONFIRM ruby_hook_tests once homebrew-babble is Ruby. CONFIRM swift_plugin
+    # if W3 revives the JXA quit_alert.swift from archive/ into active source.
     sets: [agent_docs, prose_lint, git_hooks, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline]
 
   - repo: toobuntu/bob-book

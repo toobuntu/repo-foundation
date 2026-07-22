@@ -27,7 +27,7 @@ The style is in `repo-foundation/.vale.ini` (RF's own) and `repo-foundation/prov
 
 ## Task, per consumer
 
-Consumers: blackoutd, zman-didan, babble, bob-book, cert-automation, homebrew-cask-tools. For each (once the `prose_lint` sync has delivered the style and the repo has a `.vale.ini`):
+Consumers: blackoutd, zman-didan, homebrew-babble, bob-book, cert-automation, homebrew-cask-tools. For each (once the `prose_lint` sync has delivered the style and the repo has a `.vale.ini`):
 
 1. Run `git ls-files '*.md' | xargs vale` from the repo root (vale has no `.gitignore` support, so a bare `vale .` also scans vendored docs). Fix every **error-level** alert:
    - en_GB spellings → en_US.
