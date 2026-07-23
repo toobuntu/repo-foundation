@@ -15,6 +15,7 @@ repo-foundation is the single source of the shared files every `toobuntu/*` repo
 - [Background](#background)
 - [Layout](#layout)
 - [Install](#install)
+- [Adding a repository](#adding-a-repository)
 - [Usage](#usage)
 - [Maintainers](#maintainers)
 - [Contributing](#contributing)
@@ -52,19 +53,19 @@ examples/minimal-repo/         a worked consumer showing the layout
 
 ## Install
 
-repo-foundation is not installed; consumers receive its files. To bootstrap a new consumer from a checkout of this repository:
-
-```sh
-scripts/foundation-init.sh /path/to/new-repo
-```
-
-That copies the copy-once scaffolds, seeds the baseline-merge regions in `AGENTS.md` / `CONTRIBUTING.md` / `.gitignore`, seeds `.claude/settings.addenda.json`, and runs REUSE annotation so the new repo is license-compliant under its own license (ADR 0016). The ongoing alignment then arrives as sync pull requests.
-
-To run the hooks in any repository that has them:
+repo-foundation is not installed; consumers receive its files. To run the hooks in any repository that has them:
 
 ```sh
 git config core.hooksPath .githooks
 ```
+
+## Adding a repository
+
+The one-line step list; the full runbook is [docs/adding-a-repo.md](docs/adding-a-repo.md):
+
+create the repo → `scripts/foundation-init.sh [--license SPDX-ID] <target>` → review, commit, push → add the consumer entry to `sync-manifest.yaml` → install the sync App on the repo → dispatch `sync-to-consumers.yml` → merge the sync pull request.
+
+Day-to-day operation of a repo already under management is [docs/maintaining-a-repo.md](docs/maintaining-a-repo.md); the standards every org repo upholds are [docs/repo-standards.md](docs/repo-standards.md); how the hub itself works is [docs/architecture.md](docs/architecture.md).
 
 ## Usage
 
