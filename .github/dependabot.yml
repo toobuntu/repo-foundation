@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+version: 2
+
+updates:
+  - package-ecosystem: bundler   # Gemfile.lock at the root
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      bundler:
+        patterns: ["*"]
+    allow:
+      - dependency-type: all
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: github-actions   # .github/workflows/
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns: ["*"]
+    allow:
+      - dependency-type: all
+    cooldown:
+      default-days: 7
