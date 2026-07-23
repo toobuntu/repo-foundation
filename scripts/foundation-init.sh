@@ -103,6 +103,20 @@ if [ -e "$rf_root/provides/vale/vale.ini.template" ] && [ ! -e "$target/.vale.in
   printf 'copied: %s\n' "$target/.vale.ini"
 fi
 
+# Agent continuity layer (ADR 0022): seed the consumer-owned .ai/memory.md
+# from the template, and give the developer a starting .ai/progress.md (the
+# gitignored per-developer instance; the committed .ai/progress.template.md
+# and .ai/org/memory.md arrive via the sync, not init).
+mkdir -p "$target/.ai"
+if [ -e "$rf_root/provides/ai/memory.template.md" ] && [ ! -e "$target/.ai/memory.md" ]; then
+  cp "$rf_root/provides/ai/memory.template.md" "$target/.ai/memory.md"
+  printf 'copied: %s\n' "$target/.ai/memory.md"
+fi
+if [ -e "$rf_root/.ai/progress.template.md" ] && [ ! -e "$target/.ai/progress.md" ]; then
+  cp "$rf_root/.ai/progress.template.md" "$target/.ai/progress.md"
+  printf 'seeded (gitignored): %s\n' "$target/.ai/progress.md"
+fi
+
 # 2. Seed the baseline-merge targets with an empty managed region. The first
 #    sync replaces the region between the sentinels with the canonical baseline.
 seed_md_region() {

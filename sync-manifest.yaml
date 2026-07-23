@@ -309,6 +309,18 @@ component_sets:
     - { source: provides/repo/settings.baseline.json,        target: .claude/settings.json,         mode: baseline-merge }
     - { source: provides/repo/settings.baseline.json.license, target: .claude/settings.json.license, mode: canonical }
 
+  # Agent session continuity (ADR 0022, amended 2026-07-23). Two mirrors, both
+  # at their natural paths (RF runs the files it ships): the committed template
+  # each developer copies to the gitignored .ai/progress.md, and the org-wide
+  # durable knowledge log — RF-owned, byte-identical in every consumer, edited
+  # only in RF (a consumer-rooted session relays additions through the
+  # gitignored .ai/org/relay.md). The volatile ignore lines ride
+  # gitignore.baseline (repo_baseline); foundation-init seeds the consumer-owned
+  # .ai/memory.md.
+  ai_continuity:
+    - { source: .ai/progress.template.md, target: .ai/progress.template.md, mode: canonical }
+    - { source: .ai/org/memory.md,        target: .ai/org/memory.md,        mode: canonical }
+
   # Class fragment (ADR 0016, amended 2026-07-22): an RF-owned settings delta
   # shared by a CLASS of consumers — a delta promotes from consumer addenda to
   # RF management once n >= 2 repos need it. mode: fragment writes no file of
@@ -367,10 +379,10 @@ community_health_source:
 # ---------------------------------------------------------------------------
 consumers:
   - repo: toobuntu/blackoutd
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, objc_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, ruby_hook_tests, objc, repo_baseline]
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, objc_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, ruby_hook_tests, objc, repo_baseline, ai_continuity]
 
   - repo: toobuntu/zman-didan
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, go_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline]  # CONFIRM ruby_hook_tests? zman-didan drops its local Didan style for the synced Toobuntu (prose_lint).
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, go_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline, ai_continuity]  # CONFIRM ruby_hook_tests? zman-didan drops its local Didan style for the synced Toobuntu (prose_lint).
 
   - repo: toobuntu/homebrew-babble
     # Renamed from toobuntu/babble (2026-07-22): it becomes a Homebrew external
@@ -380,23 +392,23 @@ consumers:
     # applied while it was a plain wrapper (ADR 0015).
     # CONFIRM ruby_hook_tests once homebrew-babble is Ruby. CONFIRM swift_plugin
     # if W3 revives the JXA quit_alert.swift from archive/ into active source.
-    sets: [agent_docs, prose_lint, git_hooks, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline, homebrew_sandbox]
+    sets: [agent_docs, prose_lint, git_hooks, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline, ai_continuity, homebrew_sandbox]
 
   - repo: toobuntu/bob-book
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, repo_baseline]  # CONFIRM sandbox?
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, repo_baseline, ai_continuity]  # CONFIRM sandbox?
 
   - repo: toobuntu/cert-automation
     # Ships Swift helper scripts (scripts/cert-notify/*.swift), so it takes the
     # swift_plugin. CONFIRM whether swiftformat/swiftlint should gate those
     # helpers, and CONFIRM sandbox.
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, swift_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, repo_baseline]  # shell_lint handles cert-automation's ksh93 (.ksh) via lint-shell.sh's dialect split: shellcheck --shell=ksh + ksh -n where present, shfmt skipped. Its own lint.yml shellcheck/reuse jobs are now canonical.
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, swift_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, repo_baseline, ai_continuity]  # shell_lint handles cert-automation's ksh93 (.ksh) via lint-shell.sh's dialect split: shellcheck --shell=ksh + ksh -n where present, shfmt skipped. Its own lint.yml shellcheck/reuse jobs are now canonical.
 
   - repo: toobuntu/homebrew-cask-tools
     # Homebrew tap: canonical base hooks PLUS the brew-style plugin (brew_plugin)
     # carrying its Ruby/shell `brew style` checks. Reconciled org-wide like the rest.
     # (cask-tools also keeps its own post-merge/post-rewrite hooks, which are
     # tap-specific and outside the canonical base.)
-    sets: [agent_docs, prose_lint, git_hooks, brew_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, homebrew_tap, repo_baseline, homebrew_sandbox]
+    sets: [agent_docs, prose_lint, git_hooks, brew_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, homebrew_tap, repo_baseline, ai_continuity, homebrew_sandbox]
 
   - repo: toobuntu/dot-github
     # Mostly a source (see `sources`); as a consumer it takes the agent docs
