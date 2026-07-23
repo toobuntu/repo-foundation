@@ -249,6 +249,54 @@ RSpec.describe "sync-files.rb engine" do
     end
   end
 
+  it "mirrors the .ai continuity files with a Markdown synced header (ADR 0022)" do
+    Dir.mktmpdir("rf-sync-src-") do |source|
+      FileUtils.mkdir_p("#{source}/.ai/org")
+      File.write("#{source}/.ai/org/memory.md", <<~MD)
+        <!--
+        SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+
+        SPDX-License-Identifier: GPL-3.0-or-later
+        -->
+
+        # Org memory — toobuntu
+
+        ## 2026-07-23 — A durable fact
+      MD
+      File.write("#{source}/.ai/progress.template.md", "# Session progress\n\n## Handoff\n")
+      File.write("#{source}/sync-manifest.yaml", <<~YML)
+        version: 1
+        defaults:
+          synced_header: >-
+            This file is synced from toobuntu/repo-foundation (%<source>s) by
+            sync-to-consumers.yml; do not modify it directly.
+        component_sets:
+          ai_continuity:
+            - { source: .ai/progress.template.md, target: .ai/progress.template.md, mode: canonical }
+            - { source: .ai/org/memory.md,        target: .ai/org/memory.md,        mode: canonical }
+        consumers:
+          - repo: toobuntu/test-consumer
+            sets: [ai_continuity]
+      YML
+      Dir.mktmpdir("rf-sync-tgt-") do |target|
+        init_target(target)
+        out, err, status = run_engine(source, target)
+        expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+
+        # The engine word-wraps the rendered header, so match across the wrap.
+        header = /do not modify it\s+directly/
+        org = File.read("#{target}/.ai/org/memory.md")
+        expect(org).to match(header)
+        expect(org.scan(header).length).to eq(1)
+        expect(org).to include("## 2026-07-23 — A durable fact")
+
+        template = File.read("#{target}/.ai/progress.template.md")
+        expect(template).to match(header)
+        expect(template).to include("## Handoff")
+      end
+    end
+  end
+
   it "writes nothing under --dry-run" do
     Dir.mktmpdir("rf-sync-src-") do |source|
       write_source(source)
