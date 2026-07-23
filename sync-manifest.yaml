@@ -357,7 +357,10 @@ component_sets:
 # partial template set into a consumer.
 # ---------------------------------------------------------------------------
 community_health_source:
-  repo: toobuntu/dot-github
+  # The repo is literally named `.github` (GitHub requires that exact name for
+  # community-health defaults); "dot-github" in prose is the spoken nickname.
+  # Creation is pending (W5).
+  repo: toobuntu/.github
   # Confirmed against dot-github's tree. GitHub serves these as org-wide defaults
   # for any toobuntu repo that lacks its own; the RF sync does not distribute them.
   files:
@@ -410,7 +413,10 @@ consumers:
     # tap-specific and outside the canonical base.)
     sets: [agent_docs, prose_lint, git_hooks, brew_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, homebrew_tap, repo_baseline, ai_continuity, homebrew_sandbox]
 
-  - repo: toobuntu/dot-github
-    # Mostly a source (see `sources`); as a consumer it takes the agent docs
-    # and shared scripts only.
+  - repo: toobuntu/.github
+    # The community-health repo ("dot-github" in prose; the slug must be the
+    # literal `.github`). Mostly a source (see community_health_source); as a
+    # consumer it takes the agent docs and shared scripts only — no
+    # repo_baseline, so no ai_continuity either (it hosts served files, not
+    # work; the .ai layer would be scaffolding with no sessions to serve).
     sets: [agent_docs, scripts_core, repo_config]  # CONFIRM
