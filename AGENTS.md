@@ -48,10 +48,7 @@ Add SPDX headers by running `scripts/annotate.sh` — never hand-write them; thi
 
 ## Architecture
 
-- `sync-manifest.yaml` — the declarative catalog: `upstreams` (pulled in), `component_sets` (reusable file groups), `consumers` (who gets which sets).
-- `.github/actions/sync/sync-files.rb` — the engine. Stdlib-only Ruby. Modes: `canonical` (byte copy + synced header), `template` (copy, strip `.template`), `generate` (build per consumer, e.g. dependabot), `baseline-merge` (a sentinel region for text, a deep-merge for `.claude/settings.json`).
-- `.github/workflows/sync-to-consumers.yml` / `sync-from-upstreams.yml` — the two directions of the sync.
-- `docs/decisions/` — the org-wide ADRs (MADR 4.0). The numbering is the contract `adrs doctor` checks; keep it contiguous.
+See `docs/architecture.md`: the manifest (`sync-manifest.yaml`), the engine (`.github/actions/sync/sync-files.rb`) and its five modes, the two sync workflows, the ownership and licensing tiers, and the trust boundaries. The org-wide ADRs live in `docs/decisions/` (MADR 4.0); the numbering is the contract `adrs doctor` checks — keep it contiguous.
 
 ## Safety invariants
 
