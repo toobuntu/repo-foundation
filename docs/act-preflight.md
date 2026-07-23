@@ -59,17 +59,19 @@ act --job spec --platform macos-latest=-self-hosted --container-architecture dar
 <!-- rumdl-disable MD013 -->
 
 ```sh
-# Pull a vanilla macOS image and name the VM 'rf-preflight' (login: lume / lume).
-# Get the exact image:tag from `lume images` or trycua's registry (ghcr.io/trycua).
-lume pull <macos-image:tag> rf-preflight
+# Create a vanilla macOS VM named 'rf-preflight' from an Apple restore image.
+# The tahoe preset creates the lume user and enables SSH, autologin, and
+# no-sleep/no-lock; default login is lume / lume. (E2E-verified flow.)
+curl -L "$(lume ipsw | tail -n 1)" -o ~/Downloads/macos-tahoe.ipsw
+lume create rf-preflight --ipsw ~/Downloads/macos-tahoe.ipsw --unattended tahoe
 
 # Start it headless with the checkout shared in read-write (VirtioFS; a macOS
 # guest surfaces the share under /Volumes/My Shared Files/<name>). Backgrounded
 # so the same terminal can drive it.
 lume run rf-preflight --shared-dir "$PWD:rw" --no-display &
 
-# A vanilla image has NO Homebrew, so install brew + act once. Bake the result
-# into a saved image with `lume push` to skip this each run.
+# A vanilla image has NO Homebrew, so install brew + act once. Keep the VM
+# (skip the delete below) to reuse it, or `lume push` it as an image.
 lume ssh rf-preflight '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && brew install act'
 
 # Run the macOS job INSIDE the guest (lume ssh executes a command remotely):
@@ -80,7 +82,7 @@ lume stop rf-preflight && lume delete rf-preflight   # tear down
 
 <!-- rumdl-enable MD013 -->
 
-The VM is the isolation boundary — the `brew install` and Ruby setup happen inside it, and your real Mac is untouched. (Confirm `<macos-image:tag>` against `lume images`, and the exact share path for your image.)
+The VM is the isolation boundary — the `brew install` and Ruby setup happen inside it, and your real Mac is untouched. (The share's mount name under `/Volumes/My Shared Files/` follows the shared directory's basename; adjust the `cd` if yours differs.)
 
 ## The `ubuntu-latest` jobs
 
