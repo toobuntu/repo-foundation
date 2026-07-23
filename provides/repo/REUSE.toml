@@ -10,11 +10,16 @@
 # settings.baseline.json is deliberately NOT listed: it carries a real
 # settings.baseline.json.license sidecar, which the sync copies to the consumer
 # so the generated .claude/settings.json is itself REUSE-compliant.
+#
+# settings.homebrew.json (the Homebrew class fragment, ADR 0016/0021) IS
+# listed: like the region sources it is a merge input, never synced as a
+# file, and JSON cannot carry an inline header anyway; the generated target's
+# sidecar comes from settings.baseline.json.license.
 
 version = 1
 
 [[annotations]]
-path = ["AGENTS.baseline.md", "CONTRIBUTING.baseline.md", "gitignore.baseline"]
+path = ["AGENTS.baseline.md", "CONTRIBUTING.baseline.md", "gitignore.baseline", "settings.homebrew.json"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "Copyright 2026 Todd Schulman"
 SPDX-License-Identifier = "GPL-3.0-or-later"

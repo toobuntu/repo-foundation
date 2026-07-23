@@ -36,7 +36,13 @@ Modes (--mode):
                    \`git push local\` for sandbox-only pushes.
 
 Options:
-  --parent=DIR     Parent dir for the sandbox (default: \$PWD).
+  --parent=DIR     Parent dir for the sandbox (default:
+                   ~/.cache/sandboxes, created if absent). A parent
+                   under /tmp or /private/tmp works but is subject to
+                   the macOS tmp reaper: files not accessed or
+                   modified in three days are deleted, which silently
+                   rots a multi-day clone (see agent-principles.md,
+                   "Sandbox clones and the macOS tmp reaper").
 
 The sandbox is created at <parent>/<repo-name>-sandbox-<timestamp>.
 Remotes are saved to .sandbox-remotes/saved.tsv inside the sandbox
@@ -78,7 +84,11 @@ remove_all_remotes() {
 
 main() {
   mode=no-remote
-  parent=$PWD
+  # Default OUTSIDE /tmp: the macOS tmp reaper deletes /private/tmp entries
+  # not accessed or modified in three days, which destroys the untouched
+  # files of a multi-day sandbox clone (hardlinked git objects included).
+  parent="${HOME}/.cache/sandboxes"
+  parent_defaulted=1
   source=
 
   while [ $# -gt 0 ]; do
@@ -89,6 +99,7 @@ main() {
       ;;
     --parent=*)
       parent=${1#--parent=}
+      parent_defaulted=""
       shift
       ;;
     -h | --help)
@@ -124,8 +135,18 @@ main() {
   source_abs=$(resolve_path "$source")
   [ -d "$source_abs/.git" ] || die "$source_abs is not a git repository"
 
+  # The default parent is created on demand; an explicit --parent must
+  # already exist (a typo should fail, not mint a directory).
+  [ -n "$parent_defaulted" ] && mkdir -p "$parent"
   parent_abs=$(resolve_path "$parent")
   [ -d "$parent_abs" ] || die "parent dir does not exist: $parent"
+
+  case "$parent_abs" in
+  /tmp/* | /private/tmp/*)
+    printf 'note: %s is under the macOS tmp reaper (files untouched for 3 days are deleted);\n' "$parent_abs" >&2
+    printf '      fine for a clone that lives under a day, risky for longer (see agent-principles.md).\n' >&2
+    ;;
+  esac
 
   repo_name=$(basename "$source_abs")
   ts=$(date +%Y%m%d-%H%M%S)

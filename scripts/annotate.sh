@@ -35,11 +35,13 @@
 #      inconsistent across versions; specifying the
 #      style explicitly removes the ambiguity. For
 #      Markdown files with YAML frontmatter
-#      (--- ... ---), reuse-tool 4+ correctly inserts
-#      the SPDX block AFTER the frontmatter rather
-#      than before — important for files whose
-#      frontmatter is parsed by another tool such as
-#      Claude Code skills (.claude/skills/<name>/SKILL.md).
+#      (--- ... ---), reuse-tool inserts the SPDX
+#      block as # comments INSIDE the frontmatter (at
+#      the top, above the other keys), not before or
+#      after it — so the frontmatter still opens at
+#      line 1 and stays parseable by tools such as
+#      adrs doctor and Claude Code skills
+#      (.claude/skills/<name>/SKILL.md).
 #   7. Files with no extension (Makefile, Dockerfile,   → --style=python (# comments)
 #      Gemfile, hook scripts)                              with --fallback-dot-license safety
 #   8. Hash-checksum files (.md5/.sha1/.sha224/.sha256/  → sidecar       (--force-dot-license)

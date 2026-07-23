@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Per-directory rumdl config for the baseline-merge fragments (ADR 0020).
+# Inherits the whole root config — including soft-wrap reflow, so a fragment
+# is wrapped exactly like the consumer document its managed region lands in
+# and a consumer's own `rumdl fmt` finds nothing to rewrap there. Disables
+# only MD041: the *.baseline.md sources are merge fragments, not standalone
+# documents, so they have no first-line H1 by design. (CLAUDE.md, a pointer,
+# is covered by the root exclude.)
+
+extends = "../../.rumdl.toml"
+
+[global]
+disable = ["MD041"]

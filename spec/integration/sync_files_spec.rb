@@ -9,8 +9,16 @@ require "tmpdir"
 
 # The engine reads and writes UTF-8 (it sets Encoding.default_external). Match
 # that here so reading a merged file that carries non-ASCII consumer content
-# (e.g. an em-dash in a heading) does not raise under a C / US-ASCII test locale.
-Encoding.default_external = Encoding::UTF_8
+# (e.g. an em-dash in a heading) does not raise under a C / US-ASCII test
+# locale. Assigning Encoding.default_external emits a warning under $VERBOSE
+# (config.warnings = true); silence just this deliberate global.
+begin
+  _verbose = $VERBOSE
+  $VERBOSE = nil
+  Encoding.default_external = Encoding::UTF_8
+ensure
+  $VERBOSE = _verbose
+end
 
 # Behavioral tests for the push-from-canonical engine
 # .github/actions/sync/sync-files.rb. The engine resolves SOURCE_ROOT from
@@ -147,6 +155,17 @@ RSpec.describe "sync-files.rb engine" do
         }
       }
     JSON
+    # A class fragment (ADR 0016): an RF-owned delta folded between the
+    # baseline and the consumer's addenda. FOO also appears in the addenda, so
+    # the merge ORDER is observable: addenda must win over the fragment.
+    File.write("#{dir}/provides/repo/settings.classfrag.json", <<~JSON)
+      {
+        "permissions": {
+          "deny": ["Bash(frag-only:*)"]
+        },
+        "env": { "FOO": "fragment-loses" }
+      }
+    JSON
     File.write("#{dir}/sync-manifest.yaml", <<~YML)
       version: 1
       defaults:
@@ -159,9 +178,11 @@ RSpec.describe "sync-files.rb engine" do
           - { source: provides/repo/AGENTS.baseline.md, target: AGENTS.md, mode: baseline-merge }
           - { source: provides/repo/gitignore.baseline, target: .gitignore, mode: baseline-merge }
           - { source: provides/repo/settings.baseline.json, target: .claude/settings.json, mode: baseline-merge }
+        class_fragment:
+          - { source: provides/repo/settings.classfrag.json, target: .claude/settings.json, mode: fragment }
       consumers:
         - repo: toobuntu/test-consumer
-          sets: [baselines]
+          sets: [baselines, class_fragment]
     YML
   end
 
@@ -285,6 +306,9 @@ RSpec.describe "sync-files.rb engine" do
         settings = JSON.parse(File.read("#{target}/.claude/settings.json"))
         expect(settings["permissions"]["allow"]).to include("Bash(git status:*)", "Bash(make:*)")
         expect(settings["permissions"]["deny"]).to include("Bash(git push:*)", "Bash(sudo:*)", "Bash(certbot:*)")
+        # Class fragment folded between baseline and addenda: its array entry
+        # unions in, and the addenda's FOO beats the fragment's (layer order).
+        expect(settings["permissions"]["deny"]).to include("Bash(frag-only:*)")
         expect(settings["env"]).to eq("FOO" => "bar")
         expect(settings["hooks"]["PreToolUse"]).not_to be_empty
         # The addenda file is the consumer's edit surface, not the generated target.

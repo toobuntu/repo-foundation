@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Optional shellcheck checks enabled org-wide (adopted from babble's config).
+# Optional shellcheck checks enabled org-wide (adopted from homebrew-babble's config).
 # These are off by default; each catches a real portability or correctness
 # footgun. Homebrew-aligned repos defer to `brew style` and carry Homebrew's
 # own config instead of this one.

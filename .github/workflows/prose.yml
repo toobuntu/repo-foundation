@@ -35,5 +35,9 @@ jobs:
       # MinAlertLevel = error, so the exit code is a sufficient gate — no
       # reviewdog, no reporter, no GITHUB_TOKEN (ADR 0014). The style and vocab
       # are committed under .vale/styles/, so no `vale sync` is needed.
+      # Lint the TRACKED Markdown (same command as the documented local gate):
+      # vale has no .gitignore support, so a bare `vale .` would also scan any
+      # untracked vendored docs a prior step created (none today; this keeps
+      # the CI scope identical to the local one by construction).
       - name: Run Vale
-        run: vale .
+        run: git ls-files -z '*.md' | xargs -0 vale

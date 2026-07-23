@@ -35,5 +35,11 @@ jobs:
           portable-ruby: true
           bundler-cache: true
 
+      # vale is needed by vale_style_spec (the Toobuntu rule regression tests);
+      # without it that spec skips, so install it to make the rules a CI gate.
+      # rumdl and adrs are stubbed in their specs and need no install.
+      - name: Install vale
+        run: brew install vale
+
       - name: Run RSpec
         run: bundle exec rspec

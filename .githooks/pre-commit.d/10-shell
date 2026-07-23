@@ -1,0 +1,25 @@
+#!/bin/sh
+
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Shell pre-commit plugin: shfmt + shellcheck on staged shell, via
+# scripts/lint-shell.sh --staged. Run by .githooks/pre-commit through the
+# run-parts-style runner. Mastered at this natural path — repo-foundation is
+# itself a shell repository and runs it on its own commits (ADR 0001). Syncs
+# to non-Homebrew consumers (shell_lint in sync-manifest.yaml);
+# Homebrew-aligned repos use the brew plugin (brew style) instead. Run-parts
+# classicalre name (no extension); disable with a dot suffix (10-shell.off).
+# In the 10- format-check tier with 10-markdown (15-prose follows them, by
+# number, because it lints text 10-markdown reformats); the format tier runs
+# before the language toolchains (20-) so cheap style checks fail fast
+# (ADRs 0017 and 0020).
+
+set -e
+
+if [ -x scripts/lint-shell.sh ]; then
+  scripts/lint-shell.sh --staged
+else
+  printf 'warning: scripts/lint-shell.sh missing or not executable — skipping shell lint\n' >&2
+fi

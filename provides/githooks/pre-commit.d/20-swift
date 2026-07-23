@@ -10,7 +10,7 @@
 # functions, so this defines its own staged/staged_z/has_files. Syncs to Swift
 # consumers (swift_plugin in sync-manifest.yaml); the plugin base/model is ADR
 # 0017. Run-parts classicalre name (letters/digits/_/-, no extension); disable
-# with a dot suffix (40-swift.off).
+# with a dot suffix (20-swift.off).
 #
 # swiftformat and swiftlint are macOS-oriented (a swiftc toolchain repo such as
 # _dormant/powerstatus targets macOS), but the plugin is tool-gated rather than
@@ -44,8 +44,17 @@ has_files '\.swift$' || exit 0
 # sandbox-robustness flag.)
 
 # --- swiftformat: format staged .swift in place, then re-stage the result ---
-# Mirrors 10-go's gofmt -w; a no-op formatting pass leaves the index unchanged.
+# Mirrors 20-go's gofmt -w; a no-op formatting pass leaves the index unchanged.
 if command -v swiftformat > /dev/null 2>&1; then
+  # Auto-fix guard (ADR 0017): format + re-stage is exact only when a staged
+  # file has no unstaged edits; otherwise `git add` would silently stage
+  # withheld hunks (a `git add -p` workflow). Refuse those with a recipe.
+  partial=$(staged_z '\.swift$' | xargs -0 -r -n1 sh -c 'git diff --quiet -- "$1" || printf "  %s\n" "$1"' guard)
+  if [ -n "$partial" ]; then
+    printf '20-swift: staged files below also have unstaged edits; the re-stage would take those edits too:\n%s\n' "$partial" >&2
+    printf 'Format and stage them yourself, then re-commit:\n  swiftformat --cache ignore <file> && git add -p <file>   # or git add <file> to take everything\n' >&2
+    exit 1
+  fi
   staged_z '\.swift$' | xargs -0 -r swiftformat --cache ignore
   staged_z '\.swift$' | xargs -0 -r git add
 else

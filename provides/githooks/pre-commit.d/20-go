@@ -7,7 +7,7 @@
 # run-parts-style pre-commit.d/ runner. Self-contained on purpose: plugins
 # run in a subprocess and do not inherit the base hook's shell functions.
 # Filename has no extension by the run-parts classicalre rule (see the base
-# hook and scripts/lint-perms.sh); disable by adding a dot suffix (10-go.off).
+# hook and scripts/lint-perms.sh); disable by adding a dot suffix (20-go.off).
 
 set -e
 
@@ -17,6 +17,16 @@ staged_z() {
     /usr/bin/grep --extended-regexp --null-data "$1" || true
 }
 has_files() { [ "$(staged_z "$1" | wc -c)" -gt 0 ]; }
+
+# Auto-fix guard (ADR 0017): the format + re-stage below is exact only when a
+# staged file has no unstaged edits; otherwise `git add` would silently stage
+# withheld hunks (a `git add -p` workflow). Refuse those files with a recipe.
+partial=$(staged_z '\.go$' | xargs -0 -r -n1 sh -c 'git diff --quiet -- "$1" || printf "  %s\n" "$1"' guard)
+if [ -n "$partial" ]; then
+  printf '20-go: staged files below also have unstaged edits; gofmt re-stage would take those edits too:\n%s\n' "$partial" >&2
+  printf 'Format and stage them yourself, then re-commit:\n  gofmt -w <file> && git add -p <file>   # or git add <file> to take everything\n' >&2
+  exit 1
+fi
 
 # gofmt staged Go files in place, then re-stage.
 staged_z '\.go$' | xargs -0 -r gofmt -w

@@ -6,7 +6,7 @@ name: shell-lint
 
 # shfmt (formatting) + shellcheck (static analysis) on shell, via
 # scripts/lint-shell.sh --tracked — the same script the
-# .githooks/pre-commit.d/05-shell plugin runs with --staged. Synced to
+# .githooks/pre-commit.d/10-shell plugin runs with --staged. Synced to
 # non-Homebrew consumers; Homebrew-aligned repos run shfmt + shellcheck through
 # `brew style` instead and do not receive this workflow (ADR 0017).
 

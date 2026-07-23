@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+
+# CodeRabbit config for the toobuntu repositories (ADR 0020). Canonical in
+# repo-foundation and synced to consumers.
+#
+# Principle: CodeRabbit earns its keep on AI review (logic, design, cross-file
+# reasoning) and on checks we do NOT already run ourselves. The one linter that
+# would only duplicate a gate we own is turned off; the grammar checker, which
+# is a distinct tool from our style linter, stays on; and the AI reviewer is
+# given the house conventions it keeps missing.
+
+language: en-US
+
+reviews:
+  # assertive surfaces more; matches the maintainer's web-UI setting.
+  profile: assertive
+
+  tools:
+    # Off: repo-foundation enforces Markdown structure itself with rumdl reading
+    # .rumdl.toml, in pre-commit (a plugin) and CI (ADR 0020). CodeRabbit runs
+    # markdownlint-cli2; leaving it on only re-reports what our own gate already
+    # blocked, under a different tool's defaults.
+    markdownlint:
+      enabled: false
+    # On: LanguageTool is a grammar checker, a different tool from Vale (which
+    # enforces the Toobuntu house STYLE and vocabulary, ADR 0014). Grammar
+    # findings are additive, not duplicative; its comments can be declined.
+    languagetool:
+      enabled: true
+
+  # Context the AI reviewer keeps missing. path_instructions guide the AI review
+  # for matching files; they do not toggle linters (that is `tools` above).
+  path_instructions:
+    - path: "**/*.{sh,bash,ksh}"
+      instructions: |
+        These repositories target macOS, which ships the BSD userland. Do NOT flag
+        `/usr/bin/grep --null-data` (`-z`) or `/usr/bin/xargs --no-run-if-empty`
+        (`-r`) as macOS/BSD incompatibilities. Verified on macOS 26.5.2 (build
+        25F84): the system grep documents and supports `--null-data`/`-z`, and the
+        system xargs accepts `--no-run-if-empty`/`-r` as a GNU-compatibility option
+        (a no-op, because BSD xargs already skips execution on empty input). The
+        portability note in .githooks/pre-commit cites the exact Apple source
+        commits. Prefer long options with the short form in parentheses.
+    - path: ".githooks/pre-commit.d/**"
+      instructions: |
+        Each pre-commit.d plugin is self-contained by design (ADR 0017): it runs as
+        a subprocess and does not inherit the base hook's shell functions, so it
+        re-declares its own staged()/staged_z()/has_files() helpers. This
+        duplication is intentional and consistent across plugins; do not suggest
+        replacing a plugin's helper with a bespoke one-off
+        `git diff … -- <pathspec>` check.
+    - path: "docs/decisions/**"
+      instructions: |
+        ADRs are MADR 4.0, linted by `adrs doctor`. The SPDX header belongs INSIDE
+        the YAML frontmatter (placed there by scripts/annotate.sh), never as an HTML
+        comment above the frontmatter — that breaks `adrs doctor`. `status` is
+        lowercase by house convention, but the tool is case-insensitive, so do not
+        flag a capitalized status value as an error.

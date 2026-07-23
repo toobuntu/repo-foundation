@@ -6,7 +6,7 @@ require "fileutils"
 require "open3"
 require "tmpdir"
 
-# Behavioral tests for provides/githooks/pre-commit.d/40-swift, the Swift
+# Behavioral tests for provides/githooks/pre-commit.d/20-swift, the Swift
 # pre-commit plugin (swiftformat auto-fix + re-stage, then swiftlint).
 #
 # The plugin is invoked directly in a throwaway git repository with stub
@@ -14,7 +14,7 @@ require "tmpdir"
 # self-contained and need no real Swift toolchain. The stubs shadow any real
 # install, keeping the present-tool cases deterministic on any machine.
 
-SWIFT_PLUGIN_PATH = File.join(REPO_ROOT, "provides", "githooks", "pre-commit.d", "40-swift")
+SWIFT_PLUGIN_PATH = File.join(REPO_ROOT, "provides", "githooks", "pre-commit.d", "20-swift")
 
 module SwiftPluginHelpers
   # Create a temp git repo on a feature branch, prepend a stub bin dir to PATH,
@@ -27,7 +27,8 @@ module SwiftPluginHelpers
   # The stub bindir is prepended to the inherited PATH, so a stub shadows any
   # real tool of the same name and the present-tool cases stay deterministic on
   # any host; git and the coreutils still resolve from the inherited PATH.
-  def with_plugin(files, stubs: {})
+  # unstaged: content written AFTER staging (partial-staging guard case).
+  def with_plugin(files, stubs: {}, unstaged: {})
     Dir.mktmpdir("rf-swift-test-") do |dir|
       bindir = File.join(dir, "bin")
       FileUtils.mkdir_p(bindir)
@@ -45,6 +46,7 @@ module SwiftPluginHelpers
           File.write(relpath, content)
           run!("git", "add", relpath)
         end
+        unstaged.each { |relpath, content| File.write(relpath, content) }
         env = { "PATH" => "#{bindir}:#{ENV.fetch('PATH')}" }
         out, err, status = Open3.capture3(env, SWIFT_PLUGIN_PATH)
         yield(out, err, status, dir)
@@ -75,7 +77,7 @@ def logging_stub(name, exit_code: 0, append_to_args: nil)
   body
 end
 
-RSpec.describe "pre-commit plugin: 40-swift" do
+RSpec.describe "pre-commit plugin: 20-swift" do
   include SwiftPluginHelpers
 
   it "is a no-op (exit 0) when no .swift files are staged" do
@@ -112,6 +114,17 @@ RSpec.describe "pre-commit plugin: 40-swift" do
     with_plugin({ "a.swift" => "let x = 1\n" }, stubs: stubs) do |_out, err, status, _dir|
       expect(status.success?).to eq(true), "stderr=#{err.inspect}"
       expect(staged_blob("a.swift")).to include("// formatted")
+    end
+  end
+
+  it "refuses a staged file that also has unstaged edits (guard before swiftformat)" do
+    stubs = { "swiftformat" => logging_stub("swiftformat"),
+              "swiftlint"   => logging_stub("swiftlint") }
+    with_plugin({ "a.swift" => "let x = 1\n" }, stubs: stubs,
+                unstaged: { "a.swift" => "let x = 1\nlet y = 2\n" }) do |_out, err, status, _dir|
+      expect(status.success?).to eq(false)
+      expect(err).to include("unstaged edits")
+      expect(err).to include("a.swift")
     end
   end
 

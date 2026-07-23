@@ -1,0 +1,91 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Toobuntu Markdown lint (rumdl). Rationale: ADR 0020.
+#
+# Native rumdl TOML, not .markdownlint.yaml: only this format exposes
+# code-block-line-length and MD060 aligned tables to rumdl (verified: rumdl
+# reads line-length from .markdownlint.yaml but NOT code-block-line-length).
+# CodeRabbit's markdownlint is disabled in .coderabbit.yaml, so there is no
+# portable-config need. Seeded from Homebrew's docs ruleset (mdl: .mdl_style.rb)
+# and adapted; Homebrew's choices are the starting point, house needs win where
+# they differ. Each rule below carries the reason it is on, off, or tuned.
+
+[global]
+# rumdl respects .gitignore, so vendor/ is skipped. `exclude` lists the Markdown
+# that is not a document at all: CLAUDE.md is a one-line "@AGENTS.md" pointer
+# with no H1 (Homebrew's CLAUDE.md is the same). The *.baseline.md merge
+# fragments are NOT excluded — they must reflow exactly like the consumer
+# documents their managed regions land in (otherwise a consumer's `rumdl fmt`
+# rewraps the injected region and the next sync resets it, churn) — they get a
+# scoped MD041 exemption via provides/repo/.rumdl.toml instead. Add a path
+# here only for a new pointer-style non-document; prefer a per-directory
+# config for anything that is real prose.
+exclude = [
+  "**/CLAUDE.md",
+  "**/*.instructions.md",
+]
+# MD033 inline HTML: off (Homebrew also excludes it). Our docs use angle-bracket
+# placeholders — <repo>, <branch>, <org>/<repo>, <url> — which a Markdown linter
+# parses as HTML tags; the placeholder convention is house style.
+disable = ["MD033"]
+
+# --- Kept from Homebrew's ruleset (mdl .mdl_style.rb) ---
+
+[MD007] # unordered-list indentation: 2 spaces (Homebrew: indent 2).
+indent = 2
+
+[MD026] # trailing punctuation in headings. Homebrew forbids only ",;:", so a
+# heading ending in "?" or "." (e.g. MADR's "Context and Problem Statement")
+# passes. (Default forbids ".,;:!?".)
+punctuation = ",;:"
+
+# --- Diverged from Homebrew, on purpose ---
+
+[MD013] # line wrapping. Homebrew EXCLUDES MD013; we use it to enforce
+# SOFT-WRAP org-wide: one logical line per paragraph and per list item, no hard
+# line breaks. Why soft-wrap rather than a hard cap: hard-wrapped prose renders
+# as separate lines when pasted into a GitHub PR/issue COMMENT (GitHub turns
+# single newlines into <br> in comments, though not in rendered .md files), so
+# one org-wide rule keeps both committed docs and paste-ready snippets correct.
+# reflow-mode "normalize" with a large line-length collapses each paragraph and
+# list item to a single line; `rumdl check` flags un-normalized content and
+# `rumdl fmt` joins it. Code blocks do NOT reflow, so they keep a real cap; 118
+# matches `brew style`'s RuboCop line limit, so a command shown in a doc obeys
+# the same width the repos' actual Ruby does. Exempt a genuinely unbreakable
+# command (a long path) by wrapping its block in `<!-- rumdl-disable MD013 -->`
+# / `<!-- rumdl-enable MD013 -->`, since an inline directive cannot sit inside a
+# fence. Tables are exempt (aligned by MD060), and inline code spans are exempt
+# (code-spans = false) so a backtick-wrapped path or command in prose is not
+# counted toward the length or broken by reflow.
+reflow = true
+reflow-mode = "normalize"
+line-length = 10000
+code-block-line-length = 118
+tables = false
+code-spans = false
+
+[MD046] # code-block style: fenced, not indented (Homebrew excludes MD046). A
+# fenced block carries a language (MD040) and reads better in diffs; this is the
+# rule that catches the indented command in rf-upstream-notes.md.
+style = "fenced"
+
+[MD004] # unordered-list marker: dash, org-wide. `adrs doctor` accepts dash
+# markers (verified in a throwaway repo, exit 0), so the ADRs convert from
+# MADR's "*" to "-" and every repo uses one marker. (Default is per-file
+# "consistent", which would let ADRs stay "*" and agent docs "-".)
+style = "dash"
+
+# MD025 (single H1) is tuned per-directory, not here: only the MADR ADRs carry a
+# YAML `title:` that would collide with their body `# H1`, so the fix lives in
+# docs/decisions/.rumdl.toml (which `extends` this file) rather than loosening
+# the rule tree-wide.
+
+# --- Tables: a Toobuntu addition (Homebrew's mdl does nothing special here) ---
+
+[MD060] # align table columns so the Markdown source reads cleanly; off by
+# default. `rumdl fmt` performs the alignment. MD055 (consistent pipe style) and
+# MD058 (blanks around tables) stay at their sensible defaults.
+enabled = true
+aligned-delimiter = true

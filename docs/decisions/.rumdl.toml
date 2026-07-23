@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Per-directory rumdl config for the MADR ADRs (ADR 0020). Inherits the whole
+# root config and adds only the ADR-specific rule, so the fix is scoped to the
+# files that need it instead of loosening MD025 tree-wide.
+extends = "../../.rumdl.toml"
+
+[MD025] # single H1. Empty front-matter-title stops rumdl from treating an ADR's
+# YAML `title:` as the document title and then flagging the body `# H1` as a
+# second one. MADR frontmatter always carries `title:`, so this belongs here.
+front-matter-title = ""
