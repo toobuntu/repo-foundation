@@ -139,7 +139,7 @@ These repositories target macOS end-users, and macOS ships the BSD userland, not
 
 ## Plain, literal prose
 
-Write documentation, comments, ADRs, and commit messages in plain, literal language. Name what is actually happening rather than reaching for in-group jargon or metaphor: write "repo-foundation runs the files it ships," not "repo-foundation dogfoods its config." Terms like `dogfood` or `north star` assume a shared backstory the reader may not have and obscure the plain meaning. A contributor who was not in the originating conversation should understand the sentence on first read. This is the prose counterpart to "comments minimum": fewer words, each one literal.
+Write documentation, comments, ADRs, and commit messages in plain, literal language. Name what is actually happening rather than reaching for in-group jargon or metaphor: write "repo-foundation runs the files it ships," not "repo-foundation dogfoods its config." Terms like `dogfood` or `north star` assume a shared backstory the reader may not have and obscure the plain meaning. A contributor who was not in the originating conversation should understand the sentence on first read. This is the prose counterpart to "comments minimum": fewer words, each one literal. This applies to an agent's own reasoning and chat, not only to committed output — the jargon should not appear even in visible thinking, because the habit is what leaks into the artifacts.
 
 ## Language: positivity bias
 
