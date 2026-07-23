@@ -172,3 +172,6 @@ else
 fi
 
 printf '\nDone. Next:\n  cd %s\n  git config core.hooksPath .githooks\n' "$target"
+printf 'Then: review + commit + push; add the consumer entry to sync-manifest.yaml;\n'
+printf 'install the sync App on the repo; dispatch sync-to-consumers; merge the PR.\n'
+printf 'Full runbook: docs/adding-a-repo.md in repo-foundation.\n'
