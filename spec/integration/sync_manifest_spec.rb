@@ -67,6 +67,34 @@ RSpec.describe "sync-manifest.yaml contract" do
     expect(own["updates"]).to eq(expected)
   end
 
+  it "pairs ai_continuity with repo_baseline in every consumer (ADR 0022)" do
+    # The volatile-file ignore lines ride gitignore.baseline (repo_baseline),
+    # so a consumer receiving the .ai mirrors without the baseline would track
+    # its per-developer progress file; the reverse would ship ignore lines for
+    # files that never arrive.
+    with_ai = consumers.select { |c| c["sets"].include?("ai_continuity") }.map { |c| c["repo"] }
+    with_baseline = consumers.select { |c| c["sets"].include?("repo_baseline") }.map { |c| c["repo"] }
+    expect(with_ai).to match_array(with_baseline)
+  end
+
+  it "mirrors both continuity files at their natural .ai paths" do
+    components = sets.fetch("ai_continuity")
+    expect(components.map { |c| c.values_at("source", "target", "mode") }).to contain_exactly(
+      [".ai/progress.template.md", ".ai/progress.template.md", "canonical"],
+      [".ai/org/memory.md", ".ai/org/memory.md", "canonical"]
+    )
+  end
+
+  it "ignores the volatile .ai files in gitignore.baseline and RF's own .gitignore" do
+    volatile = [".ai/progress.md", ".ai/scratchpad.md", ".ai/org/relay.md"]
+    [File.join(REPO_ROOT, "provides/repo/gitignore.baseline"),
+     File.join(REPO_ROOT, ".gitignore")].each do |path|
+      lines = File.readlines(path, chomp: true)
+      missing = volatile - lines
+      expect(missing).to be_empty, "#{path} lacks ignore lines: #{missing.join(", ")}"
+    end
+  end
+
   it "sends markdown_lint to every hook-carrying consumer" do
     without = consumers.select { |c| c["sets"].include?("git_hooks") }
                        .reject { |c| c["sets"].include?("markdown_lint") }
