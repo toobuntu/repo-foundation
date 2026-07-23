@@ -30,11 +30,19 @@ scripts/lint-unicode.sh .   # Trojan-Source / invisible-Unicode scan
 scripts/lint-perms.sh --tracked   # executable-bit policy
 adrs doctor           # ADR sequence and structure
 rumdl check .         # Markdown structure + soft-wrap (ADR 0020)
-git ls-files '*.md' | xargs vale   # prose (Toobuntu style)
+git ls-files -z '*.md' | xargs -0 vale   # prose (Toobuntu style)
 actionlint && zizmor .      # workflow syntax and security
 ```
 
-Vale has no `.gitignore` support (upstream, by design), so a bare `vale .` also scans vendored gem docs under `vendor/bundle/`. Run it over the tracked files instead — `git ls-files '*.md' | xargs vale` lists only tracked files (so untracked vendored docs are excluded) and is the primary form; `vale --glob='!vendor/**' .` is an alternate but excludes only the one named tree. CI's `prose.yml` and the `15-prose` hook are unaffected — neither sees `vendor/`.
+Vale has no `.gitignore` support (upstream, by design), so a bare `vale .` also scans vendored gem docs under `vendor/bundle/`. Run it over the tracked files instead — `git ls-files` lists only tracked files (so untracked vendored docs are excluded), which is the primary form. Because `git ls-files` reports a tracked path even when it has been deleted on disk without staging the deletion, filter to readable paths before the single vale run (`read -d ''` is not dash-portable, so use `xargs`+`sh`):
+
+```sh
+git ls-files -z '*.md' |
+  xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' sh |
+  xargs -0 -r vale
+```
+
+`vale --glob='!vendor/**' .` is an alternate but excludes only the one named tree. CI's `prose.yml` and the `15-prose` hook use the same filtered form; neither sees `vendor/`.
 
 Add SPDX headers by running `scripts/annotate.sh` — never hand-write them; this includes ADRs (see the SPDX/REUSE section of `docs/agent-principles.md`).
 

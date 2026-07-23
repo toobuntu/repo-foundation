@@ -38,6 +38,12 @@ jobs:
       # Lint the TRACKED Markdown (same command as the documented local gate):
       # vale has no .gitignore support, so a bare `vale .` would also scan any
       # untracked vendored docs a prior step created (none today; this keeps
-      # the CI scope identical to the local one by construction).
+      # the CI scope identical to the local one by construction). The xargs+sh
+      # filter drops any tracked-but-absent path (deleted on disk without
+      # staging) before the single vale run; a no-op on a clean checkout.
       - name: Run Vale
-        run: git ls-files -z '*.md' | xargs -0 vale
+        run: |
+          # shellcheck disable=SC2016  # $@/$f expand in the inner sh -c, by design
+          git ls-files -z '*.md' |
+            xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' sh |
+            xargs -0 -r vale
