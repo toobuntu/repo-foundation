@@ -53,6 +53,20 @@ RSpec.describe "sync-manifest.yaml contract" do
     end
   end
 
+  it "keeps RF's own dependabot.yml equal to the template's kept ecosystems" do
+    template = YAML.safe_load(File.read(File.join(REPO_ROOT, ".github/actions/sync/dependabot.template.yml")))
+    own = YAML.safe_load(File.read(File.join(REPO_ROOT, ".github/dependabot.yml")))
+    # RF has a Gemfile.lock and .github/workflows, but no requirements/pyproject
+    # or go.mod, so the generate engine keeps exactly bundler + github-actions.
+    # RF runs the files it ships: its own copy is the template filtered to those,
+    # stanzas verbatim. If RF gains go.mod/pip, the guard below fails first.
+    expect(File.exist?(File.join(REPO_ROOT, "go.mod"))).to be(false)
+    expect(File.exist?(File.join(REPO_ROOT, "requirements.txt"))).to be(false)
+    expect(File.exist?(File.join(REPO_ROOT, "pyproject.toml"))).to be(false)
+    expected = template["updates"].select { |u| %w[bundler github-actions].include?(u["package-ecosystem"]) }
+    expect(own["updates"]).to eq(expected)
+  end
+
   it "sends markdown_lint to every hook-carrying consumer" do
     without = consumers.select { |c| c["sets"].include?("git_hooks") }
                        .reject { |c| c["sets"].include?("markdown_lint") }

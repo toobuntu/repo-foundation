@@ -36,7 +36,16 @@ if has_files '\.md$'; then
     exit 0
   fi
   if command -v vale > /dev/null 2>&1; then
-    staged_z '\.md$' | xargs -0 -r vale
+    # Filter to readable paths before the single (parallel) vale run: a staged
+    # file deleted on disk without staging the deletion is still listed but
+    # absent, and would fail vale with "no such file". A NUL-safe `read -d ''`
+    # is not dash-portable, so filter with xargs+sh and re-emit NUL, keeping
+    # ONE vale invocation over all survivors rather than one per file. The word
+    # after the -c script is the inner sh's $0 (a label, not a command), so the
+    # xargs-supplied filenames land in $1..$N and "$@" iterates them.
+    staged_z '\.md$' |
+      xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' keep-readable |
+      xargs -0 -r vale
   else
     printf 'warning: vale not found — skipping prose lint (brew install vale)\n' >&2
   fi
