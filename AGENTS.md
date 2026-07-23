@@ -30,7 +30,7 @@ scripts/lint-unicode.sh .   # Trojan-Source / invisible-Unicode scan
 scripts/lint-perms.sh --tracked   # executable-bit policy
 adrs doctor           # ADR sequence and structure
 rumdl check .         # Markdown structure + soft-wrap (ADR 0020)
-git ls-files -z '*.md' | xargs -0 vale   # prose (Toobuntu style)
+git ls-files -z '*.md' | xargs -0 vale   # prose; robust (skip-absent) form below
 actionlint && zizmor .      # workflow syntax and security
 ```
 

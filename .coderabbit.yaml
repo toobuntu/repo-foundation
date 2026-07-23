@@ -53,6 +53,13 @@ reviews:
         duplication is intentional and consistent across plugins; do not suggest
         replacing a plugin's helper with a bespoke one-off
         `git diff … -- <pathspec>` check.
+        These plugins are POSIX `/bin/sh` but are EXTENSIONLESS (the run-parts
+        classicalre rule, ADR 0017), so the `**/*.{sh,bash,ksh}` BSD-userland
+        instruction does not reach them — it applies here too: do NOT flag
+        `/usr/bin/xargs --no-run-if-empty` (`-r`) or `/usr/bin/grep --null-data`
+        (`-z`) as macOS/BSD incompatibilities. Verified on macOS 26.5.2: the system
+        xargs accepts `-r`/`--no-run-if-empty` (a no-op, since BSD xargs already
+        skips empty input) and the system grep supports `-z`/`--null-data`.
     - path: "docs/decisions/**"
       instructions: |
         ADRs are MADR 4.0, linted by `adrs doctor`. The SPDX header belongs INSIDE

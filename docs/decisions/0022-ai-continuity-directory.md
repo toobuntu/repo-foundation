@@ -41,7 +41,7 @@ Distribution follows the ownership tiers (ADR 0003, ADR 0016): `gitignore.baseli
 
 - Good, because session-spanning context is versioned, contributor-visible, and survives clone retirement — unlike per-machine agent memory.
 - Good, because the durable/volatile split keeps append-only decisions (`memory.md`) from being churned by fast-moving status (`progress.md`).
-- Good, because one convention serves every repo and both tiers, with a single dispatch front door.
+- Good, because one convention serves every repo and both tiers; a single dispatch front door is the intended arrangement, pending the org-tier location decision above.
 - Bad, because a gitignored per-repo `progress.md` is absent on a fresh clone until seeded from the template; `foundation-init` and the relay drop mitigate.
 - Neutral, because `memory.md` overlaps in spirit with ADRs and `docs/`; the rule above (decisions become ADRs; facts and gotchas stay in `memory.md`) draws the line.
 
