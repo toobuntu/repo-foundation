@@ -59,25 +59,26 @@ act --job spec --platform macos-latest=-self-hosted --container-architecture dar
 <!-- rumdl-disable MD013 -->
 
 ```sh
-# Create a vanilla macOS VM named 'rf-preflight' from an Apple restore image.
+# Create a vanilla macOS VM named 'macos-tahoe' from an Apple restore image.
 # The tahoe preset creates the lume user and enables SSH, autologin, and
 # no-sleep/no-lock; default login is lume / lume. (E2E-verified flow.)
 curl -L "$(lume ipsw | tail -n 1)" -o ~/Downloads/macos-tahoe.ipsw
-lume create rf-preflight --ipsw ~/Downloads/macos-tahoe.ipsw --unattended tahoe
+lume create macos-tahoe --ipsw ~/Downloads/macos-tahoe.ipsw --unattended tahoe
 
 # Start it headless with the checkout shared in read-write (VirtioFS; a macOS
 # guest surfaces the share under /Volumes/My Shared Files/<name>). Backgrounded
 # so the same terminal can drive it.
-lume run rf-preflight --shared-dir "$PWD:rw" --no-display &
+lume run macos-tahoe --shared-dir "$PWD:rw" --no-display &
 
-# A vanilla image has NO Homebrew, so install brew + act once. Keep the VM
-# (skip the delete below) to reuse it, or `lume push` it as an image.
-lume ssh rf-preflight '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && brew install act'
+# A vanilla image has NO Homebrew, so install brew + act once. To reuse the
+# toolchain later, skip the teardown (delete removes the disk) or clone a copy
+# first: `lume clone macos-tahoe macos-tahoe-act`.
+lume ssh macos-tahoe '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && brew install act'
 
 # Run the macOS job INSIDE the guest (lume ssh executes a command remotely):
-lume ssh rf-preflight 'cd "/Volumes/My Shared Files/repo-foundation" && act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet'
+lume ssh macos-tahoe 'cd "/Volumes/My Shared Files/repo-foundation" && act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet'
 
-lume stop rf-preflight && lume delete rf-preflight   # tear down
+lume stop macos-tahoe && lume delete macos-tahoe   # tear down
 ```
 
 <!-- rumdl-enable MD013 -->
