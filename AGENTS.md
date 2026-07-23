@@ -38,7 +38,7 @@ Vale has no `.gitignore` support (upstream, by design), so a bare `vale .` also 
 
 ```sh
 git ls-files -z '*.md' |
-  xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' sh |
+  xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' keep-readable |
   xargs -0 -r vale
 ```
 

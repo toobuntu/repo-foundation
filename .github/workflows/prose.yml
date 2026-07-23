@@ -45,5 +45,5 @@ jobs:
         run: |
           # shellcheck disable=SC2016  # $@/$f expand in the inner sh -c, by design
           git ls-files -z '*.md' |
-            xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' sh |
+            xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' keep-readable |
             xargs -0 -r vale
