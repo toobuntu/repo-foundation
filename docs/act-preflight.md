@@ -15,10 +15,11 @@ brew install act colima
 colima start            # boots a Linux VM (Lima) that speaks the Docker API
 ```
 
-`act` needs a Docker-API backend for `ubuntu-latest` jobs; Colima is the light, no-cost option (Docker Desktop also works). `act` auto-discovers Colima's socket (`$HOME/.colima/docker.sock`) for runs. If it ever does not (for example `act --bug-report` probes `/var/run/docker.sock` and errors), set it explicitly:
+`act` needs a Docker-API backend for `ubuntu-latest` jobs; Colima is the light, no-cost option (Docker Desktop also works). `colima start` makes Colima the active Docker context, so `act` picks up its socket from that context and runs work without `DOCKER_HOST` set. If a tool ever fails to find it (for example `act --bug-report` probes `/var/run/docker.sock` and errors), set it explicitly from whatever context is active — resolved with Docker's own `--format`, no `jq`:
 
 ```sh
-export DOCKER_HOST="$(docker context inspect colima | jq -r '.[0].Endpoints.docker.Host')"
+ctx="$(docker context show)"
+export DOCKER_HOST="$(docker context inspect "$ctx" --format '{{ .Endpoints.docker.Host }}')"
 ```
 
 macOS jobs need no backend at all.
@@ -42,14 +43,36 @@ A `~/.actrc` (or `~/Library/Application Support/act/actrc`) holds machine defaul
 Runs **directly on the host** — no container, no Colima, no image:
 
 ```sh
-act --job spec -P macos-latest=-self-hosted   # verified: job succeeded
+act --job spec --platform macos-latest=-self-hosted   # verified: job succeeded
 ```
 
 The sentinel is the literal string `-self-hosted`; a bare `-` is read as an image reference and fails with `invalid reference format`. Running on the host exercises the real workflow around the suite — `Homebrew/actions/setup-ruby`, `brew install vale`, the Bundler cache — not just a bare `rspec`; the trade-off is that it *touches* the host (a real `brew install`, a real Ruby setup) and runs the suite in the current checkout. The M-series "specify container architecture" warning still prints and is harmless here; passing **any** `--container-architecture` value silences it — the value is ignored for a host job, so `darwin/arm64` or even a bogus string works — and `--quiet` trims the rest of the noise:
 
 ```sh
-act --job spec -P macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet
+act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet
 ```
+
+### Isolating it in a VM (lume)
+
+`-self-hosted` runs the job on your real Mac, so its `brew install` and Ruby setup touch the host. To isolate it, run the job inside a throwaway macOS VM with [lume](https://github.com/trycua/lume) (Apple's Virtualization.framework):
+
+1. Start a VM with the checkout shared in, no VNC window. Pick an image from `lume images` or trycua's registry; the default login is `lume` / `lume`:
+
+   ```sh
+   lume run <macos-image> --shared-dir "$PWD:rw" --no-display
+   ```
+
+   `--shared-dir <path>[:ro|:rw]` mounts a host directory into the guest over VirtioFS (a macOS guest typically surfaces it under `/Volumes/My Shared Files/`).
+
+2. Run the job inside the VM. `lume ssh <vm>` opens a shell and also executes commands remotely (see `lume help ssh` for the exact exec form). Install the toolchain once — `brew install act`, and bake it into a saved image with `lume push` to skip reinstalling each run — then run the same host-mode command *inside* the guest:
+
+   ```sh
+   act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet
+   ```
+
+3. Tear down: `lume stop <vm> && lume delete <vm>`.
+
+The VM is the isolation boundary — the `brew install` and Ruby setup happen inside it, and your real Mac is untouched. (The `<macos-image>` name and the `lume ssh` exec syntax are the two bits to confirm against `lume images` / `lume help ssh`.)
 
 ## The `ubuntu-latest` jobs
 
@@ -73,10 +96,10 @@ Verified: this pours Homebrew's `arm64_linux` bottle for vale and the job passes
 
 - **`full-latest`, not the default medium image.** `catthehacker/ubuntu:act-latest` has no Linuxbrew — `/home/linuxbrew/.linuxbrew/bin/brew: No such file or directory`. Override the actrc default on the command line.
 - **`linux/arm64` (native), not `linux/amd64` (emulated).** Under emulated x86_64 the CPU lacks SSSE3, which Homebrew's x86_64-Linux bottles require (`Homebrew's x86_64 support on Linux requires a CPU with SSSE3 support!`). Native arm64 has `arm64_linux` bottles and no emulation, so it is correct and fast. (`linux/aarch64` is accepted as an alias.)
-- **Disk.** `full-latest` is >18 GB compressed and much larger extracted, into the Colima VM's disk — a sparse file bounded by host free space. A near-full host fails mid-extract with `no space left on device` under `/var/lib/containerd/…` (the `.NET` file in that error is incidental; the image bundles the whole runner toolchain including a multi-GB .NET SDK). `docker system prune -af` reclaims space; keep several tens of GB free.
+- **Disk.** `full-latest` is >18 GB compressed and much larger extracted, into the Colima VM's disk — a sparse file bounded by host free space. A near-full host fails mid-extract with `no space left on device` under `/var/lib/containerd/…` (the `.NET` file in that error is incidental; the image bundles the whole runner toolchain including a multi-GB .NET SDK). Inspect usage first with `docker system df`; keep several tens of GB free. `docker system prune -af` reclaims space but is **destructive** — it removes *all* unused images, containers, networks, and build cache in the **active** Docker context, so confirm the context (`docker context show`) and prefer targeted removal (`docker image rm catthehacker/ubuntu:full-latest`) when you only mean to drop the big image.
 
 ## Recommendation
 
 - **Structure** — `--dryrun`/`--validate` on any workflow you edit; the fastest check.
-- **The macOS `spec.yml` job** — `-P macos-latest=-self-hosted`, run for real on the host.
+- **The macOS `spec.yml` job** — `--platform macos-latest=-self-hosted`, run for real on the host.
 - **The brew-heavy `ubuntu-latest` jobs** — they run, with native arm64 + `full-latest`; use this when you want the real workflow (setup, `brew install`, caching) exercised end to end. For a quick pass the native gates are lighter — the "Build, test, and lint" block in `AGENTS.md` is what those jobs run — so reach for `act` when the *workflow* is what you're verifying, not just the tools.
