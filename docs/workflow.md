@@ -27,7 +27,7 @@ This split kills staleness (docs stop trying to track progress) and kills supers
 | --- | --- | --- |
 | Session state (per developer) | `<repo>/.ai/progress.md` — gitignored; seeded from the committed `.ai/progress.template.md` | rewritten each session; git history is not the archive (it is untracked) |
 | Durable per-repo knowledge (gotchas, constraints, queued intents) | `<repo>/.ai/memory.md` | dated append-only entries; corrections are new entries |
-| Durable org-wide knowledge | repo-foundation `.ai/org/memory.md`, synced read-only to every consumer's `.ai/org/memory.md` | edited only in repo-foundation; consumer sessions relay via the gitignored `.ai/org/relay.md` |
+| Durable org-wide knowledge | repo-foundation `.ai/org/memory.md`, synced read-only to `.ai/org/memory.md` in every consumer that carries the repo baseline (the org's `.github` community-health repo is the deliberate exception: it hosts served defaults, not development work) | edited only in repo-foundation; consumer sessions relay via the gitignored `.ai/org/relay.md` |
 | Decision (ADR) | `<repo>/docs/decisions/`; org-wide → repo-foundation `docs/decisions/` | immutable; replaced only via "Superseded by NNNN" |
 | Reference (architecture, usage, runbook) | `<repo>/docs/` | edited in place |
 | Technical-debt backlog | `<repo>/docs/technical-debt.md` — a register of OPEN items with never-reused item numbers | resolved entries move to a resolved sidecar, never silently deleted |

@@ -291,7 +291,7 @@ RSpec.describe "sync-files.rb engine" do
         expect(org).to include("## 2026-07-23 — A durable fact")
 
         template = File.read("#{target}/.ai/progress.template.md")
-        expect(template).to match(header)
+        expect(template.scan(header).length).to eq(1)
         expect(template).to include("## Handoff")
       end
     end

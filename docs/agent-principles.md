@@ -27,6 +27,21 @@ This costs ~20 seconds per state-changing turn. The cost is intentional. Session
 
 Before editing a file, read it. Before testing a script that mutates the repo, ask whether a worktree is appropriate. Before installing gems or other dependencies, check for project-local config that governs install location (`.bundle/config`, `package.json`, `pyproject.toml`, etc.). Before disabling a sandbox or escalating permissions, check whether the request can be satisfied from inside the sandbox by adjusting approach.
 
+## Instruction precedence
+
+When instruction sources conflict, resolve in this order, highest first:
+
+1. An explicit instruction from the user in the current session.
+2. The repository's `AGENTS.md`, including this imported file.
+3. The user-global `~/.claude/CLAUDE.md` (personal environment and preferences).
+4. Tool and harness defaults.
+
+Executable checks — hooks, CI jobs, lint configs — outrank prose *descriptions* of them: when a doc says a gate behaves one way and the gate itself behaves another, the gate is the fact and the doc is a bug to fix. A conflict worth resolving is also worth surfacing: name the two sources and which one won.
+
+## Verify versioned and scheduled values
+
+Never author a version, tag, or date-sensitive value from memory: runner image tags, GitHub Actions versions and pin SHAs, tool and SDK version numbers, release schedules all go stale in training data. Look the current value up (web search, the upstream repo, the registry) before writing it, and say where it came from. The org pins actions by SHA and verifies with pinact, so a stale-but-plausible version is a real failure mode, not a hypothetical.
+
 ## Engineering principles
 
 These software-engineering principles apply to any code or configuration the agent writes, edits, or proposes. They are not Claude-Code-specific; they describe what good code looks like. The list mixes always-applicable principles (DRY, YAGNI, KISS, idiomatic patterns, comments-minimum) with context-dependent ones (SRP, fail-fast, make-illegal-states-unrepresentable). The agent applies each one with judgment about whether it fits the situation.
@@ -363,7 +378,7 @@ When a committed, contributor-visible doc references a **different** repo (a sib
 
 ## Session continuity: the .ai/ layer
 
-Every org repository carries a top-level `.ai/` directory (ADR 0022 in toobuntu/repo-foundation) so that session-spanning context is versioned, contributor-visible, and portable across machines. The rituals:
+Every org repository that hosts development work carries a top-level `.ai/` directory (ADR 0022 in toobuntu/repo-foundation; the org's `.github` community-health repo is the one exception) so that session-spanning context is versioned, contributor-visible, and portable across machines. The rituals:
 
 - **Start of session**: read `.ai/org/memory.md` (org-wide knowledge, synced from repo-foundation), `.ai/memory.md` (this repo's knowledge), and `.ai/progress.md` (the previous session's state, if present — it is gitignored and per-developer; seed it from the committed `.ai/progress.template.md` when absent).
 - **End of session**: append durable learnings to `.ai/memory.md` (dated entries, `## YYYY-MM-DD — Topic`, append-only — a correction is a new entry naming what it supersedes) and rewrite `.ai/progress.md` to the current state and next action.
