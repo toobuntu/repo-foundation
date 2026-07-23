@@ -361,6 +361,16 @@ When agent edits would mix with the user's uncommitted working-tree changes, com
 
 When a committed, contributor-visible doc references a **different** repo (a sibling, or any repo other than the one the doc lives in), use the GitHub `<org>/<repo>` slug — e.g. `toobuntu/homebrew-babble` — not a bare repo name (ambiguous) and not an absolute path like `~/devel/claude/desktop/homebrew-babble` (which leaks the maintainer's machine layout and breaks when directories move). A doc's reference to its **own** repo root uses the `<repo-root>` placeholder instead. Make every reference to the same repo uniform, including pre-existing prose mentions.
 
+## Session continuity: the .ai/ layer
+
+Every org repository carries a top-level `.ai/` directory (ADR 0022 in toobuntu/repo-foundation) so that session-spanning context is versioned, contributor-visible, and portable across machines. The rituals:
+
+- **Start of session**: read `.ai/org/memory.md` (org-wide knowledge, synced from repo-foundation), `.ai/memory.md` (this repo's knowledge), and `.ai/progress.md` (the previous session's state, if present — it is gitignored and per-developer; seed it from the committed `.ai/progress.template.md` when absent).
+- **End of session**: append durable learnings to `.ai/memory.md` (dated entries, `## YYYY-MM-DD — Topic`, append-only — a correction is a new entry naming what it supersedes) and rewrite `.ai/progress.md` to the current state and next action.
+- **Graduation rules** keep `.ai/memory.md` bounded: a decision graduates to an ADR; a fact the code can carry graduates into code or a comment; an org-wide rule of conduct graduates to this file; per-session "what shipped" does not go in at all — git history and PR descriptions own that.
+- **Org-wide facts**: `.ai/org/memory.md` is edited only in repo-foundation. A session in any other repo that learns an org-wide fact writes it to the gitignored `.ai/org/relay.md` and says so in its handoff report; the maintainer or the next repo-foundation-rooted session promotes it and deletes the relay.
+- **Boundary with the agent's own memory**: project knowledge belongs in the repo (`.ai/` files, ADRs, code) — an agent's per-machine memory is invisible to contributors and dies with a retired clone, so it holds only personal agent-workflow preferences, never project facts.
+
 ## Session economy
 
 Every prompt sent to Claude Code consumes tokens. The biggest token multipliers are:
