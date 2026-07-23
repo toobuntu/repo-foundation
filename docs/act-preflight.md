@@ -54,25 +54,33 @@ act --job spec --platform macos-latest=-self-hosted --container-architecture dar
 
 ### Isolating it in a VM (lume)
 
-`-self-hosted` runs the job on your real Mac, so its `brew install` and Ruby setup touch the host. To isolate it, run the job inside a throwaway macOS VM with [lume](https://github.com/trycua/lume) (Apple's Virtualization.framework):
+`-self-hosted` runs the job on your real Mac, so its `brew install` and Ruby setup touch the host. To isolate it, run the job inside a throwaway macOS VM with [lume](https://github.com/trycua/lume) (Apple's Virtualization.framework). lume's telemetry is on by default (pseudonymous install/usage metadata only — no names, paths, or VM contents); turn it off once with `lume config telemetry disable`.
 
-1. Start a VM with the checkout shared in, no VNC window. Pick an image from `lume images` or trycua's registry; the default login is `lume` / `lume`:
+<!-- rumdl-disable MD013 -->
 
-   ```sh
-   lume run <macos-image> --shared-dir "$PWD:rw" --no-display
-   ```
+```sh
+# Pull a vanilla macOS image and name the VM 'rf-preflight' (login: lume / lume).
+# Get the exact image:tag from `lume images` or trycua's registry (ghcr.io/trycua).
+lume pull <macos-image:tag> rf-preflight
 
-   `--shared-dir <path>[:ro|:rw]` mounts a host directory into the guest over VirtioFS (a macOS guest typically surfaces it under `/Volumes/My Shared Files/`).
+# Start it headless with the checkout shared in read-write (VirtioFS; a macOS
+# guest surfaces the share under /Volumes/My Shared Files/<name>). Backgrounded
+# so the same terminal can drive it.
+lume run rf-preflight --shared-dir "$PWD:rw" --no-display &
 
-2. Run the job inside the VM. `lume ssh <vm>` opens a shell and also executes commands remotely (see `lume help ssh` for the exact exec form). Install the toolchain once — `brew install act`, and bake it into a saved image with `lume push` to skip reinstalling each run — then run the same host-mode command *inside* the guest:
+# A vanilla image has NO Homebrew, so install brew + act once. Bake the result
+# into a saved image with `lume push` to skip this each run.
+lume ssh rf-preflight '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && brew install act'
 
-   ```sh
-   act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet
-   ```
+# Run the macOS job INSIDE the guest (lume ssh executes a command remotely):
+lume ssh rf-preflight 'cd "/Volumes/My Shared Files/repo-foundation" && act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet'
 
-3. Tear down: `lume stop <vm> && lume delete <vm>`.
+lume stop rf-preflight && lume delete rf-preflight   # tear down
+```
 
-The VM is the isolation boundary — the `brew install` and Ruby setup happen inside it, and your real Mac is untouched. (The `<macos-image>` name and the `lume ssh` exec syntax are the two bits to confirm against `lume images` / `lume help ssh`.)
+<!-- rumdl-enable MD013 -->
+
+The VM is the isolation boundary — the `brew install` and Ruby setup happen inside it, and your real Mac is untouched. (Confirm `<macos-image:tag>` against `lume images`, and the exact share path for your image.)
 
 ## The `ubuntu-latest` jobs
 

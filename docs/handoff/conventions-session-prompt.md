@@ -6,7 +6,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Conventions + continuity session — opening prompt
 
-The next repo-foundation session implements the in-repo `.ai/` continuity layer (ADR 0022) and reconciles the org-continuity docs into repo-foundation. This is the `workspace/dispatch.md` "Conventions + continuity" row, scoped to the `.ai/` half.
+The next repo-foundation session implements the in-repo `.ai/` continuity layer (ADR 0022) and reconciles the org-continuity docs into repo-foundation. This is the `<workspace-root>/dispatch.md` "Conventions + continuity" row, scoped to the `.ai/` half.
 
 ## Setup
 
@@ -27,12 +27,12 @@ Read first, before proposing anything:
   org-tier-location question in its Decision Outcome) and
   docs/decisions/0016-synced-file-licensing.md (the class-fragment tier added
   2026-07-22 — the precedent for syncing shared config with per-consumer merge).
-- The design source: ~/devel/claude/desktop/workspace/.ai/memory.md and
-  progress.md; workspace/reference-eval-recommendations.md sections 1-2;
-  workspace/reference-eval-next-steps.md.
-- The org-continuity docs to reconcile: workspace/dispatch.md,
-  workspace/conversation-management.md, and repo-foundation docs/workflow.md.
-- rf-upstream-notes sections 18.6 and 18d-18j (the continuity-system design record).
+- The design source: <workspace-root>/.ai/memory.md and
+  progress.md; <workspace-root>/reference-eval-recommendations.md sections 1-2;
+  <workspace-root>/reference-eval-next-steps.md.
+- The org-continuity docs to reconcile: <workspace-root>/dispatch.md,
+  <workspace-root>/conversation-management.md, and repo-foundation docs/workflow.md.
+- docs/handoff/rf-upstream-notes.md sections 18.6 and 18d-18j (the continuity-system design record).
 
 Scope:
 1. Per-repo .ai/ (ADR 0022): commit .ai/progress.template.md; add .ai/progress.md
@@ -43,7 +43,7 @@ Scope:
    RF-specific .ai/ state) and sync it to each consumer's .ai/org/ so every clone
    carries it — decide the sync mode (canonical copy vs the generate/class-
    fragment pattern) and record the resolution as an ADR 0022 amendment or a new
-   superseding ADR. workspace/.ai/ was the bootstrap; it does not survive a fork
+   superseding ADR. <workspace-root>/.ai/ was the bootstrap; it does not survive a fork
    or a second machine, which is why the home moves into RF.
 3. Wire the sync: manifest component_set(s) + consumer mappings for the .ai/
    pieces; mirror the ownership tiers (ADR 0003/0016).
