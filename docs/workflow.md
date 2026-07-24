@@ -44,7 +44,7 @@ This split kills staleness (docs stop trying to track progress) and kills supers
 2. **Committed registers** — `docs/technical-debt.md` (the per-repo backlog, P-numbered) and `.ai/memory.md` (durable knowledge and queued intents). Local-first, greppable, agent-readable without network.
 3. **GitHub Issues as the promotion tier, not the atom**: an item graduates to an issue when it needs PR cross-references, changes state across sessions, or invites outside contribution; its register entry shrinks to one line with the issue link. Agents read and write issues via `gh`, so surfaced action items stop scrolling away in chat.
 
-The roadmap links registers and issues; an org Project board stays out until a second maintainer exists.
+The roadmap links registers and issues; an org Project board stays out until a second maintainer exists. The one-line rule: **tracker = state; register = reservoir; roadmap = intent.**
 
 ## Session protocol
 
