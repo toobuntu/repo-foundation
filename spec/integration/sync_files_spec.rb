@@ -312,6 +312,33 @@ RSpec.describe "sync-files.rb engine" do
     end
   end
 
+  it "resolves exclude-with-reason entries and rejects bare-string excludes" do
+    Dir.mktmpdir("rf-sync-src-") do |source|
+      write_source(source)
+      manifest = File.read("#{source}/sync-manifest.yaml")
+      with_exclude = manifest.sub(
+        "sets: [core]",
+        "sets: [core]\n    exclude:\n      - { target: scripts/tool.sh, " \
+        "reason: \"this repo builds tool.sh from source\" }"
+      )
+      File.write("#{source}/sync-manifest.yaml", with_exclude)
+      Dir.mktmpdir("rf-sync-tgt-") do |target|
+        init_target(target)
+        out, err, status = run_engine(source, target)
+        expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+        expect(File.exist?("#{target}/scripts/tool.sh")).to eq(false)
+        expect(File.exist?("#{target}/.github/relayed.yml")).to eq(true)
+
+        # A bare-string exclude (the pre-§ 18.3 form) is a manifest bug.
+        File.write("#{source}/sync-manifest.yaml",
+                   manifest.sub("sets: [core]", "sets: [core]\n    exclude: [scripts/tool.sh]"))
+        _out, err, status = run_engine(source, target)
+        expect(status.success?).to eq(false)
+        expect(err).to include("exclude entries must be mappings with target and reason")
+      end
+    end
+  end
+
   it "aborts on an invalid component mode" do
     Dir.mktmpdir("rf-sync-src-") do |source|
       write_source(source)

@@ -496,8 +496,18 @@ Array(consumer["sets"]).each do |set_name|
   components.concat(set)
 end
 components.concat(Array(consumer["extra"]))
-excludes = Array(consumer["exclude"])
-components.reject! { |component| excludes.include?(component["target"]) }
+
+# Exclusions are mappings with a cited reason ({target: ..., reason: "..."} —
+# rf-upstream-notes § 18.3): structured, so the audit report and the sync PR
+# body can print every exception. A bare string is a manifest bug.
+excludes = Array(consumer["exclude"]).map do |entry|
+  unless entry.is_a?(Hash) && !entry["target"].to_s.strip.empty? && !entry["reason"].to_s.strip.empty?
+    abort "consumer #{consumer_slug}: exclude entries must be mappings with target and reason, got #{entry.inspect}"
+  end
+  entry
+end
+excluded_targets = excludes.map { |entry| entry["target"] }
+components.reject! { |component| excluded_targets.include?(component["target"]) }
 
 components.each do |component|
   missing = %w[source target mode].reject { |key| component[key] }

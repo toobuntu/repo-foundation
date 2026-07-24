@@ -377,8 +377,15 @@ community_health_source:
   # org-served file, so it is not listed here.
 
 # ---------------------------------------------------------------------------
-# Consumers. `sets` lists component_sets to include; `exclude` drops specific
-# targets from those sets; `extra` adds one-off components.
+# Consumers. `sets` lists component_sets to include; `extra` adds one-off
+# components. `exclude` drops specific targets from those sets, and every
+# entry is a mapping with a cited reason —
+#   exclude:
+#     - { target: scripts/foo.sh, reason: "why this repo diverges" }
+# — never a bare string: the reasons are structured so the engine's --audit
+# report and each sync PR body print them, making every variance
+# self-documenting. The § 15 audit's record-divergence dispositions land as
+# exactly these entries.
 # ---------------------------------------------------------------------------
 consumers:
   - repo: toobuntu/blackoutd
