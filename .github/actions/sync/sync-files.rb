@@ -31,9 +31,20 @@
 #                   target, preserving the consumer's own content. A text target
 #                   gets a sentinel-delimited region rendered in its own comment
 #                   syntax (# for .gitignore, <!-- --> for Markdown) from the
-#                   manifest's merge_label_begin / merge_label_end. A comment-less
-#                   JSON target (e.g. .claude/settings.json) is deep-merged with
-#                   the consumer's <stem>.addenda.json and regenerated.
+#                   manifest's merge_label_begin / merge_label_end; Markdown
+#                   regions are padded with a blank line inside each sentinel.
+#                   Marker handling is stateful and loud: an inverted or
+#                   duplicated marker pair aborts; markers absent from an
+#                   existing file trigger the history split (see
+#                   region_last_present_in): never in the file's history means
+#                   bootstrap — the region is prepended (after the H1 for
+#                   Markdown, after the leading comment block for hash targets;
+#                   position is consumer-owned afterward) — while a region that
+#                   WAS in history aborts with a ready-to-run restore command
+#                   and a paste-ready exclude entry. A comment-less JSON target
+#                   (e.g. .claude/settings.json) is instead deep-merged:
+#                   baseline -> class fragments -> the consumer's
+#                   <stem>.addenda.json.
 #
 # After writing, commits one file per change in the target and, under GitHub
 # Actions, sets pull_request=true on GITHUB_OUTPUT for the calling workflow.
@@ -59,6 +70,24 @@ SOURCE_ROOT = Pathname(ENV.fetch("SYNC_SOURCE_ROOT") { Pathname(__dir__).join(".
 
 VALID_MODES = %w[canonical template generate baseline-merge fragment].freeze
 HEADER_SIGNATURE = "do not modify it directly"
+DOC_POINTER = "see toobuntu/repo-foundation docs/adding-a-repo.md"
+
+# A recoverable engine failure. `annotation` is the single-line GitHub Actions
+# annotation (annotations render no newlines); the full message — command
+# sequences included — goes to the step log via the exception message.
+class SyncError < StandardError
+  attr_reader :annotation
+
+  def initialize(message, annotation: nil)
+    super(message)
+    @annotation = annotation
+  end
+end
+
+def fail_sync(error)
+  puts "::error::#{error.annotation}" if ENV["GITHUB_ACTIONS"] && error.annotation
+  abort error.message
+end
 
 # SPDX block prepended to generated files (which are not copied from a source
 # that already carries one). Hash-comment form; dependabot.yml is RF-authored.
@@ -259,6 +288,14 @@ def render_sentinels(style, label_begin, label_end)
   end
 end
 
+# The managed region between (and including) the sentinels. Markdown regions
+# get a blank line inside each sentinel — Markdown structure linters flag
+# content adjacent to comment lines — while hash-comment regions stay tight.
+def render_region(style, begin_line, end_line, source)
+  pad = style == :html ? "\n" : ""
+  "#{begin_line}\n#{pad}#{source.chomp}\n#{pad}#{end_line}\n"
+end
+
 # Deep-merge for the JSON baseline-merge path. Objects merge key by key; arrays
 # union (dedup, baseline order first) so a consumer can only ADD to the org-wide
 # permission rails, never silently drop one; a scalar or type mismatch takes the
@@ -300,11 +337,91 @@ def build_json_merge(source_file, target_file, fragments = [])
   "#{JSON.pretty_generate(merged)}\n"
 end
 
+# The history split (rf-upstream-notes § 18c/18d, blessed 2026-07-23): when an
+# existing target carries no markers, `git log -S<begin marker> -- <path>`
+# decides between mechanically-certain bootstrap and a human decision. Returns
+# nil when the marker was never in the file's history (bootstrap: self-heal by
+# prepending); returns "<short-sha> (YYYY-MM-DD)" of the last commit that still
+# carried the region when it was deleted (abort: intent is not determinable).
+# A shallow or unborn history cannot answer "never existed", so shallow aborts
+# and unborn (no commits yet) counts as never-existed.
+def region_last_present_in(target_root, target_rel, begin_line)
+  shallow, _err, status = Open3.capture3("git", "-C", target_root.to_s, "rev-parse", "--is-shallow-repository")
+  if !status.success? || shallow.strip == "true"
+    raise SyncError.new(
+      "#{target_rel}: cannot verify managed-region history in a shallow clone; " \
+      "fetch full history (fetch-depth: 0) and re-run",
+      annotation: "#{target_rel}: managed region missing and history is shallow — #{DOC_POINTER}"
+    )
+  end
+
+  _out, _err, status = Open3.capture3("git", "-C", target_root.to_s, "rev-parse", "--quiet", "--verify", "HEAD")
+  return nil unless status.success? # unborn branch: no history to consult
+
+  removal, err, status = Open3.capture3("git", "-C", target_root.to_s,
+                                        "log", "--max-count=1", "--format=%H", "-S", begin_line, "--", target_rel)
+  raise SyncError.new("#{target_rel}: git log failed while checking marker history: #{err.strip}") unless status.success?
+  return nil if removal.strip.empty?
+
+  # The most recent occurrence-count change with the marker absent now is its
+  # removal; the region was last present at that commit's parent.
+  stamp, err, status = Open3.capture3("git", "-C", target_root.to_s,
+                                      "log", "--max-count=1", "--format=%h %cs", "#{removal.strip}^")
+  raise SyncError.new("#{target_rel}: git log failed on #{removal.strip}^: #{err.strip}") unless status.success?
+
+  short, date = stamp.split
+  "#{short} (#{date})"
+end
+
+def region_removed_error(target_rel, consumer_slug, last_present)
+  short = last_present.split.first
+  message = <<~MSG
+    #{target_rel}: the managed region's markers are missing, but they existed in
+    this file's history — last present at #{last_present}. Two dispositions:
+
+    Restore the markers, then re-run the sync:
+
+      git restore --source=#{short} -- #{target_rel}
+
+    Or record a deliberate opt-out in sync-manifest.yaml (under consumers ->
+    "#{consumer_slug}" -> exclude), then re-run:
+
+      - { target: #{target_rel}, reason: "<fill in>" }
+  MSG
+  SyncError.new(message,
+                annotation: "#{target_rel}: managed region removed (last present at #{last_present}) — #{DOC_POINTER}")
+end
+
+# Bootstrap a managed region into an existing file that never carried one:
+# PREPEND it — after the H1 (skipping frontmatter/SPDX) in Markdown, after the
+# leading comment block in hash-comment targets — so the org baseline meets a
+# top-down reader first. Position is consumer-owned afterward: later syncs
+# replace the region wherever it sits.
+def prepend_region(current, region, style)
+  lines = current.lines
+  i = insert_point(lines, style)
+  if style == :html
+    h1 = lines[i..].find_index { |l| l.start_with?("# ") }
+    i += h1 + 1 unless h1.nil?
+  else
+    # insert_point stops at a leading comment block only when it carries SPDX;
+    # skip any remaining plain comment block too (the shebang was index 0).
+    i += 1 while lines[i]&.lstrip&.start_with?("#")
+  end
+  insertion = []
+  insertion << "\n" if i.positive? && !lines[i - 1].to_s.strip.empty?
+  insertion << region
+  insertion << "\n" if lines[i] && !lines[i].strip.empty?
+  lines.insert(i, *insertion)
+  lines.join
+end
+
 # baseline-merge: regenerate only the repo-foundation-managed slice of the
 # target, preserving everything the consumer owns. A comment-less JSON target
 # takes the deep-merge path; every other target gets a sentinel-delimited region
 # rendered in its own comment syntax.
-def build_baseline_merge(source_file, target_file, label_begin, label_end, fragments = [])
+def build_baseline_merge(source_file, target_file, target_root, target_rel, consumer_slug,
+                         label_begin, label_end, fragments: [], notes: {})
   return build_json_merge(source_file, target_file, fragments) if target_file.extname == ".json" || source_file.extname == ".json"
 
   source = source_file.read
@@ -312,18 +429,40 @@ def build_baseline_merge(source_file, target_file, label_begin, label_end, fragm
   begin_line, end_line = render_sentinels(style, label_begin, label_end)
   return nil if begin_line.nil? # target cannot carry a leading-comment region
 
-  region = "#{begin_line}\n#{source.chomp}\n#{end_line}\n"
+  region = render_region(style, begin_line, end_line, source)
   return region unless target_file.exist?
 
   current = target_file.read
   begins = current.scan(/#{Regexp.escape(begin_line)}/).length
   ends = current.scan(/#{Regexp.escape(end_line)}/).length
-  if begins.zero? && ends.zero?
-    "#{current.chomp}\n\n#{region}"
-  elsif begins == 1 && ends == 1
-    current.sub(/#{Regexp.escape(begin_line)}.*?#{Regexp.escape(end_line)}\n/m, region)
+  if begins == 1 && ends == 1
+    if current.index(end_line) < current.index(begin_line)
+      raise SyncError.new(
+        "#{target_rel}: managed-region markers are inverted (end marker precedes begin marker); " \
+        "restore the begin/end order, then re-run",
+        annotation: "#{target_rel}: inverted managed-region markers — #{DOC_POINTER}"
+      )
+    end
+    region_re = /#{Regexp.escape(begin_line)}.*?#{Regexp.escape(end_line)}[ \t]*\n?/m
+    unless current.match?(region_re)
+      raise SyncError.new(
+        "#{target_rel}: managed-region markers present but the region did not match " \
+        "(mangled marker lines?); restore both marker lines, then re-run",
+        annotation: "#{target_rel}: unmatched managed-region markers — #{DOC_POINTER}"
+      )
+    end
+    current.sub(region_re, region)
+  elsif begins.zero? && ends.zero?
+    last_present = region_last_present_in(target_root, target_rel, begin_line)
+    raise region_removed_error(target_rel, consumer_slug, last_present) if last_present
+
+    notes[target_rel] = "managed region bootstrapped into the existing file"
+    prepend_region(current, region, style)
   else
-    abort "malformed managed region in #{target_file}: #{begins} begin / #{ends} end markers (expect 0 or 1 each)"
+    raise SyncError.new(
+      "#{target_rel}: malformed managed region: #{begins} begin / #{ends} end markers (expect 0 or 1 each)",
+      annotation: "#{target_rel}: malformed managed-region markers — #{DOC_POINTER}"
+    )
   end
 end
 
@@ -391,6 +530,7 @@ end
 # --- apply each component ----------------------------------------------------
 puts "Syncing #{consumer_slug} -> #{target_root}#{dry_run ? ' (dry run)' : ''}"
 changed_any = false
+notes = {}
 components.each do |component|
   source_rel = component.fetch("source")
   target_rel = component.fetch("target")
@@ -403,24 +543,30 @@ components.each do |component|
     next
   end
 
-  new_content, mode_bits =
-    case mode
-    when "canonical", "template"
-      [build_copy(source_file, target_file, source_rel, header_template), source_file.stat.mode]
-    when "generate"
-      [build_generate(source_file, target_root, source_rel, header_template), 0o644]
-    when "baseline-merge"
-      [build_baseline_merge(source_file, target_file, merge_label_begin, merge_label_end,
-                            fragments_by_target[target_rel]), 0o644]
-    when "fragment"
-      next # folded into the matching baseline-merge target above
-    end
+  begin
+    new_content, mode_bits =
+      case mode
+      when "canonical", "template"
+        [build_copy(source_file, target_file, source_rel, header_template), source_file.stat.mode]
+      when "generate"
+        [build_generate(source_file, target_root, source_rel, header_template), 0o644]
+      when "baseline-merge"
+        [build_baseline_merge(source_file, target_file, target_root, target_rel, consumer_slug,
+                              merge_label_begin, merge_label_end,
+                              fragments: fragments_by_target[target_rel], notes: notes), 0o644]
+      when "fragment"
+        next # folded into the matching baseline-merge target above
+      end
+  rescue SyncError => e
+    fail_sync(e)
+  end
 
   next if new_content.nil? # e.g. baseline-merge JSON, deferred
   next if target_file.exist? && target_file.read == new_content
 
   changed_any = true
-  puts "  #{dry_run ? 'would update' : 'updated'}: #{target_rel} [#{mode}]"
+  note = notes[target_rel] ? " — #{notes[target_rel]}" : ""
+  puts "  #{dry_run ? 'would update' : 'updated'}: #{target_rel} [#{mode}]#{note}"
   next if dry_run
 
   target_file.dirname.mkpath

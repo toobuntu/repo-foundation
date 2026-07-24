@@ -335,18 +335,21 @@ RSpec.describe "sync-files.rb engine" do
         expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
 
         # Markdown: HTML-comment sentinels (never a '#' heading), region content
-        # present, pre-existing repo content preserved.
+        # present and padded with a blank line inside each sentinel, pre-existing
+        # repo content preserved.
         agents = File.read("#{target}/AGENTS.md")
         expect(agents).to include("<!-- >>> repo-foundation managed baseline")
         expect(agents).to include("<!-- <<< end repo-foundation managed baseline")
-        expect(agents).to include("@docs/agent-principles.md")
+        expect(agents).to match(/>>> -->\n\n@docs\/agent-principles\.md/)
+        expect(agents).to match(/managed agent context\.\n\n<!-- <<</)
         expect(agents).to include("Repo-specific intro.")
         expect(agents).not_to match(/^# >>> repo-foundation/)
 
-        # .gitignore: hash-comment sentinels; region and pre-existing both kept.
+        # .gitignore: hash-comment sentinels stay tight (no padding); region and
+        # pre-existing both kept.
         gitignore = File.read("#{target}/.gitignore")
-        expect(gitignore).to include("# >>> repo-foundation managed baseline")
-        expect(gitignore).to include("vendor/bundle/")
+        expect(gitignore).to match(/# >>> repo-foundation managed baseline.*>>>\n\.DS_Store/)
+        expect(gitignore).to match(%r{vendor/bundle/\n# <<<})
         expect(gitignore).to include("build/")
 
         # JSON: deep-merge — arrays union (baseline + addenda), objects merge,
@@ -361,6 +364,100 @@ RSpec.describe "sync-files.rb engine" do
         expect(settings["hooks"]["PreToolUse"]).not_to be_empty
         # The addenda file is the consumer's edit surface, not the generated target.
         expect(File.exist?("#{target}/.claude/settings.addenda.json")).to eq(true)
+      end
+    end
+  end
+
+  # Sentinel lines as the engine renders them for the write_baseline_source
+  # labels, used by the marker-state examples below.
+  def md_sentinels
+    ["<!-- >>> repo-foundation managed baseline (edit outside this block) >>> -->",
+     "<!-- <<< end repo-foundation managed baseline <<< -->"]
+  end
+
+  def commit_all(dir, message)
+    sh!("git", "-C", dir, "add", "-A")
+    sh!("git", "-C", dir, "commit", "--quiet", "-m", message)
+  end
+
+  it "prepends a bootstrapped region after the H1 (Markdown) and after leading comments (hash)" do
+    Dir.mktmpdir("rf-sync-src-") do |source|
+      write_baseline_source(source)
+      Dir.mktmpdir("rf-sync-tgt-") do |target|
+        init_baseline_target(target)
+        out, err, status = run_engine(source, target)
+        expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+        expect(out).to include("managed region bootstrapped")
+
+        agents = File.read("#{target}/AGENTS.md")
+        h1 = agents.index("# AGENTS.md — test-consumer")
+        marker = agents.index(md_sentinels.first)
+        intro = agents.index("Repo-specific intro.")
+        expect(h1).to be < marker
+        expect(marker).to be < intro
+
+        gitignore = File.read("#{target}/.gitignore")
+        comment = gitignore.index("# repo-specific")
+        marker = gitignore.index("# >>> repo-foundation managed baseline")
+        build = gitignore.index("build/")
+        expect(comment).to be < marker
+        expect(marker).to be < build
+      end
+    end
+  end
+
+  it "aborts on an inverted marker pair instead of silently reporting no change" do
+    Dir.mktmpdir("rf-sync-src-") do |source|
+      write_baseline_source(source)
+      Dir.mktmpdir("rf-sync-tgt-") do |target|
+        init_baseline_target(target)
+        begin_line, end_line = md_sentinels
+        File.write("#{target}/AGENTS.md",
+                   "# AGENTS.md — test-consumer\n\n#{end_line}\nstale\n#{begin_line}\n")
+        commit_all(target, "invert markers")
+        _out, err, status = run_engine(source, target)
+        expect(status.success?).to eq(false)
+        expect(err).to include("inverted")
+      end
+    end
+  end
+
+  it "aborts with a ready-to-run recovery when a managed region was deleted from history" do
+    Dir.mktmpdir("rf-sync-src-") do |source|
+      write_baseline_source(source)
+      Dir.mktmpdir("rf-sync-tgt-") do |target|
+        init_baseline_target(target)
+        begin_line, end_line = md_sentinels
+        File.write("#{target}/AGENTS.md",
+                   "# AGENTS.md — test-consumer\n\n#{begin_line}\n\nregion\n\n#{end_line}\n\nRepo-specific intro.\n")
+        commit_all(target, "add region")
+        last_present = sh!("git", "-C", target, "rev-parse", "--short", "HEAD").strip
+        File.write("#{target}/AGENTS.md", "# AGENTS.md — test-consumer\n\nRepo-specific intro.\n")
+        commit_all(target, "remove region")
+
+        _out, err, status = run_engine(source, target)
+        expect(status.success?).to eq(false)
+        # The step log carries the exact restore command (pointing at the last
+        # commit that still had the region) and a paste-ready exclude entry.
+        expect(err).to include("last present at #{last_present}")
+        expect(err).to include("git restore --source=#{last_present} -- AGENTS.md")
+        expect(err).to include('- { target: AGENTS.md, reason: "<fill in>" }')
+      end
+    end
+  end
+
+  it "aborts rather than self-healing when the consumer history is shallow" do
+    Dir.mktmpdir("rf-sync-src-") do |source|
+      write_baseline_source(source)
+      Dir.mktmpdir("rf-sync-tgt-") do |target|
+        init_baseline_target(target)
+        Dir.mktmpdir("rf-sync-shallow-") do |parent|
+          shallow = "#{parent}/clone"
+          sh!("git", "clone", "--quiet", "--depth=1", "file://#{target}", shallow)
+          _out, err, status = run_engine(source, shallow)
+          expect(status.success?).to eq(false)
+          expect(err).to include("shallow")
+        end
       end
     end
   end
