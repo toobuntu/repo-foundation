@@ -26,7 +26,7 @@ RSpec.describe "foundation-init.sh" do
   def restricted_path(dir)
     bin = File.join(dir, "toolbin")
     FileUtils.mkdir_p(bin)
-    %w[sed cp mkdir grep dirname basename].each do |tool|
+    %w[sed cp mkdir grep dirname basename awk mv].each do |tool|
       src = ["/usr/bin/#{tool}", "/bin/#{tool}"].find { |p| File.executable?(p) }
       raise "required tool not found on this host: #{tool}" unless src
 
@@ -52,7 +52,7 @@ RSpec.describe "foundation-init.sh" do
       gitignore = File.read("#{target}/.gitignore")
       region_begin = gitignore.index(">>>")
       region_end = gitignore.index("<<<")
-      %w[.ai/progress.md .ai/scratchpad.md .ai/org/relay.md].each do |line|
+      %w[.ai/progress.md .ai/scratchpad/ .ai/org/relay.md].each do |line|
         expect(gitignore).to include(line)
         expect(gitignore.index(line)).to be_between(region_begin, region_end)
       end
@@ -82,6 +82,36 @@ RSpec.describe "foundation-init.sh" do
       expect(gitignore.index(".ai/progress.md")).to be > gitignore.index(">>>")
       _, _, ignored = Open3.capture3("git", "-C", target, "check-ignore", "-q", ".ai/progress.md")
       expect(ignored.success?).to eq(true)
+    end
+  end
+
+  it "inserts missing entries into an already-present managed region" do
+    Dir.mktmpdir("rf-init-tgt-") do |target|
+      sh!("git", "init", "--quiet", "--initial-branch=main", target)
+      # An empty region, as an older init would have left it. The markers must
+      # match what the script derives from the manifest labels.
+      manifest = File.read(File.join(REPO_ROOT, "sync-manifest.yaml"))
+      label = manifest[/^  merge_label_begin: "(.*)"$/, 1]
+      label_end = manifest[/^  merge_label_end: "(.*)"$/, 1]
+      File.write("#{target}/.gitignore", <<~TXT)
+        build/
+        # >>> #{label} >>>
+        # <<< #{label_end} <<<
+      TXT
+      _, err, status = Dir.mktmpdir("rf-init-bin-") do |bindir|
+        Open3.capture3({ "PATH" => restricted_path(bindir) }, script, target)
+      end
+      expect(status.success?).to eq(true), err
+
+      gitignore = File.read("#{target}/.gitignore")
+      region_begin = gitignore.index(">>>")
+      region_end = gitignore.index("<<<")
+      %w[.ai/progress.md .ai/scratchpad/ .ai/org/relay.md].each do |line|
+        expect(gitignore.index(line)).to be_between(region_begin, region_end)
+      end
+      sh!("git", "-C", target, "add", "-A")
+      staged = sh!("git", "-C", target, "diff", "--cached", "--name-only").split("\n")
+      expect(staged).not_to include(".ai/progress.md")
     end
   end
 end

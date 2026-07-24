@@ -21,5 +21,5 @@ vendor/bundle/
 # committed; these are not. foundation-init seeds these same three lines
 # at bootstrap (before the first sync) — keep the two lists aligned.
 .ai/progress.md
-.ai/scratchpad.md
+.ai/scratchpad/
 .ai/org/relay.md

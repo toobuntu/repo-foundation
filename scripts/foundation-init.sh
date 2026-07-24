@@ -123,14 +123,15 @@ seed_md_region "$target/AGENTS.md" "AGENTS.md — $(basename "$target")"
 seed_md_region "$target/CONTRIBUTING.md" "Contributing"
 
 # The managed region is seeded WITH the volatile .ai ignore lines rather than
-# empty: init creates .ai/progress.md above, and the runbook's next step is
-# review-commit-push — an empty region would let `git add -A` track the
-# volatile file before the first sync delivers the baseline (and a tracked
-# file stays tracked when its ignore line later arrives). Placing the lines
-# inside the region is self-healing: the first sync replaces the region
-# wholesale with the full baseline, which carries these same lines.
+# empty: init creates .ai/progress.md below (after this block), and the
+# runbook's next step is review-commit-push — an empty region would let
+# `git add -A` track the volatile file before the first sync delivers the
+# baseline (and a tracked file stays tracked when its ignore line later
+# arrives). Placing the lines inside the region is self-healing: the first
+# sync replaces the region wholesale with the full baseline, which carries
+# these same lines.
 ai_ignores='.ai/progress.md
-.ai/scratchpad.md
+.ai/scratchpad/
 .ai/org/relay.md'
 if [ ! -e "$target/.gitignore" ]; then
   printf '%s\n%s\n%s\n' "$hash_begin" "$ai_ignores" "$hash_end" > "$target/.gitignore"
@@ -138,6 +139,24 @@ if [ ! -e "$target/.gitignore" ]; then
 elif ! grep -qF "$hash_begin" "$target/.gitignore"; then
   printf '\n%s\n%s\n%s\n' "$hash_begin" "$ai_ignores" "$hash_end" >> "$target/.gitignore"
   printf 'appended managed region: %s\n' "$target/.gitignore"
+else
+  # Region already present (an older init, or a hand-seeded file): insert any
+  # missing volatile entries just inside the begin marker, preserving both
+  # markers and everything else.
+  missing=""
+  for entry in $ai_ignores; do
+    grep -qxF "$entry" "$target/.gitignore" || missing="${missing}${entry}
+"
+  done
+  if [ -n "$missing" ]; then
+    # BSD awk rejects -v values containing newlines, so the multi-line
+    # insertion rides the environment instead.
+    ADD="$missing" awk -v begin="$hash_begin" \
+      '{ print } $0 == begin { printf "%s", ENVIRON["ADD"] }' \
+      "$target/.gitignore" > "$target/.gitignore.tmp"
+    mv "$target/.gitignore.tmp" "$target/.gitignore"
+    printf 'inserted missing .ai ignore entries: %s\n' "$target/.gitignore"
+  fi
 fi
 
 [ -e "$target/CLAUDE.md" ] || {
