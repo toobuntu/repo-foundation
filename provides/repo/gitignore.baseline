@@ -18,7 +18,8 @@ vendor/bundle/
 
 # Agent session continuity (ADR 0022): volatile per-developer state.
 # .ai/memory.md, .ai/org/memory.md, and .ai/progress.template.md are
-# committed; these are not.
+# committed; these are not. foundation-init seeds these same three lines
+# at bootstrap (before the first sync) — keep the two lists aligned.
 .ai/progress.md
 .ai/scratchpad.md
 .ai/org/relay.md

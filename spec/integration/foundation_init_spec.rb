@@ -6,9 +6,11 @@ require "open3"
 require "tmpdir"
 
 # Behavioral tests for scripts/foundation-init.sh, run against a throwaway
-# target repo. reuse is deliberately kept off PATH so the annotation step
-# skips (no network, no license downloads) — the layout seeding under test is
-# independent of it.
+# target repo. The script is run with PATH set to a constructed directory
+# holding only the tools it needs, so `command -v reuse` fails by
+# construction and the annotation/download step skips (no network, no
+# license downloads) — deterministic even on images that ship reuse in
+# /usr/bin. The layout seeding under test is independent of that step.
 RSpec.describe "foundation-init.sh" do
   let(:script) { File.join(REPO_ROOT, "scripts/foundation-init.sh") }
 
@@ -19,10 +21,26 @@ RSpec.describe "foundation-init.sh" do
     out
   end
 
+  # A PATH dir with exactly the external tools foundation-init.sh uses
+  # (everything else it needs is a shell builtin).
+  def restricted_path(dir)
+    bin = File.join(dir, "toolbin")
+    FileUtils.mkdir_p(bin)
+    %w[sed cp mkdir grep dirname basename].each do |tool|
+      src = ["/usr/bin/#{tool}", "/bin/#{tool}"].find { |p| File.executable?(p) }
+      raise "required tool not found on this host: #{tool}" unless src
+
+      File.symlink(src, File.join(bin, tool))
+    end
+    bin
+  end
+
   it "seeds the .ai layer with the volatile files ignored before the first commit" do
     Dir.mktmpdir("rf-init-tgt-") do |target|
       sh!("git", "init", "--quiet", "--initial-branch=main", target)
-      out, err, status = Open3.capture3({ "PATH" => "/usr/bin:/bin" }, script, target)
+      out, err, status = Dir.mktmpdir("rf-init-bin-") do |bindir|
+        Open3.capture3({ "PATH" => restricted_path(bindir) }, script, target)
+      end
       expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
 
       expect(File.exist?("#{target}/.ai/memory.md")).to eq(true)
@@ -54,7 +72,9 @@ RSpec.describe "foundation-init.sh" do
     Dir.mktmpdir("rf-init-tgt-") do |target|
       sh!("git", "init", "--quiet", "--initial-branch=main", target)
       File.write("#{target}/.gitignore", "# repo-specific\nbuild/\n")
-      _, err, status = Open3.capture3({ "PATH" => "/usr/bin:/bin" }, script, target)
+      _, err, status = Dir.mktmpdir("rf-init-bin-") do |bindir|
+        Open3.capture3({ "PATH" => restricted_path(bindir) }, script, target)
+      end
       expect(status.success?).to eq(true), err
 
       gitignore = File.read("#{target}/.gitignore")
