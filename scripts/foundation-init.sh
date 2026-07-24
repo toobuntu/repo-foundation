@@ -136,7 +136,7 @@ ai_ignores='.ai/progress.md
 if [ ! -e "$target/.gitignore" ]; then
   printf '%s\n%s\n%s\n' "$hash_begin" "$ai_ignores" "$hash_end" > "$target/.gitignore"
   printf 'seeded: %s\n' "$target/.gitignore"
-elif ! grep -qF "$hash_begin" "$target/.gitignore"; then
+elif ! grep -qxF "$hash_begin" "$target/.gitignore"; then
   printf '\n%s\n%s\n%s\n' "$hash_begin" "$ai_ignores" "$hash_end" >> "$target/.gitignore"
   printf 'appended managed region: %s\n' "$target/.gitignore"
 else

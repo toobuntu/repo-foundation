@@ -85,6 +85,23 @@ RSpec.describe "foundation-init.sh" do
     end
   end
 
+  it "appends a real region when the marker text appears only inside a comment" do
+    Dir.mktmpdir("rf-init-tgt-") do |target|
+      sh!("git", "init", "--quiet", "--initial-branch=main", target)
+      manifest = File.read(File.join(REPO_ROOT, "sync-manifest.yaml"))
+      label = manifest[/^  merge_label_begin: "(.*)"$/, 1]
+      # A substring mention, not a marker line: must not count as a region.
+      File.write("#{target}/.gitignore", "# see '# >>> #{label} >>>' below\nbuild/\n")
+      _, err, status = Dir.mktmpdir("rf-init-bin-") do |bindir|
+        Open3.capture3({ "PATH" => restricted_path(bindir) }, script, target)
+      end
+      expect(status.success?).to eq(true), err
+
+      _, _, ignored = Open3.capture3("git", "-C", target, "check-ignore", "-q", ".ai/progress.md")
+      expect(ignored.success?).to eq(true)
+    end
+  end
+
   it "inserts missing entries into an already-present managed region" do
     Dir.mktmpdir("rf-init-tgt-") do |target|
       sh!("git", "init", "--quiet", "--initial-branch=main", target)
