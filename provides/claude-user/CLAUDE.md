@@ -82,11 +82,13 @@ Agent commit + signing procedure under sandbox isolation:
   key/askpass step (often a macOS passphrase dialog that never returns) or fails
   outright. The agent therefore commits *unsigned*, and the human re-signs the
   batch before pushing: `ZIZMOR_OFFLINE=true GIT_TERMINAL_PROMPT=0 git commit --no-gpg-sign -m "subject" < /dev/null`.
-  Do NOT add `-c commit.gpgsign=false` — redundant with `--no-gpg-sign`, and the
-  string matches a `sandbox.excludedCommands` entry whose unsandboxed routing
-  hangs the commit in the agent harness (validated 2026-07-21). Multi-line `-m`
-  commits hang (auto-backgrounded) in the sandbox; write the message to
-  /tmp/claude/msg.txt and commit with --file.
+  Do NOT add `-c commit.gpgsign=false` — redundant with `--no-gpg-sign` (the
+  `sandbox.excludedCommands` entry that string used to match was associated
+  with commit hangs and was removed 2026-07-24; the redundancy alone keeps the
+  flag off). Multi-line `-m` commits hang (auto-backgrounded) in the sandbox;
+  draft the message in the repo's gitignored `.ai/scratchpad/commit-msg-<slug>.md`
+  (or /tmp/claude/msg-<slug>.txt where the .ai layer is absent) and commit
+  with --file.
 - Add `--no-verify` **only** if the pre-commit hook genuinely can't run in the
   sandbox (e.g. `reuse lint` without `--no-multiprocessing` aborts on the macOS
   Seatbelt `SC_SEM_NSEMS_MAX` syscall; `go vet ./...` / `staticcheck` can't write

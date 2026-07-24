@@ -234,8 +234,6 @@
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
     "excludedCommands": [
-      "git commit *",
-      "git -c commit.gpgsign=false commit *",
       "git pull *",
       "git fetch *",
       "git checkout *",
