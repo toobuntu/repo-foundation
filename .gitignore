@@ -14,5 +14,5 @@
 # .ai/memory.md, .ai/org/memory.md, and .ai/progress.template.md are
 # committed; these are not.
 .ai/progress.md
-.ai/scratchpad.md
+.ai/scratchpad/
 .ai/org/relay.md
