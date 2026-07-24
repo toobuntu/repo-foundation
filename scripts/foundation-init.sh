@@ -136,11 +136,21 @@ seed_md_region() {
 seed_md_region "$target/AGENTS.md" "AGENTS.md — $(basename "$target")"
 seed_md_region "$target/CONTRIBUTING.md" "Contributing"
 
+# The managed region is seeded WITH the volatile .ai ignore lines rather than
+# empty: init creates .ai/progress.md above, and the runbook's next step is
+# review-commit-push — an empty region would let `git add -A` track the
+# volatile file before the first sync delivers the baseline (and a tracked
+# file stays tracked when its ignore line later arrives). Placing the lines
+# inside the region is self-healing: the first sync replaces the region
+# wholesale with the full baseline, which carries these same lines.
+ai_ignores='.ai/progress.md
+.ai/scratchpad.md
+.ai/org/relay.md'
 if [ ! -e "$target/.gitignore" ]; then
-  printf '%s\n%s\n' "$hash_begin" "$hash_end" > "$target/.gitignore"
+  printf '%s\n%s\n%s\n' "$hash_begin" "$ai_ignores" "$hash_end" > "$target/.gitignore"
   printf 'seeded: %s\n' "$target/.gitignore"
 elif ! grep -qF "$hash_begin" "$target/.gitignore"; then
-  printf '\n%s\n%s\n' "$hash_begin" "$hash_end" >> "$target/.gitignore"
+  printf '\n%s\n%s\n%s\n' "$hash_begin" "$ai_ignores" "$hash_end" >> "$target/.gitignore"
   printf 'appended managed region: %s\n' "$target/.gitignore"
 fi
 
