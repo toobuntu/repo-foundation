@@ -164,8 +164,21 @@ Prefer language with a positivity bias in all output — docs, prompts, summarie
 
 - When a turn modifies tracked files, propose a commit decomposition for those changes before ending the turn — logical commits, each with its own ≤ 50-char subject — rather than letting uncommitted changes accumulate across turns. State it even when the work will be committed later; the decomposition is the proposal, the commit is the approval.
 - Subject ≤ 50 chars; body wraps at 72; `Closes #N` in body.
-- Draft commit messages and pull-request bodies in the repo's gitignored `.ai/scratchpad.md` and pass the file (`git commit --file`, `gh pr create --body-file`); fall back to `/tmp/claude/msg-<slug>.txt` only in a repo without the `.ai` layer. The scratchpad is repo-scoped, never committed, and not subject to the /tmp reaper (BrewUI uses the same file for generated PR descriptions).
-- A pull-request body is rendered Markdown: GitHub does not reflow hard-wrapped text, so never paste a 72-column commit body into one — no bare `gh pr create --fill`. Unwrap through rumdl instead: `git log --reverse --format='## %s%n%n%b' main..HEAD | rumdl fmt --silent - > .ai/scratchpad.md`, then `gh pr create --title "$(git log -1 --format=%s)" --body-file .ai/scratchpad.md` (drop the `##` heading form for a single-commit branch).
+- Draft commit messages and pull-request bodies as named files under the repo's gitignored `.ai/scratchpad/` directory — `commit-msg-<slug>.md`, `pr-body-<slug>.md`, `pr<N>-comment-<slug>.md` — and pass the file (`git commit --file`, `gh pr create --body-file`); fall back to `/tmp/claude/msg-<slug>.txt` only in a repo without the `.ai` layer. One draft per message, never overwriting an existing draft unexamined; delete a draft once the commit or pull request it served has landed (chain the `rm -f` on success), so a leftover draft is itself the signal of an unfinished commit — exactly the state a timed-out commit leaves behind for the maintainer to finish by hand.
+- A pull-request body is rendered Markdown: GitHub does not reflow hard-wrapped text, so never paste a 72-column commit body into one — no bare `gh pr create --fill`. Derive the body from the commits, strip the `Co-Authored-By` trailers (they belong to commits, not prose), unwrap through rumdl, and close with a single assistance note for the whole body when any commit carried an agent trailer:
+
+  ```sh
+  mkdir -p .ai/scratchpad
+  {
+    git log --reverse --format='## %s%n%n%b' main..HEAD |
+      grep -v '^Co-Authored-By: '
+    printf '%s\n' '' '---' '' 'Created with AI assistance; manually reviewed.'
+  } | rumdl fmt --silent - > .ai/scratchpad/pr-body.md
+  gh pr create --base main --title "$(git log -1 --format=%s)" \
+    --body-file .ai/scratchpad/pr-body.md && rm -f .ai/scratchpad/pr-body.md
+  ```
+
+  Drop the `##` heading form for a single-commit branch, and drop the assistance note when no commit carries an agent trailer.
 - No verbose AI commentary in PR descriptions. Note AI assistance and what manual verification was performed.
 - Merge commits, never squash or rebase, on PR merge (unless the project ADRs say otherwise).
 - en_US spelling everywhere (`labeling` not `labelling`, `color` not `colour`).
@@ -180,13 +193,13 @@ All repos in this project require signed commits (policy: `commit.gpgsign = true
 
 ```sh
 ZIZMOR_OFFLINE=true GIT_TERMINAL_PROMPT=0 git commit --no-gpg-sign \
-    --file .ai/scratchpad.md < /dev/null
+    --file .ai/scratchpad/commit-msg-<slug>.md < /dev/null
 ```
 
 - `--no-gpg-sign` disables signing. Do NOT add `-c commit.gpgsign=false`: it is redundant with the flag, and the string matches the `git -c commit.gpgsign=false commit *` entry in `sandbox.excludedCommands`, whose unsandboxed routing hangs the commit in the agent harness (validated 2026-07-21 — see the zizmor section below; the entry is slated for removal).
 - `< /dev/null` closes stdin so nothing can block on an interactive prompt (the signing askpass, a credential helper, an editor).
 - `GIT_TERMINAL_PROMPT=0` stops git itself from prompting on a TTY.
-- `--file` (with the message drafted in the repo's gitignored `.ai/scratchpad.md`, or `/tmp/claude/msg-<slug>.txt` where the `.ai` layer is absent — see Commit messages and PRs) instead of multi-line `-m` arguments: long multi-line `-m` commands are a known hang in the Claude Code harness — the call is auto-backgrounded and the commit never completes.
+- `--file` (with the message drafted FIRST — `mkdir -p .ai/scratchpad` then write `.ai/scratchpad/commit-msg-<slug>.md`; the directory is gitignored and optional, so nothing guarantees it exists on a fresh clone. Use `/tmp/claude/msg-<slug>.txt` where the `.ai` layer is absent — see Commit messages and PRs) instead of multi-line `-m` arguments: long multi-line `-m` commands are a known hang in the Claude Code harness — the call is auto-backgrounded and the commit never completes.
 - Run `git commit` as its **own** standalone tool call. Chaining it in a compound command (`cmd && git commit …` or a `;`-sequence) auto-backgrounds and aborts it the same way — even `--amend --no-edit` — leaving HEAD unchanged and the file unstaged. Do any `git add` / validation in a separate call first. A single-line `-m` and `--amend --no-edit` are safe only when run standalone.
 - Add `--no-verify` **only** if the pre-commit hook genuinely can't run in the sandbox (e.g. `reuse lint` without `--no-multiprocessing` aborts on the macOS Seatbelt `SC_SEM_NSEMS_MAX` syscall; `go vet ./...` / `staticcheck` can't write the module/build cache). A correctly written hook (`reuse --no-multiprocessing lint-file`, language checks gated on staged files) runs clean in-sandbox and should *not* be bypassed. The canonical `pre-commit.d` plugins are written this way — for instance the Swift plugin bypasses the on-disk cache (`swiftformat --cache ignore`, `swiftlint --no-cache`), since otherwise swiftlint exits non-zero when it cannot write `~/Library/Caches` under the sandbox. To run those tools ad hoc in a sandbox (outside the hook), pass the same flags.
 

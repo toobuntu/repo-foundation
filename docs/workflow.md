@@ -35,7 +35,7 @@ This split kills staleness (docs stop trying to track progress) and kills supers
 | Live opening prompts and plans | `<repo>/docs/handoff/` | live items only; executed prompts move to `docs/handoff/completed/` or are deleted once `.ai/memory.md` records the outcome |
 | Reusable prompt template | repo-foundation `prompts/` | edited in place |
 | Maintainer coordination (dispatch, org progress) | the maintainer's private workspace — outside the sync, machine-specific by design | per-machine; the durable half of the old workspace org tier now lives in `.ai/org/memory.md` |
-| Scratch / thinking | workspace, or a session scratchpad (`.ai/scratchpad.md`, gitignored) | ephemeral, delete freely |
+| Scratch / thinking, message drafts | workspace, or the session scratchpad directory (`.ai/scratchpad/`, gitignored; named commit/PR drafts live here per agent-principles) | ephemeral, delete freely — a leftover draft signals an unfinished commit |
 | Dated snapshots | **banned** (use git history) | — |
 
 ## Task tracking: three tiers, files as the local atoms
