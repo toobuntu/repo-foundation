@@ -235,6 +235,13 @@ component_sets:
     # Scheduled scaffold-staleness nudge (ADR 0015); pairs with the synced
     # scripts/foundation-doctor.sh it runs.
     - { source: .github/workflows/scaffold-drift.yml,    target: .github/workflows/scaffold-drift.yml,    mode: canonical }
+    # Foundation guard: required PR check rejecting consumer edits to
+    # repo-foundation-managed files (the engine's --guard mode; sync-App PRs
+    # exempt; branch protection requiring the check by name is the tamper
+    # backstop). The master lives under provides/ — repo-foundation is the hub,
+    # not a consumer of its own sync, so it does not run the guard on itself
+    # (ADR 0001).
+    - { source: provides/github/workflows/foundation-guard.yml, target: .github/workflows/foundation-guard.yml, mode: canonical }
 
   # Canonical org-wide Toobuntu prose style + vocab + the Vale CI job (ADR 0014).
   # The style RULES and the accept VOCAB are byte-identical org-wide, so they

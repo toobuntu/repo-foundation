@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Foundation guard: a required pull-request check that rejects consumer edits
+# to repo-foundation-managed files. Self-contained canonical — no cross-repo
+# reusable-workflow callers — so actionlint and zizmor audit the complete
+# effective surface in each consumer. It checks out toobuntu/repo-foundation
+# at a pinned commit and runs the sync engine's --guard mode, reading the
+# manifest from that checkout, never from consumer-writable content. Only
+# files the pull request itself touched can fail the check (merge-base
+# filter); the sync App's own pull requests are exempt — they are the
+# sanctioned channel for changing managed files. Tamper backstop: an in-tree
+# pull_request workflow cannot defend its own caller, so branch protection
+# requires this check BY NAME — a pull request that deletes or breaks the
+# workflow leaves the required check missing and stays blocked.
+
+name: Foundation guard
+
+on:
+  pull_request:
+
+concurrency:
+  group: "foundation-guard-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  guard:
+    name: Managed surfaces
+    if: github.repository_owner == 'toobuntu' && github.event.pull_request.user.login != 'toobuntu-token-app[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Full history: the merge-base filter and the managed-region history
+          # split (git log -S) both need it.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out repo-foundation at the pinned canon
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: toobuntu/repo-foundation
+          # The canon this guard enforces: a pinned commit, not a branch, so a
+          # consumer's checks do not move when repo-foundation main does. The
+          # pin is bumped in repo-foundation (this file is canonical) and
+          # delivered by the next sync.
+          ref: 02ab29aa1368624cdd9431e7b263ce127a8750d3
+          path: foundation-canon
+          persist-credentials: false
+
+      - name: Guard managed surfaces
+        run: |
+          # Ruby is preinstalled on GitHub-hosted runners; the engine is
+          # stdlib-only, so no bundler or setup-ruby step is required.
+          ruby foundation-canon/.github/actions/sync/sync-files.rb \
+            "$GITHUB_REPOSITORY" "$GITHUB_WORKSPACE" --guard "origin/$GITHUB_BASE_REF"

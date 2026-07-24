@@ -115,20 +115,24 @@ RSpec.describe "sync-files.rb engine" do
     sh!("git", "-C", dir, "commit", "--quiet", "-m", "seed")
   end
 
-  def run_engine(source, target, *extra)
+  def run_engine(source, target, *extra, env: {})
     # Strip the bundler environment inherited from `bundle exec rspec` so the
     # engine runs as a plain stdlib script (as it does in CI under the composite
     # action), not under this suite's bundler/Ruby. Without this the spawned
     # `ruby` tries to load the parent's bundler and dies with a cross-version
-    # NameError. nil values unset the variable for the child.
-    env = {
+    # NameError. nil values unset the variable for the child. GITHUB_ACTIONS /
+    # GITHUB_OUTPUT are unset so a CI run of this suite does not leak engine
+    # annotations and outputs into the spec job; the annotation examples set
+    # them deliberately via `env:`.
+    base_env = {
       "SYNC_SOURCE_ROOT" => source,
       "SYNC_MANIFEST" => "#{source}/sync-manifest.yaml",
       "RUBYOPT" => nil, "RUBYLIB" => nil,
       "BUNDLE_GEMFILE" => nil, "BUNDLE_BIN_PATH" => nil,
       "GEM_HOME" => nil, "GEM_PATH" => nil,
+      "GITHUB_ACTIONS" => nil, "GITHUB_OUTPUT" => nil,
     }
-    Open3.capture3(env, "ruby", engine, "toobuntu/test-consumer", target, *extra)
+    Open3.capture3(base_env.merge(env), "ruby", engine, "toobuntu/test-consumer", target, *extra)
   end
 
   # Fixture for the baseline-merge modes: a Markdown region, a .gitignore region,
@@ -484,6 +488,101 @@ RSpec.describe "sync-files.rb engine" do
           _out, err, status = run_engine(source, shallow)
           expect(status.success?).to eq(false)
           expect(err).to include("shallow")
+        end
+      end
+    end
+  end
+
+  describe "--guard" do
+    it "passes a PR that does not touch managed surfaces, ignoring pre-branch drift" do
+      Dir.mktmpdir("rf-sync-src-") do |source|
+        write_source(source)
+        Dir.mktmpdir("rf-sync-tgt-") do |target|
+          init_target(target)
+          _out, _err, status = run_engine(source, target)
+          expect(status.success?).to eq(true)
+
+          # Drift committed to main BEFORE the branch: belongs to the sync, not
+          # to this PR's author (the merge-base filter).
+          File.write("#{target}/scripts/tool.sh", "#!/bin/sh\necho drifted\n")
+          commit_all(target, "hand-edit a canonical (pre-branch drift)")
+          sh!("git", "-C", target, "switch", "--quiet", "--create", "feature")
+          File.write("#{target}/README.md", "consumer-owned content\n")
+          commit_all(target, "consumer-owned change")
+
+          out, err, status = run_engine(source, target, "--guard", "main")
+          expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+          expect(out).to include("no managed surface")
+        end
+      end
+    end
+
+    it "fails a PR that edits a canonical file, with a single-line annotation" do
+      Dir.mktmpdir("rf-sync-src-") do |source|
+        write_source(source)
+        Dir.mktmpdir("rf-sync-tgt-") do |target|
+          init_target(target)
+          _out, _err, status = run_engine(source, target)
+          expect(status.success?).to eq(true)
+
+          sh!("git", "-C", target, "switch", "--quiet", "--create", "feature")
+          File.write("#{target}/scripts/tool.sh", "#!/bin/sh\necho tampered\n")
+          commit_all(target, "edit a canonical")
+
+          out, err, status = run_engine(source, target, "--guard", "main",
+                                        env: { "GITHUB_ACTIONS" => "true" })
+          expect(status.success?).to eq(false)
+          expect(err).to include("scripts/tool.sh")
+          expect(err).to include("change these in toobuntu/repo-foundation")
+          annotation = out.lines.grep(/\A::error::/)
+          expect(annotation.length).to eq(1)
+          expect(annotation.first).to include("docs/maintaining-a-repo.md")
+        end
+      end
+    end
+
+    it "compares baseline-merge targets by regenerated output (region-only edits fail)" do
+      Dir.mktmpdir("rf-sync-src-") do |source|
+        write_baseline_source(source)
+        Dir.mktmpdir("rf-sync-tgt-") do |target|
+          init_baseline_target(target)
+          _out, _err, status = run_engine(source, target)
+          expect(status.success?).to eq(true)
+
+          # Consumer-owned edit OUTSIDE the managed region: passes even though
+          # the file itself was touched.
+          sh!("git", "-C", target, "switch", "--quiet", "--create", "feature")
+          File.write("#{target}/AGENTS.md", "#{File.read("#{target}/AGENTS.md")}\nMore repo-specific prose.\n")
+          commit_all(target, "edit outside the region")
+          out, err, status = run_engine(source, target, "--guard", "main")
+          expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+
+          # Edit INSIDE the managed region: fails.
+          tampered = File.read("#{target}/AGENTS.md").sub("Org-wide managed agent context.", "Tampered.")
+          File.write("#{target}/AGENTS.md", tampered)
+          commit_all(target, "edit inside the region")
+          _out, err, status = run_engine(source, target, "--guard", "main")
+          expect(status.success?).to eq(false)
+          expect(err).to include("AGENTS.md")
+        end
+      end
+    end
+
+    it "flags a deleted managed region with the restore recipe" do
+      Dir.mktmpdir("rf-sync-src-") do |source|
+        write_baseline_source(source)
+        Dir.mktmpdir("rf-sync-tgt-") do |target|
+          init_baseline_target(target)
+          _out, _err, status = run_engine(source, target)
+          expect(status.success?).to eq(true)
+
+          sh!("git", "-C", target, "switch", "--quiet", "--create", "feature")
+          File.write("#{target}/AGENTS.md", "# AGENTS.md — test-consumer\n\nRepo-specific intro.\n")
+          commit_all(target, "delete the managed region")
+          _out, err, status = run_engine(source, target, "--guard", "main")
+          expect(status.success?).to eq(false)
+          expect(err).to include("git restore --source=")
+          expect(err).to include('- { target: AGENTS.md, reason: "<fill in>" }')
         end
       end
     end

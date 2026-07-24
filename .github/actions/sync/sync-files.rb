@@ -8,8 +8,22 @@
 # sync-files.rb — push-from-canonical sync engine for repo-foundation.
 #
 # Reads sync-manifest.yaml, resolves one consumer's component list
-# (sets + extra - exclude), and writes each component into a checkout of that
-# consumer, applying the component's mode:
+# (sets + extra - exclude), and runs in one of three modes of operation:
+#
+#   (default)   Write each component into a checkout of that consumer, then
+#               commit one file per change.
+#   --dry-run   Report what would change; write nothing.
+#   --guard X   Foundation guard for consumer pull requests: render every
+#               component in memory and compare against the working tree, but
+#               flag ONLY files the PR itself touched (merge-base filter
+#               against base X — drift that predates the branch belongs to the
+#               sync, not the PR author). baseline-merge targets compare the
+#               regenerated output, so a direct edit inside a managed region —
+#               or to a generated settings.json bypassing the addenda file —
+#               fails while consumer-owned content passes. Exits 1 when any
+#               managed surface was edited.
+#
+# Per-component modes (mode: in the manifest):
 #
 #   canonical       Copy the source and insert a "synced from repo-foundation,
 #                   do not modify it directly" header in the target's comment
@@ -49,14 +63,17 @@
 # After writing, commits one file per change in the target and, under GitHub
 # Actions, sets pull_request=true on GITHUB_OUTPUT for the calling workflow.
 #
-# Usage: sync-files.rb <consumer_repo_slug> <target_path> [--dry-run]
+# Usage: sync-files.rb <consumer_repo_slug> <target_path>
+#          [--dry-run | --guard BASE]
 # Stdlib only (no bundler), so it runs in CI without a gem install.
 
 require "English"
 require "fileutils"
 require "json"
 require "open3"
+require "optparse"
 require "pathname"
+require "tempfile"
 require "yaml"
 
 # Treat every file as UTF-8 regardless of the runner's locale, so reading a
@@ -108,10 +125,6 @@ ECOSYSTEM_PATHS = {
   "docker"        => ["Dockerfile"],
   "devcontainers" => [".devcontainer/devcontainer.json"],
 }.freeze
-
-def usage!
-  abort "Usage: #{$PROGRAM_NAME} <consumer_repo_slug> <target_path> [--dry-run]"
-end
 
 def git!(target_root, *cmd)
   return if system("git", "-C", target_root.to_s, *cmd)
@@ -467,11 +480,24 @@ def build_baseline_merge(source_file, target_file, target_root, target_rel, cons
 end
 
 # --- parse arguments ---------------------------------------------------------
-args = ARGV.dup
-dry_run = !args.delete("--dry-run").nil?
-consumer_slug = args.shift
-target_arg = args.shift
-usage! if consumer_slug.nil? || target_arg.nil? || !args.empty?
+options = { dry_run: false, guard_base: nil }
+parser = OptionParser.new do |p|
+  p.banner = "Usage: #{$PROGRAM_NAME} <consumer_repo_slug> <target_path> " \
+             "[--dry-run | --guard BASE]"
+  p.on("--dry-run", "Report what would change; write nothing") { options[:dry_run] = true }
+  p.on("--guard BASE", "Flag PR edits to managed surfaces (merge-base filter against BASE)") do |v|
+    options[:guard_base] = v
+  end
+end
+begin
+  parser.parse!(ARGV)
+rescue OptionParser::ParseError => e
+  abort "#{e.message}\n#{parser.banner}"
+end
+consumer_slug, target_arg = ARGV
+abort parser.banner if consumer_slug.nil? || target_arg.nil? || ARGV.length > 2
+abort "pick one of --dry-run, --guard" if options[:dry_run] && options[:guard_base]
+dry_run = options[:dry_run]
 
 target_root = Pathname(target_arg).expand_path
 abort "target path is not a directory: #{target_root}" unless target_root.directory?
@@ -537,41 +563,132 @@ components.each do |component|
   fragments_by_target[target_rel] << source_file
 end
 
+# Render one component in memory (no writes). Returns nil for components that
+# produce no file of their own; raises SyncError for the loud marker states.
+def render_component(component, target_root, consumer_slug, header_template,
+                     merge_label_begin, merge_label_end, fragments_by_target, notes)
+  source_rel = component.fetch("source")
+  target_rel = component.fetch("target")
+  source_file = SOURCE_ROOT / source_rel
+  target_file = target_root / target_rel
+  case component.fetch("mode")
+  when "canonical", "template"
+    [build_copy(source_file, target_file, source_rel, header_template), source_file.stat.mode]
+  when "generate"
+    [build_generate(source_file, target_root, source_rel, header_template), 0o644]
+  when "baseline-merge"
+    [build_baseline_merge(source_file, target_file, target_root, target_rel, consumer_slug,
+                          merge_label_begin, merge_label_end,
+                          fragments: fragments_by_target[target_rel], notes: notes),
+     0o644]
+  end
+end
+
+# Unified diff between the on-disk file and the rendered canon, for guard
+# detail. --no-index exits 1 on differences; only >1 is a git failure.
+def diff_against_rendered(rendered, target_file)
+  Tempfile.create("rendered") do |tmp|
+    tmp.write(rendered)
+    tmp.flush
+    out, _err, status = Open3.capture3("git", "diff", "--no-index", target_file.to_s, tmp.path)
+    return "" if status.exitstatus.nil? || status.exitstatus > 1
+
+    out
+  end
+end
+
+# --- guard mode ---------------------------------------------------------------
+# Render the consumer's components and flag only those the PR touched whose
+# content diverges from the canon. Exits 1 with a single-line annotation when
+# any managed surface was edited; the per-file detail (including the diff, or
+# the marker-state recovery recipe) goes to the step log.
+def run_guard(components, target_root, consumer_slug, guard_base, header_template,
+              merge_label_begin, merge_label_end, fragments_by_target)
+  merge_base, err, status = Open3.capture3("git", "-C", target_root.to_s, "merge-base", guard_base, "HEAD")
+  abort "could not resolve guard base #{guard_base}: #{err.strip}" unless status.success?
+
+  out, err, status = Open3.capture3("git", "-C", target_root.to_s,
+                                    "diff", "--name-only", "-z", merge_base.strip, "HEAD")
+  abort "could not diff against merge base: #{err.strip}" unless status.success?
+
+  touched = out.split("\0").reject(&:empty?)
+  flagged = []
+  components.each do |component|
+    next if component["mode"] == "fragment"
+
+    target_rel = component.fetch("target")
+    next unless touched.include?(target_rel)
+
+    source_file = SOURCE_ROOT / component.fetch("source")
+    next warn("  skip (source missing): #{component['source']}") unless source_file.exist?
+
+    target_file = target_root / target_rel
+    begin
+      content, = render_component(component, target_root, consumer_slug, header_template,
+                                  merge_label_begin, merge_label_end, fragments_by_target, {})
+    rescue SyncError => e
+      flagged << [target_rel, e.message]
+      next
+    end
+    next if content.nil?
+
+    if !target_file.exist?
+      flagged << [target_rel, "deleted in this PR, but it is repo-foundation-managed"]
+    elsif target_file.read != content
+      flagged << [target_rel, "diverges from the rendered canon:\n#{diff_against_rendered(content, target_file)}"]
+    end
+  end
+
+  if flagged.empty?
+    puts "foundation-guard: no managed surface edited by this PR."
+    exit 0
+  end
+
+  flagged.each do |target_rel, detail|
+    warn "foundation-guard: #{target_rel}: #{detail}"
+  end
+  names = flagged.map(&:first).join(", ")
+  raise SyncError.new(
+    "foundation-guard: managed surface edited (#{names}); change these in toobuntu/repo-foundation instead",
+    annotation: "PR edits repo-foundation-managed content (#{names}) — change it in toobuntu/repo-foundation; " \
+                "see toobuntu/repo-foundation docs/maintaining-a-repo.md"
+  )
+end
+
+if options[:guard_base]
+  begin
+    run_guard(components, target_root, consumer_slug, options[:guard_base], header_template,
+              merge_label_begin, merge_label_end, fragments_by_target)
+  rescue SyncError => e
+    fail_sync(e)
+  end
+end
+
 # --- apply each component ----------------------------------------------------
 puts "Syncing #{consumer_slug} -> #{target_root}#{dry_run ? ' (dry run)' : ''}"
 changed_any = false
 notes = {}
 components.each do |component|
-  source_rel = component.fetch("source")
   target_rel = component.fetch("target")
   mode = component.fetch("mode")
-  source_file = SOURCE_ROOT / source_rel
+  source_file = SOURCE_ROOT / component.fetch("source")
   target_file = target_root / target_rel
 
+  next if mode == "fragment" # folded into the matching baseline-merge target
+
   unless source_file.exist?
-    warn "  skip (source missing): #{source_rel} [#{mode}]"
+    warn "  skip (source missing): #{component['source']} [#{mode}]"
     next
   end
 
   begin
-    new_content, mode_bits =
-      case mode
-      when "canonical", "template"
-        [build_copy(source_file, target_file, source_rel, header_template), source_file.stat.mode]
-      when "generate"
-        [build_generate(source_file, target_root, source_rel, header_template), 0o644]
-      when "baseline-merge"
-        [build_baseline_merge(source_file, target_file, target_root, target_rel, consumer_slug,
-                              merge_label_begin, merge_label_end,
-                              fragments: fragments_by_target[target_rel], notes: notes), 0o644]
-      when "fragment"
-        next # folded into the matching baseline-merge target above
-      end
+    new_content, mode_bits = render_component(component, target_root, consumer_slug, header_template,
+                                              merge_label_begin, merge_label_end, fragments_by_target, notes)
   rescue SyncError => e
     fail_sync(e)
   end
 
-  next if new_content.nil? # e.g. baseline-merge JSON, deferred
+  next if new_content.nil? # e.g. a region-less target, deferred
   next if target_file.exist? && target_file.read == new_content
 
   changed_any = true
