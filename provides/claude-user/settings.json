@@ -364,7 +364,6 @@
     "allowUnsandboxedCommands": false,
     "failIfUnavailable": true,
     "excludedCommands": [
-      "git commit *",
       "git tag -a *",
       "git pull *",
       "git fetch *",
@@ -459,7 +458,8 @@
         "news.ycombinator.com",
         "reddit.com",
         "*.reddit.com",
-        "lwn.net"
+        "lwn.net",
+        "cua.ai"
       ]
     }
   }
