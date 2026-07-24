@@ -120,11 +120,21 @@ RSpec.describe "foundation-init.sh" do
       end
       expect(status.success?).to eq(true), err
 
-      gitignore = File.read("#{target}/.gitignore")
-      region_begin = gitignore.index(">>>")
-      region_end = gitignore.index("<<<")
-      %w[.ai/progress.md .ai/scratchpad/ .ai/org/relay.md].each do |line|
-        expect(gitignore.index(line)).to be_between(region_begin, region_end)
+      lines = File.readlines("#{target}/.gitignore", chomp: true)
+      # Pre-existing content is preserved, and the region is inserted into (not
+      # duplicated): exactly one begin and one end marker, begin before end.
+      expect(lines).to include("build/")
+      begin_i = lines.index("# >>> #{label} >>>")
+      end_i = lines.index("# <<< #{label_end} <<<")
+      expect(lines.count("# >>> #{label} >>>")).to eq(1)
+      expect(lines.count("# <<< #{label_end} <<<")).to eq(1)
+      expect(begin_i).not_to be_nil
+      expect(end_i).to be > begin_i
+      # All three seeded entries land as full lines strictly between the markers.
+      %w[.ai/progress.md .ai/scratchpad/ .ai/org/relay.md].each do |entry|
+        entry_i = lines.index(entry)
+        expect(entry_i).not_to(be_nil, "#{entry} missing from .gitignore")
+        expect(entry_i).to be_between(begin_i + 1, end_i - 1)
       end
       sh!("git", "-C", target, "add", "-A")
       staged = sh!("git", "-C", target, "diff", "--cached", "--name-only").split("\n")
