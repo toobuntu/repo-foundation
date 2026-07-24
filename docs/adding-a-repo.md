@@ -18,7 +18,7 @@ The onboarding runbook: how a repository — brand new or pre-existing — comes
    scripts/foundation-init.sh [--license SPDX-ID] /path/to/new-repo
    ```
 
-   It copies the copy-once scaffolds (the `ci` / `codeql` / `copilot-setup-steps` workflows, `.vale.ini`), seeds the baseline-merge targets (`AGENTS.md`, `CONTRIBUTING.md`, `.gitignore`) with an empty managed region for the first sync to fill, seeds `CLAUDE.md`, `.claude/settings.addenda.json`, and the `.ai/` continuity files (ADR 0022: the committed `.ai/memory.md`, plus a starting gitignored `.ai/progress.md`), and brings the tree into REUSE compliance under `--license` (default `GPL-3.0-or-later`; ADR 0016).
+   It copies the copy-once scaffolds (the `ci` / `codeql` / `copilot-setup-steps` workflows, `.vale.ini`), seeds the baseline-merge targets (`AGENTS.md`, `CONTRIBUTING.md`, `.gitignore`) with a managed region for the first sync to fill — the `.gitignore` region is pre-seeded with the volatile `.ai` ignore lines so the next step's commit cannot track them — seeds `CLAUDE.md`, `.claude/settings.addenda.json`, and the `.ai/` continuity files (ADR 0022: the committed `.ai/memory.md`, plus a starting `.ai/progress.md`, ignored from the moment it exists), and brings the tree into REUSE compliance under `--license` (default `GPL-3.0-or-later`; ADR 0016).
 
 3. **Review, commit, push** in the new repo, and activate the hooks once per clone:
 

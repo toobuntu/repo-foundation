@@ -86,7 +86,7 @@ RSpec.describe "sync-manifest.yaml contract" do
   end
 
   it "ignores the volatile .ai files in gitignore.baseline and RF's own .gitignore" do
-    volatile = [".ai/progress.md", ".ai/scratchpad.md", ".ai/org/relay.md"]
+    volatile = [".ai/progress.md", ".ai/scratchpad/", ".ai/org/relay.md"]
     [File.join(REPO_ROOT, "provides/repo/gitignore.baseline"),
      File.join(REPO_ROOT, ".gitignore")].each do |path|
       lines = File.readlines(path, chomp: true)

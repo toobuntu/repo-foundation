@@ -103,20 +103,6 @@ if [ -e "$rf_root/provides/vale/vale.ini.template" ] && [ ! -e "$target/.vale.in
   printf 'copied: %s\n' "$target/.vale.ini"
 fi
 
-# Agent continuity layer (ADR 0022): seed the consumer-owned .ai/memory.md
-# from the template, and give the developer a starting .ai/progress.md (the
-# gitignored per-developer instance; the committed .ai/progress.template.md
-# and .ai/org/memory.md arrive via the sync, not init).
-mkdir -p "$target/.ai"
-if [ -e "$rf_root/provides/ai/memory.template.md" ] && [ ! -e "$target/.ai/memory.md" ]; then
-  cp "$rf_root/provides/ai/memory.template.md" "$target/.ai/memory.md"
-  printf 'copied: %s\n' "$target/.ai/memory.md"
-fi
-if [ -e "$rf_root/.ai/progress.template.md" ] && [ ! -e "$target/.ai/progress.md" ]; then
-  cp "$rf_root/.ai/progress.template.md" "$target/.ai/progress.md"
-  printf 'seeded (gitignored): %s\n' "$target/.ai/progress.md"
-fi
-
 # 2. Seed the baseline-merge targets with an empty managed region. The first
 #    sync replaces the region between the sentinels with the canonical baseline.
 seed_md_region() {
@@ -136,18 +122,63 @@ seed_md_region() {
 seed_md_region "$target/AGENTS.md" "AGENTS.md — $(basename "$target")"
 seed_md_region "$target/CONTRIBUTING.md" "Contributing"
 
+# The managed region is seeded WITH the volatile .ai ignore lines rather than
+# empty: init creates .ai/progress.md below (after this block), and the
+# runbook's next step is review-commit-push — an empty region would let
+# `git add -A` track the volatile file before the first sync delivers the
+# baseline (and a tracked file stays tracked when its ignore line later
+# arrives). Placing the lines inside the region is self-healing: the first
+# sync replaces the region wholesale with the full baseline, which carries
+# these same lines.
+ai_ignores='.ai/progress.md
+.ai/scratchpad/
+.ai/org/relay.md'
 if [ ! -e "$target/.gitignore" ]; then
-  printf '%s\n%s\n' "$hash_begin" "$hash_end" > "$target/.gitignore"
+  printf '%s\n%s\n%s\n' "$hash_begin" "$ai_ignores" "$hash_end" > "$target/.gitignore"
   printf 'seeded: %s\n' "$target/.gitignore"
 elif ! grep -qF "$hash_begin" "$target/.gitignore"; then
-  printf '\n%s\n%s\n' "$hash_begin" "$hash_end" >> "$target/.gitignore"
+  printf '\n%s\n%s\n%s\n' "$hash_begin" "$ai_ignores" "$hash_end" >> "$target/.gitignore"
   printf 'appended managed region: %s\n' "$target/.gitignore"
+else
+  # Region already present (an older init, or a hand-seeded file): insert any
+  # missing volatile entries just inside the begin marker, preserving both
+  # markers and everything else.
+  missing=""
+  for entry in $ai_ignores; do
+    grep -qxF "$entry" "$target/.gitignore" || missing="${missing}${entry}
+"
+  done
+  if [ -n "$missing" ]; then
+    # BSD awk rejects -v values containing newlines, so the multi-line
+    # insertion rides the environment instead.
+    ADD="$missing" awk -v begin="$hash_begin" \
+      '{ print } $0 == begin { printf "%s", ENVIRON["ADD"] }' \
+      "$target/.gitignore" > "$target/.gitignore.tmp"
+    mv "$target/.gitignore.tmp" "$target/.gitignore"
+    printf 'inserted missing .ai ignore entries: %s\n' "$target/.gitignore"
+  fi
 fi
 
 [ -e "$target/CLAUDE.md" ] || {
   printf '@AGENTS.md\n' > "$target/CLAUDE.md"
   printf 'seeded: %s\n' "$target/CLAUDE.md"
 }
+
+# Agent continuity layer (ADR 0022): seed the consumer-owned .ai/memory.md
+# from the template, and give the developer a starting .ai/progress.md (the
+# gitignored per-developer instance; the committed .ai/progress.template.md
+# and .ai/org/memory.md arrive via the sync, not init). This block runs AFTER
+# the .gitignore seeding above so .ai/progress.md is ignored from the moment
+# it exists — even an interrupted run never leaves it trackable.
+mkdir -p "$target/.ai"
+if [ -e "$rf_root/provides/ai/memory.template.md" ] && [ ! -e "$target/.ai/memory.md" ]; then
+  cp "$rf_root/provides/ai/memory.template.md" "$target/.ai/memory.md"
+  printf 'copied: %s\n' "$target/.ai/memory.md"
+fi
+if [ -e "$rf_root/.ai/progress.template.md" ] && [ ! -e "$target/.ai/progress.md" ]; then
+  cp "$rf_root/.ai/progress.template.md" "$target/.ai/progress.md"
+  printf 'seeded (gitignored): %s\n' "$target/.ai/progress.md"
+fi
 
 # 3. Seed the Claude settings addenda (the consumer's deep-merge input).
 mkdir -p "$target/.claude"
