@@ -8,11 +8,16 @@
 # sync-files.rb — push-from-canonical sync engine for repo-foundation.
 #
 # Reads sync-manifest.yaml, resolves one consumer's component list
-# (sets + extra - exclude), and runs in one of three modes of operation:
+# (sets + extra - exclude), and runs in one of four modes of operation:
 #
 #   (default)   Write each component into a checkout of that consumer, then
 #               commit one file per change.
 #   --dry-run   Report what would change; write nothing.
+#   --audit     Pre-sync freshness audit: one row per (source -> target) pair —
+#               same/differs/missing status, consumer and repo-foundation
+#               mtimes (a review signal only; content decides), diffstat on
+#               mismatch — plus the consumer's exclusions with their reasons.
+#               Read-only, always exits 0; the disposition pass is human.
 #   --guard X   Foundation guard for consumer pull requests: render every
 #               component in memory and compare against the working tree, but
 #               flag ONLY files the PR itself touched (merge-base filter
@@ -64,7 +69,7 @@
 # Actions, sets pull_request=true on GITHUB_OUTPUT for the calling workflow.
 #
 # Usage: sync-files.rb <consumer_repo_slug> <target_path>
-#          [--dry-run | --guard BASE]
+#          [--dry-run | --guard BASE | --audit]
 # Stdlib only (no bundler), so it runs in CI without a gem install.
 
 require "English"
@@ -480,14 +485,15 @@ def build_baseline_merge(source_file, target_file, target_root, target_rel, cons
 end
 
 # --- parse arguments ---------------------------------------------------------
-options = { dry_run: false, guard_base: nil }
+options = { dry_run: false, guard_base: nil, audit: false }
 parser = OptionParser.new do |p|
   p.banner = "Usage: #{$PROGRAM_NAME} <consumer_repo_slug> <target_path> " \
-             "[--dry-run | --guard BASE]"
+             "[--dry-run | --guard BASE | --audit]"
   p.on("--dry-run", "Report what would change; write nothing") { options[:dry_run] = true }
   p.on("--guard BASE", "Flag PR edits to managed surfaces (merge-base filter against BASE)") do |v|
     options[:guard_base] = v
   end
+  p.on("--audit", "Report per-pair freshness (read-only)") { options[:audit] = true }
 end
 begin
   parser.parse!(ARGV)
@@ -496,7 +502,9 @@ rescue OptionParser::ParseError => e
 end
 consumer_slug, target_arg = ARGV
 abort parser.banner if consumer_slug.nil? || target_arg.nil? || ARGV.length > 2
-abort "pick one of --dry-run, --guard" if options[:dry_run] && options[:guard_base]
+if [options[:dry_run], options[:audit], !options[:guard_base].nil?].count(true) > 1
+  abort "pick one of --dry-run, --guard, --audit"
+end
 dry_run = options[:dry_run]
 
 target_root = Pathname(target_arg).expand_path
@@ -597,6 +605,72 @@ def diff_against_rendered(rendered, target_file)
   end
 end
 
+def numstat_against_rendered(rendered, target_file)
+  Tempfile.create("rendered") do |tmp|
+    tmp.write(rendered)
+    tmp.flush
+    out, _err, status = Open3.capture3("git", "diff", "--no-index", "--numstat", target_file.to_s, tmp.path)
+    return "" if status.exitstatus.nil? || status.exitstatus > 1
+
+    added, deleted, = out.split
+    # numstat columns are target -> rendered, so "added" counts lines the sync
+    # would add to the consumer file.
+    added && deleted ? "+#{added}/-#{deleted}" : ""
+  end
+end
+
+# --- audit mode ---------------------------------------------------------------
+# One row per (source -> target) pair: what the sync would impose vs what the
+# consumer carries. mtimes are a review signal only (they lie after cp/clone);
+# the content comparison decides. Always exits 0 — the disposition pass
+# (adopt-into-RF / keep-RF / record an exclude with a reason) is human.
+def run_audit(components, target_root, consumer_slug, excludes, header_template,
+              merge_label_begin, merge_label_end, fragments_by_target)
+  mtime = ->(path) { path.exist? ? path.mtime.strftime("%Y-%m-%d %H:%M") : "-" }
+  rows = components.filter_map do |component|
+    next if component["mode"] == "fragment"
+
+    target_rel = component.fetch("target")
+    source_file = SOURCE_ROOT / component.fetch("source")
+    target_file = target_root / target_rel
+    row = { target: target_rel, consumer_mtime: mtime.call(target_file), rf_mtime: mtime.call(source_file), detail: "" }
+    next row.merge(status: "no-source") unless source_file.exist?
+
+    begin
+      content, = render_component(component, target_root, consumer_slug, header_template,
+                                  merge_label_begin, merge_label_end, fragments_by_target, {})
+    rescue SyncError => e
+      # The annotation is the one-line form of the failure; fall back to the
+      # message's first line for SyncErrors that carry none.
+      next row.merge(status: "error", detail: (e.annotation || e.message.lines.first.to_s).strip)
+    end
+    next row.merge(status: "skipped") if content.nil?
+
+    if !target_file.exist?
+      row.merge(status: "missing")
+    elsif target_file.read == content
+      row.merge(status: "same")
+    else
+      row.merge(status: "differs", detail: numstat_against_rendered(content, target_file))
+    end
+  end
+
+  puts "Audit: #{consumer_slug} -> #{target_root} (#{rows.length} pairs)"
+  width = rows.map { |r| r[:target].length }.max.to_i.clamp(6, 60)
+  puts format("%-9s %-#{width}s %-17s %-17s %s", "status", "target", "consumer-mtime", "rf-mtime", "detail")
+  rows.each do |row|
+    puts format("%-9s %-#{width}s %-17s %-17s %s",
+                row[:status], row[:target], row[:consumer_mtime], row[:rf_mtime], row[:detail])
+  end
+  counts = rows.group_by { |r| r[:status] }.transform_values(&:length)
+  puts "Summary: #{counts.sort.map { |status, n| "#{n} #{status}" }.join(', ')}"
+  unless excludes.empty?
+    puts "Exclusions:"
+    excludes.each { |entry| puts "  #{entry['target']} — #{entry['reason']}" }
+  end
+  exit 0
+end
+
 # --- guard mode ---------------------------------------------------------------
 # Render the consumer's components and flag only those the PR touched whose
 # content diverges from the canon. Exits 1 with a single-line annotation when
@@ -662,6 +736,9 @@ if options[:guard_base]
   rescue SyncError => e
     fail_sync(e)
   end
+elsif options[:audit]
+  run_audit(components, target_root, consumer_slug, excludes, header_template,
+            merge_label_begin, merge_label_end, fragments_by_target)
 end
 
 # --- apply each component ----------------------------------------------------

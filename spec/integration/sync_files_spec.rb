@@ -132,7 +132,11 @@ RSpec.describe "sync-files.rb engine" do
       "GEM_HOME" => nil, "GEM_PATH" => nil,
       "GITHUB_ACTIONS" => nil, "GITHUB_OUTPUT" => nil,
     }
-    Open3.capture3(base_env.merge(env), "ruby", engine, "toobuntu/test-consumer", target, *extra)
+    # RbConfig.ruby, not bare "ruby": a bare name resolves through PATH, which
+    # on macOS finds the frozen system Ruby 2.6 (BSD `env -P` locates only the
+    # utility; it does not export the modified PATH to children). The engine
+    # should run under the same modern Ruby as this suite.
+    Open3.capture3(base_env.merge(env), RbConfig.ruby, engine, "toobuntu/test-consumer", target, *extra)
   end
 
   # Fixture for the baseline-merge modes: a Markdown region, a .gitignore region,
@@ -583,6 +587,62 @@ RSpec.describe "sync-files.rb engine" do
           expect(status.success?).to eq(false)
           expect(err).to include("git restore --source=")
           expect(err).to include('- { target: AGENTS.md, reason: "<fill in>" }')
+        end
+      end
+    end
+  end
+
+  describe "--audit" do
+    it "reports per-pair freshness rows, a summary, and exclusion reasons, read-only" do
+      Dir.mktmpdir("rf-sync-src-") do |source|
+        write_source(source)
+        manifest = File.read("#{source}/sync-manifest.yaml")
+        File.write("#{source}/sync-manifest.yaml", manifest.sub(
+                     "sets: [core]",
+                     "sets: [core]\n    exclude:\n      - { target: .github/matcher.json.license, " \
+                     "reason: \"sidecar owned locally\" }"
+                   ))
+        Dir.mktmpdir("rf-sync-tgt-") do |target|
+          init_target(target)
+          _out, _err, status = run_engine(source, target)
+          expect(status.success?).to eq(true)
+
+          File.write("#{target}/scripts/tool.sh", "#!/bin/sh\necho drifted\n")
+          FileUtils.rm("#{target}/.github/relayed.yml")
+
+          out, err, status = run_engine(source, target, "--audit")
+          expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+          expect(out).to match(%r{differs\s+scripts/tool\.sh.*\+\d+/-\d+})
+          expect(out).to match(%r{missing\s+\.github/relayed\.yml})
+          expect(out).to match(%r{same\s+\.github/matcher\.json})
+          expect(out).to include("Summary:")
+          expect(out).to include("Exclusions:")
+          expect(out).to include(".github/matcher.json.license — sidecar owned locally")
+
+          # Read-only: the audit neither restores the deleted file nor
+          # rewrites the drifted one.
+          expect(File.exist?("#{target}/.github/relayed.yml")).to eq(false)
+          expect(File.read("#{target}/scripts/tool.sh")).to include("drifted")
+        end
+      end
+    end
+
+    it "reports marker damage as an error row instead of aborting the audit" do
+      Dir.mktmpdir("rf-sync-src-") do |source|
+        write_baseline_source(source)
+        Dir.mktmpdir("rf-sync-tgt-") do |target|
+          init_baseline_target(target)
+          _out, _err, status = run_engine(source, target)
+          expect(status.success?).to eq(true)
+
+          File.write("#{target}/AGENTS.md", "# AGENTS.md — test-consumer\n\nRepo-specific intro.\n")
+          commit_all(target, "delete the managed region")
+
+          out, err, status = run_engine(source, target, "--audit")
+          expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+          expect(out).to match(/error\s+AGENTS\.md/)
+          expect(out).to include("last present at")
+          expect(out).to match(%r{same\s+\.gitignore})
         end
       end
     end
