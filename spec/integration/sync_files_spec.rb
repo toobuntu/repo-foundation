@@ -267,6 +267,61 @@ RSpec.describe "sync-files.rb engine" do
     end
   end
 
+  it "refuses to sync through a consumer-committed symlink" do
+    Dir.mktmpdir("rf-sync-src-") do |source|
+      write_source(source)
+      Dir.mktmpdir("rf-sync-root-") do |root|
+        target = File.join(root, "consumer")
+        outside = File.join(root, "outside")
+        FileUtils.mkdir_p([target, outside])
+        init_target(target)
+        FileUtils.rm_rf("#{target}/.github")
+        File.symlink("../outside", "#{target}/.github")
+
+        _out, err, status = run_engine(source, target)
+        expect(status.success?).to eq(false)
+        expect(err).to include("symlink")
+        expect(err).to include(".github")
+        # Nothing escaped into the symlink's destination.
+        expect(Dir.children(outside)).to be_empty
+      end
+    end
+  end
+
+  it "prepends at the top when a Markdown target has no leading H1" do
+    Dir.mktmpdir("rf-sync-src-") do |source|
+      write_baseline_source(source)
+      Dir.mktmpdir("rf-sync-tgt-") do |target|
+        init_baseline_target(target)
+        # No H1; a "# " line inside a code fence must not be mistaken for one.
+        File.write("#{target}/AGENTS.md",
+                   "Intro prose without a title.\n\n```sh\n# not a title\n```\n")
+        commit_all(target, "replace AGENTS.md")
+        out, err, status = run_engine(source, target)
+        expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+
+        agents = File.read("#{target}/AGENTS.md")
+        marker = agents.index(md_sentinels.first)
+        prose = agents.index("Intro prose without a title.")
+        fence = agents.index("# not a title")
+        expect(marker).to be < prose
+        expect(prose).to be < fence
+      end
+    end
+  end
+
+  it "rejects --emit-dir combined with a read-only mode" do
+    Dir.mktmpdir("rf-sync-src-") do |source|
+      write_source(source)
+      Dir.mktmpdir("rf-sync-tgt-") do |target|
+        init_target(target)
+        _out, err, status = run_engine(source, target, "--dry-run", "--emit-dir", "#{target}/.sync-emit")
+        expect(status.success?).to eq(false)
+        expect(err).to include("--emit-dir applies only to the default write mode")
+      end
+    end
+  end
+
   it "heals executable-bit drift on a content-identical canonical file" do
     Dir.mktmpdir("rf-sync-src-") do |source|
       write_source(source)
@@ -636,6 +691,25 @@ RSpec.describe "sync-files.rb engine" do
           _out, err, status = run_engine(source, target, "--guard", "main")
           expect(status.success?).to eq(false)
           expect(err).to include("AGENTS.md")
+        end
+      end
+    end
+
+    it "flags a canonical file renamed away (rename detection off)" do
+      Dir.mktmpdir("rf-sync-src-") do |source|
+        write_source(source)
+        Dir.mktmpdir("rf-sync-tgt-") do |target|
+          init_target(target)
+          _out, _err, status = run_engine(source, target)
+          expect(status.success?).to eq(true)
+          commit_all(target, "apply sync")
+
+          sh!("git", "-C", target, "switch", "--quiet", "--create", "feature")
+          sh!("git", "-C", target, "mv", "scripts/tool.sh", "scripts/tool-renamed.sh")
+          commit_all(target, "rename a canonical away")
+          _out, err, status = run_engine(source, target, "--guard", "main")
+          expect(status.success?).to eq(false)
+          expect(err).to include("scripts/tool.sh: deleted in this PR")
         end
       end
     end

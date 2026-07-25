@@ -420,8 +420,13 @@ def prepend_region(current, region, style)
   lines = current.lines
   i = insert_point(lines, style)
   if style == :html
-    h1 = lines[i..].find_index { |l| l.start_with?("# ") }
-    i += h1 + 1 unless h1.nil?
+    # Only the document's leading heading area counts: an H1 is accepted only
+    # as the first content line after insert_point. An unbounded scan could
+    # mistake a "# " line deep in the body (say, a comment inside a code
+    # fence) for the title; with no leading H1 the region goes to the top.
+    j = i
+    j += 1 while lines[j]&.strip&.empty?
+    i = j + 1 if lines[j]&.start_with?("# ")
   else
     # insert_point stops at a leading comment block only when it carries SPDX;
     # skip any remaining plain comment block too (the shebang was index 0).
@@ -507,6 +512,9 @@ abort parser.banner if consumer_slug.nil? || target_arg.nil? || ARGV.length > 2
 if [options[:dry_run], options[:audit], !options[:guard_base].nil?].count(true) > 1
   abort "pick one of --dry-run, --guard, --audit"
 end
+if options[:emit_dir] && (options[:dry_run] || options[:audit] || options[:guard_base])
+  abort "--emit-dir applies only to the default write mode (it would silently emit nothing here)"
+end
 dry_run = options[:dry_run]
 
 target_root = Pathname(target_arg).expand_path
@@ -573,14 +581,42 @@ components.each do |component|
   fragments_by_target[target_rel] << source_file
 end
 
+# The manifest's target paths are hub-authored and trusted; the CONSUMER tree
+# is not. A committed symlink — an ancestor directory or the target itself —
+# would redirect the engine's reads and writes outside the checkout (e.g. a
+# .github -> ../.github symlink escaping into the surrounding workspace), so
+# refuse to traverse one. Per-component lstat (Pathname#symlink?): the check
+# never follows the link it is checking. Nonexistent components pass — mkpath
+# then creates real directories.
+def assert_no_symlink_traversal!(target_root, target_rel)
+  rel = Pathname(target_rel)
+  if rel.absolute? || rel.each_filename.include?("..")
+    raise SyncError.new("#{target_rel}: unsafe target path (absolute or ..)",
+                        annotation: "#{target_rel}: unsafe target path — #{DOC_POINTER}")
+  end
+  path = target_root
+  rel.each_filename do |component|
+    path /= component
+    next unless path.symlink?
+
+    raise SyncError.new(
+      "#{target_rel}: #{path.relative_path_from(target_root)} is a symlink; refusing to sync through it — " \
+      "a consumer-committed symlink could redirect the write outside the checkout",
+      annotation: "#{target_rel}: symlink in a managed path — #{DOC_POINTER}"
+    )
+  end
+end
+
 # Render one component in memory (no writes). Returns nil for components that
-# produce no file of their own; raises SyncError for the loud marker states.
+# produce no file of their own; raises SyncError for the loud marker states
+# and for a symlinked or unsafe target path.
 def render_component(component, target_root, consumer_slug, header_template,
                      merge_label_begin, merge_label_end, fragments_by_target, notes)
   source_rel = component.fetch("source")
   target_rel = component.fetch("target")
   source_file = SOURCE_ROOT / source_rel
   target_file = target_root / target_rel
+  assert_no_symlink_traversal!(target_root, target_rel)
   case component.fetch("mode")
   when "canonical", "template"
     [build_copy(source_file, target_file, source_rel, header_template), source_file.stat.mode]
@@ -591,6 +627,10 @@ def render_component(component, target_root, consumer_slug, header_template,
                           merge_label_begin, merge_label_end,
                           fragments: fragments_by_target[target_rel], notes: notes),
      0o644]
+  else
+    # VALID_MODES is validated up front and callers filter fragments; reaching
+    # here means a new mode was added without a renderer.
+    raise SyncError.new("#{target_rel}: no renderer for mode '#{component['mode']}'")
   end
 end
 
@@ -609,6 +649,17 @@ end
 
 def git_file_mode(mode_bits)
   (mode_bits & 0o111).zero? ? "100644" : "100755"
+end
+
+# Shared comparison ladder: how does the on-disk target relate to the rendered
+# canon? One order of precedence for the sync, guard, and audit paths, so the
+# three cannot drift.
+def classify_rendered(target_file, content, expected_mode)
+  return :missing unless target_file.exist?
+  return :differs if target_file.read != content
+  return :mode if git_file_mode(target_file.stat.mode) != git_file_mode(expected_mode)
+
+  :same
 end
 
 def numstat_against_rendered(rendered, target_file)
@@ -652,11 +703,12 @@ def run_audit(components, target_root, consumer_slug, excludes, header_template,
     end
     next row.merge(status: "skipped") if content.nil?
 
-    if !target_file.exist?
+    case classify_rendered(target_file, content, expected_mode)
+    when :missing
       row.merge(status: "missing")
-    elsif target_file.read != content
+    when :differs
       row.merge(status: "differs", detail: numstat_against_rendered(content, target_file))
-    elsif git_file_mode(target_file.stat.mode) != git_file_mode(expected_mode)
+    when :mode
       row.merge(status: "mode", detail: "mode #{git_file_mode(target_file.stat.mode)}, " \
                                         "expected #{git_file_mode(expected_mode)}")
     else
@@ -690,8 +742,11 @@ def run_guard(components, target_root, consumer_slug, guard_base, header_templat
   merge_base, err, status = Open3.capture3("git", "-C", target_root.to_s, "merge-base", guard_base, "HEAD")
   abort "could not resolve guard base #{guard_base}: #{err.strip}" unless status.success?
 
+  # --no-renames: with rename detection a moved file surfaces only at its NEW
+  # path, so a managed target renamed away would drop out of the touched set
+  # and its disappearance would go unguarded. Delete+add keeps both paths.
   out, err, status = Open3.capture3("git", "-C", target_root.to_s,
-                                    "diff", "--name-only", "-z", merge_base.strip, "HEAD")
+                                    "diff", "--name-only", "-z", "--no-renames", merge_base.strip, "HEAD")
   abort "could not diff against merge base: #{err.strip}" unless status.success?
 
   touched = out.split("\0").reject(&:empty?)
@@ -715,11 +770,12 @@ def run_guard(components, target_root, consumer_slug, guard_base, header_templat
     end
     next if content.nil?
 
-    if !target_file.exist?
+    case classify_rendered(target_file, content, expected_mode)
+    when :missing
       flagged << [target_rel, "deleted in this PR, but it is repo-foundation-managed"]
-    elsif target_file.read != content
+    when :differs
       flagged << [target_rel, "diverges from the rendered canon:\n#{diff_against_rendered(content, target_file)}"]
-    elsif git_file_mode(target_file.stat.mode) != git_file_mode(expected_mode)
+    when :mode
       flagged << [target_rel, "file mode changed (expected #{git_file_mode(expected_mode)}, " \
                               "found #{git_file_mode(target_file.stat.mode)})"]
     end
@@ -779,19 +835,12 @@ components.each do |component|
 
   next if new_content.nil? # e.g. a region-less target, deferred
 
-  # Compare content AND git file mode, so exec-bit drift on a consumer copy
+  # Content AND git file mode both count, so exec-bit drift on a consumer copy
   # of a canonical script self-heals on the next sync instead of persisting.
-  content_same = target_file.exist? && target_file.read == new_content
-  mode_same = !target_file.exist? || git_file_mode(target_file.stat.mode) == git_file_mode(mode_bits)
-  next if content_same && mode_same
+  classification = classify_rendered(target_file, new_content, mode_bits)
+  next if classification == :same
 
-  status = if !target_file.exist?
-             "added"
-           elsif content_same
-             "mode"
-           else
-             "modified"
-           end
+  status = { missing: "added", differs: "modified", mode: "mode" }.fetch(classification)
   change = { "path" => target_rel, "status" => status, "mode" => git_file_mode(mode_bits) }
   change["note"] = notes[target_rel] if notes[target_rel]
   changes << change
@@ -801,7 +850,7 @@ components.each do |component|
   next if dry_run
 
   target_file.dirname.mkpath
-  target_file.write(new_content) unless content_same
+  target_file.write(new_content) unless classification == :mode
   target_file.chmod(mode_bits)
 end
 
