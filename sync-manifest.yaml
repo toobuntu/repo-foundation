@@ -38,7 +38,10 @@ version: 1
 
 defaults:
   strategy: pr
-  branch: sync-from-foundation
+  # Ephemeral sync branches: sync-to-consumers.yml creates one branch per run
+  # (sync/<run-id>-<attempt>) and auto-closes superseded sync PRs; a run whose
+  # rendered content matches an open sync PR skips instead.
+  branch_prefix: sync/
   pr_title: "Sync shared configuration from repo-foundation"
   # Prepended to each `canonical`/`template` target, rendered in the target's
   # comment syntax. `%<source>s` interpolates the source path.
@@ -82,7 +85,7 @@ upstreams:
         target: .github/actionlint.yaml
         mutations:
           - type: yq
-            expression: '.config-variables = ["SYNC_APP_CLIENT_ID", "SYNC_BOT_SIGN", "SYNC_BOT_NAME", "SYNC_BOT_EMAIL"]'
+            expression: '.config-variables = ["SYNC_APP_CLIENT_ID"]'
           - type: yq
             expression: 'del(.paths)'   # drop Homebrew/brew-internal path rules
       - source: .github/workflows/copilot-setup-steps.yml
