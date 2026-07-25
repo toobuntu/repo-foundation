@@ -10,8 +10,11 @@
 # Reads sync-manifest.yaml, resolves one consumer's component list
 # (sets + extra - exclude), and runs in one of four modes of operation:
 #
-#   (default)   Write each component into a checkout of that consumer, then
-#               commit one file per change.
+#   (default)   Write each component into a checkout of that consumer. With
+#               --emit-dir, record the change list (changes.json: path, status,
+#               git mode) and a rendered pull-request body (pr-body.md) for the
+#               calling workflow's Git Data commit loop (git-data-commit.rb).
+#               The engine itself makes no git commits.
 #   --dry-run   Report what would change; write nothing.
 #   --audit     Pre-sync freshness audit: one row per (source -> target) pair —
 #               same/differs/missing status, consumer and repo-foundation
@@ -65,11 +68,11 @@
 #                   baseline -> class fragments -> the consumer's
 #                   <stem>.addenda.json.
 #
-# After writing, commits one file per change in the target and, under GitHub
-# Actions, sets pull_request=true on GITHUB_OUTPUT for the calling workflow.
+# Under GitHub Actions the default mode appends changed=<bool> to
+# GITHUB_OUTPUT for the calling workflow.
 #
 # Usage: sync-files.rb <consumer_repo_slug> <target_path>
-#          [--dry-run | --guard BASE | --audit]
+#          [--dry-run | --guard BASE | --audit] [--emit-dir DIR]
 # Stdlib only (no bundler), so it runs in CI without a gem install.
 
 require "English"
@@ -130,12 +133,6 @@ ECOSYSTEM_PATHS = {
   "docker"        => ["Dockerfile"],
   "devcontainers" => [".devcontainer/devcontainer.json"],
 }.freeze
-
-def git!(target_root, *cmd)
-  return if system("git", "-C", target_root.to_s, *cmd)
-
-  abort "git #{cmd.join(' ')} failed in #{target_root}"
-end
 
 def load_yaml(path)
   # safe_load (no arbitrary object instantiation); our YAML is plain data.
@@ -485,15 +482,16 @@ def build_baseline_merge(source_file, target_file, target_root, target_rel, cons
 end
 
 # --- parse arguments ---------------------------------------------------------
-options = { dry_run: false, guard_base: nil, audit: false }
+options = { dry_run: false, guard_base: nil, audit: false, emit_dir: nil }
 parser = OptionParser.new do |p|
   p.banner = "Usage: #{$PROGRAM_NAME} <consumer_repo_slug> <target_path> " \
-             "[--dry-run | --guard BASE | --audit]"
+             "[--dry-run | --guard BASE | --audit] [--emit-dir DIR]"
   p.on("--dry-run", "Report what would change; write nothing") { options[:dry_run] = true }
   p.on("--guard BASE", "Flag PR edits to managed surfaces (merge-base filter against BASE)") do |v|
     options[:guard_base] = v
   end
   p.on("--audit", "Report per-pair freshness (read-only)") { options[:audit] = true }
+  p.on("--emit-dir DIR", "Write changes.json and pr-body.md for the commit loop") { |v| options[:emit_dir] = v }
 end
 begin
   parser.parse!(ARGV)
@@ -603,6 +601,10 @@ def diff_against_rendered(rendered, target_file)
 
     out
   end
+end
+
+def git_file_mode(mode_bits)
+  (mode_bits & 0o111).zero? ? "100644" : "100755"
 end
 
 def numstat_against_rendered(rendered, target_file)
@@ -743,7 +745,7 @@ end
 
 # --- apply each component ----------------------------------------------------
 puts "Syncing #{consumer_slug} -> #{target_root}#{dry_run ? ' (dry run)' : ''}"
-changed_any = false
+changes = []
 notes = {}
 components.each do |component|
   target_rel = component.fetch("target")
@@ -768,7 +770,10 @@ components.each do |component|
   next if new_content.nil? # e.g. a region-less target, deferred
   next if target_file.exist? && target_file.read == new_content
 
-  changed_any = true
+  status = target_file.exist? ? "modified" : "added"
+  change = { "path" => target_rel, "status" => status, "mode" => git_file_mode(mode_bits) }
+  change["note"] = notes[target_rel] if notes[target_rel]
+  changes << change
   note = notes[target_rel] ? " — #{notes[target_rel]}" : ""
   puts "  #{dry_run ? 'would update' : 'updated'}: #{target_rel} [#{mode}]#{note}"
   next if dry_run
@@ -779,31 +784,38 @@ components.each do |component|
 end
 
 if dry_run
-  puts(changed_any ? "Dry run: changes detected (nothing written)." : "Dry run: no changes.")
+  puts(changes.any? ? "Dry run: changes detected (nothing written)." : "Dry run: no changes.")
   exit
 end
 
-# --- commit one file per change ----------------------------------------------
-out, err, status = Open3.capture3("git", "-C", target_root.to_s, "status", "--porcelain")
-abort err unless status.success?
-
-if out.strip.empty?
-  puts "No changes to commit."
-  exit
-end
-
-# Stage everything (captures new files and deletions), then commit each path
-# individually: `git commit <path>` records only that pathspec from the index,
-# giving one auditable commit per synced file.
-git!(target_root, "add", "--all")
-staged, _, status = Open3.capture3("git", "-C", target_root.to_s, "diff", "--name-only", "--staged")
-abort "git diff failed" unless status.success?
-
-staged.lines.map(&:chomp).reject(&:empty?).each do |path|
-  git!(target_root, "commit", path, "--message", "#{File.basename(path)}: sync from repo-foundation")
+# --- emit the change list for the workflow's Git Data commit loop -------------
+# The engine makes no git commits: the workflow turns changes.json into
+# per-file chained commits through the GitHub Git Data API (git-data-commit.rb)
+# so they arrive GitHub-signed with real file modes (rf-upstream-notes § 18i).
+if options[:emit_dir]
+  emit_dir = Pathname(options[:emit_dir]).expand_path
+  emit_dir.mkpath
+  (emit_dir / "changes.json").write("#{JSON.pretty_generate(changes)}\n")
+  if changes.any?
+    body = +"Automated sync from [toobuntu/repo-foundation](https://github.com/toobuntu/repo-foundation). " \
+            "Do not edit synced files here; change them in repo-foundation and re-sync.\n" \
+            "\n## Converged surfaces\n\n"
+    changes.each do |change|
+      line = "- `#{change['path']}` (#{change['status']}"
+      line += ", #{change['mode']}" if change["mode"] == "100755"
+      line += ")"
+      line += " — #{change['note']}" if change["note"]
+      body << line << "\n"
+    end
+    unless excludes.empty?
+      body << "\n## Exclusions\n\n"
+      excludes.each { |entry| body << "- `#{entry['target']}` — #{entry['reason']}\n" }
+    end
+    (emit_dir / "pr-body.md").write(body)
+  end
 end
 
 if ENV["GITHUB_ACTIONS"] && ENV["GITHUB_OUTPUT"]
-  File.open(ENV.fetch("GITHUB_OUTPUT"), "a") { |f| f.puts "pull_request=true" }
+  File.open(ENV.fetch("GITHUB_OUTPUT"), "a") { |f| f.puts "changed=#{changes.any?}" }
 end
-puts "Committed #{staged.lines.count} file(s)."
+puts(changes.any? ? "Updated #{changes.length} file(s)." : "No changes.")

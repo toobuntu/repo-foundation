@@ -217,12 +217,13 @@ RSpec.describe "sync-files.rb engine" do
     sh!("git", "-C", dir, "commit", "--quiet", "-m", "seed")
   end
 
-  it "applies modes, rewrites the relay header, filters dependabot, commits per file" do
+  it "applies modes, rewrites the relay header, filters dependabot, emits the change list" do
     Dir.mktmpdir("rf-sync-src-") do |source|
       write_source(source)
       Dir.mktmpdir("rf-sync-tgt-") do |target|
         init_target(target)
-        out, err, status = run_engine(source, target)
+        emit = File.join(target, ".sync-emit")
+        out, err, status = run_engine(source, target, "--emit-dir", emit)
         expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
 
         # canonical: header lands after the SPDX block; exec bit preserved.
@@ -249,10 +250,48 @@ RSpec.describe "sync-files.rb engine" do
         expect(File.read("#{target}/.github/matcher.json")).to eq("{\n  \"x\": 1\n}\n")
         expect(File.exist?("#{target}/.github/matcher.json.license")).to eq(true)
 
-        # one commit per changed file.
+        # The engine makes no git commits; it emits the change list (with git
+        # modes) and a PR body for the workflow's Git Data commit loop.
         log = sh!("git", "-C", target, "log", "--format=%s")
-        expect(log).to include("tool.sh: sync from repo-foundation")
-        expect(log).to include("dependabot.yml: sync from repo-foundation")
+        expect(log.strip).to eq("seed")
+        changes = JSON.parse(File.read("#{emit}/changes.json"))
+        tool = changes.find { |c| c["path"] == "scripts/tool.sh" }
+        expect(tool).to include("status" => "added", "mode" => "100755")
+        dependabot = changes.find { |c| c["path"] == ".github/dependabot.yml" }
+        expect(dependabot).to include("status" => "added", "mode" => "100644")
+        body = File.read("#{emit}/pr-body.md")
+        expect(body).to include("## Converged surfaces")
+        expect(body).to include("- `scripts/tool.sh` (added, 100755)")
+        expect(body).to include("- `.github/dependabot.yml` (added)")
+      end
+    end
+  end
+
+  it "emits modified statuses, bootstrap notes, and exclusion reasons in the PR body" do
+    Dir.mktmpdir("rf-sync-src-") do |source|
+      write_baseline_source(source)
+      manifest = File.read("#{source}/sync-manifest.yaml")
+      File.write("#{source}/sync-manifest.yaml", manifest.sub(
+                   "sets: [baselines, class_fragment]",
+                   "sets: [baselines, class_fragment]\n    exclude:\n      " \
+                   "- { target: .gitignore, reason: \"this repo keeps a bespoke ignore file\" }"
+                 ))
+      Dir.mktmpdir("rf-sync-tgt-") do |target|
+        init_baseline_target(target)
+        emit = File.join(target, ".sync-emit")
+        out, err, status = run_engine(source, target, "--emit-dir", emit)
+        expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+
+        changes = JSON.parse(File.read("#{emit}/changes.json"))
+        agents = changes.find { |c| c["path"] == "AGENTS.md" }
+        expect(agents["status"]).to eq("modified")
+        expect(agents["note"]).to include("bootstrapped")
+        expect(changes.map { |c| c["path"] }).not_to include(".gitignore")
+
+        body = File.read("#{emit}/pr-body.md")
+        expect(body).to include("- `AGENTS.md` (modified) — managed region bootstrapped")
+        expect(body).to include("## Exclusions")
+        expect(body).to include("- `.gitignore` — this repo keeps a bespoke ignore file")
       end
     end
   end
@@ -505,6 +544,7 @@ RSpec.describe "sync-files.rb engine" do
           init_target(target)
           _out, _err, status = run_engine(source, target)
           expect(status.success?).to eq(true)
+          commit_all(target, "apply sync")
 
           # Drift committed to main BEFORE the branch: belongs to the sync, not
           # to this PR's author (the merge-base filter).
@@ -528,6 +568,7 @@ RSpec.describe "sync-files.rb engine" do
           init_target(target)
           _out, _err, status = run_engine(source, target)
           expect(status.success?).to eq(true)
+          commit_all(target, "apply sync")
 
           sh!("git", "-C", target, "switch", "--quiet", "--create", "feature")
           File.write("#{target}/scripts/tool.sh", "#!/bin/sh\necho tampered\n")
@@ -552,6 +593,7 @@ RSpec.describe "sync-files.rb engine" do
           init_baseline_target(target)
           _out, _err, status = run_engine(source, target)
           expect(status.success?).to eq(true)
+          commit_all(target, "apply sync")
 
           # Consumer-owned edit OUTSIDE the managed region: passes even though
           # the file itself was touched.
@@ -579,6 +621,7 @@ RSpec.describe "sync-files.rb engine" do
           init_baseline_target(target)
           _out, _err, status = run_engine(source, target)
           expect(status.success?).to eq(true)
+          commit_all(target, "apply sync")
 
           sh!("git", "-C", target, "switch", "--quiet", "--create", "feature")
           File.write("#{target}/AGENTS.md", "# AGENTS.md — test-consumer\n\nRepo-specific intro.\n")
@@ -606,6 +649,7 @@ RSpec.describe "sync-files.rb engine" do
           init_target(target)
           _out, _err, status = run_engine(source, target)
           expect(status.success?).to eq(true)
+          commit_all(target, "apply sync")
 
           File.write("#{target}/scripts/tool.sh", "#!/bin/sh\necho drifted\n")
           FileUtils.rm("#{target}/.github/relayed.yml")
@@ -634,6 +678,7 @@ RSpec.describe "sync-files.rb engine" do
           init_baseline_target(target)
           _out, _err, status = run_engine(source, target)
           expect(status.success?).to eq(true)
+          commit_all(target, "apply sync")
 
           File.write("#{target}/AGENTS.md", "# AGENTS.md — test-consumer\n\nRepo-specific intro.\n")
           commit_all(target, "delete the managed region")
@@ -648,6 +693,113 @@ RSpec.describe "sync-files.rb engine" do
     end
   end
 
+  describe "git-data-commit.rb" do
+    let(:helper) { File.join(REPO_ROOT, ".github/actions/sync/git-data-commit.rb") }
+
+    # A fake `gh` on PATH: logs every call (argv + stdin JSON) and answers with
+    # canned, call-numbered shas, so the examples can assert the exact Git Data
+    # API sequence without network.
+    def write_fake_gh(bin_dir)
+      fake = File.join(bin_dir, "gh")
+      File.write(fake, <<~'RUBY')
+        #!/usr/bin/env ruby
+        require "json"
+        log_dir = ENV.fetch("FAKE_GH_LOG")
+        stdin = $stdin.read
+        n = Dir.glob(File.join(log_dir, "call-*.json")).length + 1
+        File.write(File.join(log_dir, format("call-%03d.json", n)),
+                   JSON.generate("argv" => ARGV, "stdin" => stdin))
+        method = ARGV[2]
+        path = ARGV[3]
+        res =
+          if method == "GET" && path.include?("/git/commits/")
+            { "sha" => "base", "tree" => { "sha" => "tree-base" } }
+          elsif path.end_with?("/git/blobs")
+            { "sha" => "blob-#{n}" }
+          elsif path.end_with?("/git/trees")
+            { "sha" => "tree-#{n}" }
+          elsif path.end_with?("/git/commits")
+            { "sha" => "commit-#{n}" }
+          elsif path.end_with?("/git/refs")
+            { "ref" => "created" }
+          else
+            abort "fake gh: unexpected call #{ARGV.inspect}"
+          end
+        puts JSON.generate(res)
+      RUBY
+      File.chmod(0o755, fake)
+    end
+
+    it "chains per-file Git Data commits with modes and sha:null deletions" do
+      Dir.mktmpdir("rf-gitdata-") do |dir|
+        bin = File.join(dir, "bin")
+        log = File.join(dir, "log")
+        consumer = File.join(dir, "consumer")
+        FileUtils.mkdir_p([bin, log, File.join(consumer, "scripts")])
+        write_fake_gh(bin)
+        File.write(File.join(consumer, "scripts/run.sh"), "#!/bin/sh\necho ok\n")
+        File.write(File.join(consumer, "notes.md"), "notes\n")
+        changes = [
+          { "path" => "scripts/run.sh", "status" => "added", "mode" => "100755" },
+          { "path" => "notes.md", "status" => "modified", "mode" => "100644" },
+          { "path" => "old.txt", "status" => "deleted", "mode" => "100644" },
+        ]
+        File.write(File.join(dir, "changes.json"), JSON.generate(changes))
+
+        env = {
+          "PATH" => "#{bin}:#{ENV.fetch('PATH')}", "FAKE_GH_LOG" => log,
+          "RUBYOPT" => nil, "RUBYLIB" => nil,
+          "BUNDLE_GEMFILE" => nil, "BUNDLE_BIN_PATH" => nil,
+          "GEM_HOME" => nil, "GEM_PATH" => nil,
+          "GITHUB_ACTIONS" => nil, "GITHUB_OUTPUT" => nil,
+        }
+        out, err, status = Open3.capture3(env, RbConfig.ruby, helper,
+                                          "--repo", "toobuntu/consumer", "--dir", consumer,
+                                          "--changes", File.join(dir, "changes.json"),
+                                          "--branch", "sync/123", "--base", "basesha")
+        expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+
+        calls = Dir.glob(File.join(log, "call-*.json")).sort.map { |f| JSON.parse(File.read(f)) }
+        expect(calls.length).to eq(10)
+
+        # Base commit resolved once, for its tree.
+        expect(calls[0]["argv"][2..3]).to eq(["GET", "repos/toobuntu/consumer/git/commits/basesha"])
+
+        # First file: blob carries the base64 content; tree builds on the base
+        # tree with the executable mode; commit chains on the base sha.
+        blob1 = JSON.parse(calls[1]["stdin"])
+        expect(blob1["encoding"]).to eq("base64")
+        expect(blob1["content"]).to eq(["#!/bin/sh\necho ok\n"].pack("m0"))
+        tree1 = JSON.parse(calls[2]["stdin"])
+        expect(tree1["base_tree"]).to eq("tree-base")
+        expect(tree1["tree"]).to eq([{ "path" => "scripts/run.sh", "mode" => "100755",
+                                       "type" => "blob", "sha" => "blob-2" }])
+        commit1 = JSON.parse(calls[3]["stdin"])
+        expect(commit1["message"]).to eq("run.sh: sync from repo-foundation")
+        expect(commit1["parents"]).to eq(["basesha"])
+        expect(commit1["tree"]).to eq("tree-3")
+
+        # Second file chains on the first commit and its tree.
+        tree2 = JSON.parse(calls[5]["stdin"])
+        expect(tree2["base_tree"]).to eq("tree-3")
+        commit2 = JSON.parse(calls[6]["stdin"])
+        expect(commit2["parents"]).to eq(["commit-4"])
+
+        # Deletion: no blob call; the tree entry carries sha: null.
+        tree3 = JSON.parse(calls[7]["stdin"])
+        expect(tree3["tree"]).to eq([{ "path" => "old.txt", "mode" => "100644",
+                                       "type" => "blob", "sha" => nil }])
+        commit3 = JSON.parse(calls[8]["stdin"])
+        expect(commit3["parents"]).to eq(["commit-7"])
+
+        # One ref create at the end, pointing at the final commit.
+        ref = calls[9]
+        expect(ref["argv"][2..3]).to eq(["POST", "repos/toobuntu/consumer/git/refs"])
+        expect(JSON.parse(ref["stdin"])).to eq("ref" => "refs/heads/sync/123", "sha" => "commit-9")
+      end
+    end
+  end
+
   it "is idempotent: a second baseline-merge run detects no changes" do
     Dir.mktmpdir("rf-sync-src-") do |source|
       write_baseline_source(source)
@@ -655,10 +807,11 @@ RSpec.describe "sync-files.rb engine" do
         init_baseline_target(target)
         _out, _err, status = run_engine(source, target)
         expect(status.success?).to eq(true)
+        commit_all(target, "apply sync")
 
         out2, err2, status2 = run_engine(source, target)
         expect(status2.success?).to eq(true), "stdout=#{out2}\nstderr=#{err2}"
-        expect(out2).to include("No changes to commit.")
+        expect(out2).to include("No changes.")
         porcelain, = Open3.capture3("git", "-C", target, "status", "--porcelain")
         expect(porcelain.strip).to eq("")
       end
