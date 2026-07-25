@@ -36,7 +36,7 @@ jobs:
 
       - uses: Homebrew/actions/cache-homebrew-prefix@main
         with:
-          install: actionlint shellcheck zizmor
+          install: act actionlint shellcheck zizmor
 
       - run: zizmor --format sarif . > results.sarif
         env:
@@ -54,6 +54,11 @@ jobs:
           echo "::add-matcher::.github/actionlint-matcher.json"
 
       - run: actionlint
+
+      # act's own workflow parser as a second net; parse-only, so no container
+      # or Docker daemon is involved.
+      - name: act workflow parse check
+        run: act --container-architecture=NOASSERTION --validate
 
   upload_sarif:
     name: Upload SARIF

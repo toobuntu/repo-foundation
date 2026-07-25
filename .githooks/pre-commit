@@ -231,15 +231,24 @@ fi
 # in this canonical base -- they live in .githooks/pre-commit.d/ plugins so
 # the base stays repo-agnostic.
 
-# --- Lint staged workflow files with actionlint and zizmor ---
-# actionlint takes file arguments (xargs -0 -r); zizmor scans the working
-# tree and takes none, so has_files gates whether to run it at all.
+# --- Lint staged workflow files with actionlint, act, and zizmor ---
+# actionlint takes file arguments (xargs -0 -r); act and zizmor scan the
+# working tree and take none, so has_files gates whether to run them at all.
 if has_files '\.github/workflows/.*\.ya?ml$'; then
   if command -v actionlint > /dev/null 2>&1; then
     say "actionlint on staged workflows"
     staged_z '\.github/workflows/.*\.ya?ml$' | xargs -0 -r actionlint
   else
     printf "warning: actionlint not found — skipping workflow lint (brew install actionlint)\n" >&2
+  fi
+  # act --validate exercises the runner's own workflow parser (a different
+  # net than actionlint's schema checks). Parse-only: no container and no
+  # Docker daemon are needed; only actually executing a job would need one.
+  if command -v act > /dev/null 2>&1; then
+    say "act workflow parse check"
+    act --container-architecture=NOASSERTION --validate > /dev/null
+  else
+    printf "warning: act not found — skipping workflow parse check (brew install act)\n" >&2
   fi
   if command -v zizmor > /dev/null 2>&1; then
     say "zizmor workflow scan"

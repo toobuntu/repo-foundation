@@ -32,7 +32,10 @@ adrs doctor           # ADR sequence and structure
 rumdl check .         # Markdown structure + soft-wrap (ADR 0020)
 git ls-files -z '*.md' | xargs -0 vale   # prose; robust (skip-absent) form below
 actionlint && zizmor .      # workflow syntax and security
+act --container-architecture=NOASSERTION --validate   # runner's own workflow parser
 ```
+
+`act --validate` (and `--dryrun`) are parse-only — no container and no Docker daemon needed. Actually executing a workflow job locally does need one; with colima: `DOCKER_HOST=$(docker context inspect colima --format '{{ .Endpoints.docker.Host }}') act …`.
 
 Vale has no `.gitignore` support (upstream, by design), so a bare `vale .` also scans vendored gem docs under `vendor/bundle/`. Run it over the tracked files instead — `git ls-files` lists only tracked files (so untracked vendored docs are excluded), which is the primary form. Because `git ls-files` reports a tracked path even when it has been deleted on disk without staging the deletion, filter to readable paths before the single vale run (`read -d ''` is not dash-portable, so use `xargs`+`sh`):
 
