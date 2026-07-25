@@ -267,6 +267,29 @@ RSpec.describe "sync-files.rb engine" do
     end
   end
 
+  it "heals executable-bit drift on a content-identical canonical file" do
+    Dir.mktmpdir("rf-sync-src-") do |source|
+      write_source(source)
+      Dir.mktmpdir("rf-sync-tgt-") do |target|
+        init_target(target)
+        _out, _err, status = run_engine(source, target)
+        expect(status.success?).to eq(true)
+        commit_all(target, "apply sync")
+
+        File.chmod(0o644, "#{target}/scripts/tool.sh")
+        emit = File.join(target, ".sync-emit")
+        out, err, status = run_engine(source, target, "--emit-dir", emit)
+        expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+        expect(out).to include("file mode restored to 100755")
+        expect(File.stat("#{target}/scripts/tool.sh").mode & 0o777).to eq(0o755)
+
+        changes = JSON.parse(File.read("#{emit}/changes.json"))
+        expect(changes).to eq([{ "path" => "scripts/tool.sh", "status" => "mode", "mode" => "100755" }])
+        expect(File.read("#{emit}/pr-body.md")).to include("- `scripts/tool.sh` (mode, 100755)")
+      end
+    end
+  end
+
   it "emits modified statuses, bootstrap notes, and exclusion reasons in the PR body" do
     Dir.mktmpdir("rf-sync-src-") do |source|
       write_baseline_source(source)
@@ -614,6 +637,25 @@ RSpec.describe "sync-files.rb engine" do
       end
     end
 
+    it "flags an executable-bit change on a canonical file" do
+      Dir.mktmpdir("rf-sync-src-") do |source|
+        write_source(source)
+        Dir.mktmpdir("rf-sync-tgt-") do |target|
+          init_target(target)
+          _out, _err, status = run_engine(source, target)
+          expect(status.success?).to eq(true)
+          commit_all(target, "apply sync")
+
+          sh!("git", "-C", target, "switch", "--quiet", "--create", "feature")
+          File.chmod(0o644, "#{target}/scripts/tool.sh")
+          commit_all(target, "drop the exec bit")
+          _out, err, status = run_engine(source, target, "--guard", "main")
+          expect(status.success?).to eq(false)
+          expect(err).to include("file mode changed (expected 100755, found 100644)")
+        end
+      end
+    end
+
     it "flags a deleted managed region with the restore recipe" do
       Dir.mktmpdir("rf-sync-src-") do |source|
         write_baseline_source(source)
@@ -667,6 +709,22 @@ RSpec.describe "sync-files.rb engine" do
           # rewrites the drifted one.
           expect(File.exist?("#{target}/.github/relayed.yml")).to eq(false)
           expect(File.read("#{target}/scripts/tool.sh")).to include("drifted")
+        end
+      end
+    end
+
+    it "reports executable-bit drift as a mode row" do
+      Dir.mktmpdir("rf-sync-src-") do |source|
+        write_source(source)
+        Dir.mktmpdir("rf-sync-tgt-") do |target|
+          init_target(target)
+          _out, _err, status = run_engine(source, target)
+          expect(status.success?).to eq(true)
+
+          File.chmod(0o644, "#{target}/scripts/tool.sh")
+          out, err, status = run_engine(source, target, "--audit")
+          expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+          expect(out).to match(%r{mode\s+scripts/tool\.sh.*mode 100644, expected 100755})
         end
       end
     end

@@ -639,8 +639,8 @@ def run_audit(components, target_root, consumer_slug, excludes, header_template,
     next row.merge(status: "no-source") unless source_file.exist?
 
     begin
-      content, = render_component(component, target_root, consumer_slug, header_template,
-                                  merge_label_begin, merge_label_end, fragments_by_target, {})
+      content, expected_mode = render_component(component, target_root, consumer_slug, header_template,
+                                                merge_label_begin, merge_label_end, fragments_by_target, {})
     rescue SyncError => e
       # The annotation is the one-line form of the failure; fall back to the
       # message's first line for SyncErrors that carry none.
@@ -650,10 +650,13 @@ def run_audit(components, target_root, consumer_slug, excludes, header_template,
 
     if !target_file.exist?
       row.merge(status: "missing")
-    elsif target_file.read == content
-      row.merge(status: "same")
-    else
+    elsif target_file.read != content
       row.merge(status: "differs", detail: numstat_against_rendered(content, target_file))
+    elsif git_file_mode(target_file.stat.mode) != git_file_mode(expected_mode)
+      row.merge(status: "mode", detail: "mode #{git_file_mode(target_file.stat.mode)}, " \
+                                        "expected #{git_file_mode(expected_mode)}")
+    else
+      row.merge(status: "same")
     end
   end
 
@@ -700,8 +703,8 @@ def run_guard(components, target_root, consumer_slug, guard_base, header_templat
 
     target_file = target_root / target_rel
     begin
-      content, = render_component(component, target_root, consumer_slug, header_template,
-                                  merge_label_begin, merge_label_end, fragments_by_target, {})
+      content, expected_mode = render_component(component, target_root, consumer_slug, header_template,
+                                                merge_label_begin, merge_label_end, fragments_by_target, {})
     rescue SyncError => e
       flagged << [target_rel, e.message]
       next
@@ -712,6 +715,9 @@ def run_guard(components, target_root, consumer_slug, guard_base, header_templat
       flagged << [target_rel, "deleted in this PR, but it is repo-foundation-managed"]
     elsif target_file.read != content
       flagged << [target_rel, "diverges from the rendered canon:\n#{diff_against_rendered(content, target_file)}"]
+    elsif git_file_mode(target_file.stat.mode) != git_file_mode(expected_mode)
+      flagged << [target_rel, "file mode changed (expected #{git_file_mode(expected_mode)}, " \
+                              "found #{git_file_mode(target_file.stat.mode)})"]
     end
   end
 
@@ -768,18 +774,30 @@ components.each do |component|
   end
 
   next if new_content.nil? # e.g. a region-less target, deferred
-  next if target_file.exist? && target_file.read == new_content
 
-  status = target_file.exist? ? "modified" : "added"
+  # Compare content AND git file mode, so exec-bit drift on a consumer copy
+  # of a canonical script self-heals on the next sync instead of persisting.
+  content_same = target_file.exist? && target_file.read == new_content
+  mode_same = !target_file.exist? || git_file_mode(target_file.stat.mode) == git_file_mode(mode_bits)
+  next if content_same && mode_same
+
+  status = if !target_file.exist?
+             "added"
+           elsif content_same
+             "mode"
+           else
+             "modified"
+           end
   change = { "path" => target_rel, "status" => status, "mode" => git_file_mode(mode_bits) }
   change["note"] = notes[target_rel] if notes[target_rel]
   changes << change
   note = notes[target_rel] ? " — #{notes[target_rel]}" : ""
+  note = " — file mode restored to #{git_file_mode(mode_bits)}" if status == "mode"
   puts "  #{dry_run ? 'would update' : 'updated'}: #{target_rel} [#{mode}]#{note}"
   next if dry_run
 
   target_file.dirname.mkpath
-  target_file.write(new_content)
+  target_file.write(new_content) unless content_same
   target_file.chmod(mode_bits)
 end
 
@@ -802,7 +820,7 @@ if options[:emit_dir]
             "\n## Converged surfaces\n\n"
     changes.each do |change|
       line = "- `#{change['path']}` (#{change['status']}"
-      line += ", #{change['mode']}" if change["mode"] == "100755"
+      line += ", #{change['mode']}" if change["mode"] == "100755" || change["status"] == "mode"
       line += ")"
       line += " — #{change['note']}" if change["note"]
       body << line << "\n"

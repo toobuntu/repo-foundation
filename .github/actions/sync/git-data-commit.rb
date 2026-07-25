@@ -16,7 +16,9 @@
 # with sha: null.
 #
 # Reads changes.json as emitted by sync-files.rb --emit-dir:
-#   [{"path": "...", "status": "added|modified|deleted", "mode": "100644|100755"}, ...]
+#   [{"path": "...", "status": "added|modified|mode|deleted", "mode": "100644|100755"}, ...]
+# A "mode" change (content identical, exec bit drifted) goes through the same
+# blob->tree->commit path; the tree entry's mode is the correction.
 # For each change, in order: blob (except deletions) -> one-entry tree built on
 # the previous commit's tree -> commit chained on the previous commit. One ref
 # create at the end, so a failed run leaves no branch behind.
