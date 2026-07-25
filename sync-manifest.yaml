@@ -29,7 +29,12 @@
 #                  (AGENTS.md, CONTRIBUTING.md, .gitignore) keeps a
 #                  sentinel-delimited region; a JSON target (.claude/settings.json)
 #                  is deep-merged with the consumer's <stem>.addenda.json. The
-#                  source carries a `.baseline` infix (see ADR 0002).
+#                  source carries a `.baseline` infix (see ADR 0002). Marker
+#                  states are loud: inverted/duplicated markers abort; a target
+#                  without markers splits on marker history — never present
+#                  bootstraps the region by prepending it (position is
+#                  consumer-owned afterward); previously present aborts with a
+#                  restore command and a paste-ready exclude entry.
 #
 # `# CONFIRM` marks an inferred per-repo membership to validate before the
 # first real sync run.

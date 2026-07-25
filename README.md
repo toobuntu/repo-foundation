@@ -69,7 +69,7 @@ Day-to-day operation of a repo already under management is [docs/maintaining-a-r
 
 ## Usage
 
-- **Sync to consumers.** `.github/workflows/sync-to-consumers.yml` runs the engine for each consumer in `sync-manifest.yaml` and opens a `sync-from-foundation` pull request when a canonical file has changed.
+- **Sync to consumers.** `.github/workflows/sync-to-consumers.yml` runs the engine for each consumer in `sync-manifest.yaml` and opens a sync pull request (ephemeral `sync/<run-id>` branch, Verified per-file commits) when a canonical file has changed. A quiet scheduled run means the consumers are converged.
 - **Sync from upstreams.** `.github/workflows/sync-from-upstreams.yml` pulls the files repo-foundation relays from external upstreams (Homebrew), applies the declared `yq` mutations, and opens a pull request on drift.
 - **Check scaffold freshness.** `scripts/foundation-doctor.sh` flags per-repo scaffold workflows that have gone stale; the scheduled `.github/workflows/scaffold-drift.yml` runs the same check and files an issue (ADR 0015).
 - **Add a consumer or a file.** Edit `sync-manifest.yaml`: list the consumer under `consumers`, or add a component to a `component_sets` group. The set a consumer subscribes to determines which files it receives.
