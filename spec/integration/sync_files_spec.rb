@@ -535,8 +535,11 @@ RSpec.describe "sync-files.rb engine" do
         _out, err, status = run_engine(source, target)
         expect(status.success?).to eq(false)
         # The step log carries the exact restore command (pointing at the last
-        # commit that still had the region) and a paste-ready exclude entry.
+        # commit that still had the region), a review-the-diff-first command
+        # with a whole-file caution, and a paste-ready exclude entry.
         expect(err).to include("last present at #{last_present}")
+        expect(err).to include("WHOLE file")
+        expect(err).to include("git diff #{last_present} -- AGENTS.md")
         expect(err).to include("git restore --source=#{last_present} -- AGENTS.md")
         expect(err).to include('- { target: AGENTS.md, reason: "<fill in>" }')
       end

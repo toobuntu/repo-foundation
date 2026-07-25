@@ -394,8 +394,12 @@ def region_removed_error(target_rel, consumer_slug, last_present)
     #{target_rel}: the managed region's markers are missing, but they existed in
     this file's history — last present at #{last_present}. Two dispositions:
 
-    Restore the markers, then re-run the sync:
+    Restore the markers, then re-run the sync. The restore brings back the
+    WHOLE file as of #{short} — review the diff first, and if the file changed
+    since, re-apply those edits afterward (or reinsert the two marker lines by
+    hand instead of restoring):
 
+      git diff #{short} -- #{target_rel}
       git restore --source=#{short} -- #{target_rel}
 
     Or record a deliberate opt-out in sync-manifest.yaml (under consumers ->
