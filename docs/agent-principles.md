@@ -178,7 +178,7 @@ Prefer language with a positivity bias in all output — docs, prompts, summarie
     --body-file .ai/scratchpad/pr-body.md && rm -f .ai/scratchpad/pr-body.md
   ```
 
-  Drop the `##` heading form for a single-commit branch, and drop the assistance note when no commit carries an agent trailer.
+  Drop the `##` heading form for a single-commit branch, and drop the assistance note when no commit carries an agent trailer. The derived form suits short branches; past roughly three commits the concatenated bodies outgrow a pull-request description — hand-write a curated summary body instead (what changed by area, verification performed, anything the reviewer must know), still drafted under `.ai/scratchpad/` and closed with the same assistance note.
 - No verbose AI commentary in PR descriptions. Note AI assistance and what manual verification was performed.
 - Merge commits, never squash or rebase, on PR merge (unless the project ADRs say otherwise).
 - en_US spelling everywhere (`labeling` not `labelling`, `color` not `colour`).
@@ -399,6 +399,7 @@ Every org repository that hosts development work carries a top-level `.ai/` dire
 - **End of session**: append durable learnings to `.ai/memory.md` (dated entries, `## YYYY-MM-DD — Topic`, append-only — a correction is a new entry naming what it supersedes) and rewrite `.ai/progress.md` to the current state and next action.
 - **Graduation rules** keep `.ai/memory.md` bounded: a decision graduates to an ADR; a fact the code can carry graduates into code or a comment; an org-wide rule of conduct graduates to this file; per-session "what shipped" does not go in at all — git history and PR descriptions own that.
 - **Org-wide facts**: `.ai/org/memory.md` is edited only in repo-foundation. A session in any other repo that learns an org-wide fact writes it to the gitignored `.ai/org/relay.md` and says so in its handoff report; the maintainer or the next repo-foundation-rooted session promotes it and deletes the relay.
+- **Coordination-tier changes**: a session that cannot write the maintainer's `workspace/` coordination files (sandboxed to the repo tree) does not leave those updates as prose in the relay alone — it mirrors the intended changes as ready-to-apply files under the gitignored `.ai/scratchpad/` (a full replacement file where the whole file changes; exact old/new edit text otherwise) and points at them from the relay, so the maintainer can diff and `cp -p` rather than transcribe.
 - **Boundary with the agent's own memory**: project knowledge belongs in the repo (`.ai/` files, ADRs, code) — an agent's per-machine memory is invisible to contributors and dies with a retired clone, so it holds only personal agent-workflow preferences, never project facts.
 
 ## Session economy
