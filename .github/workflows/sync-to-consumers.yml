@@ -13,11 +13,13 @@
 # commits are GitHub-signed (web-flow, Verified) and carry real file modes on
 # new AND modified files — no machine user, no SSH signing key. Branches are
 # ephemeral (sync/<run-id>-<attempt>): a run whose rendered content matches an
-# open sync PR skips, anything else opens a fresh PR and closes superseded sync
-# PRs with a comment, so a human fix-up commit on an old sync branch is never
-# force-push-clobbered. The PR body lists the converged surfaces and the
-# consumer's exclusions with reasons. A quiet scheduled run means the consumers
-# are converged — scheduled silence is the health signal.
+# open sync PR skips, anything else opens a fresh PR — and every run ends by
+# reconciling open sync PRs, closing all but the live one (or all of them when
+# the consumer is already converged) with a comment, so a human fix-up commit
+# on an old sync branch is never force-push-clobbered and stale sync PRs never
+# linger. The PR body lists the converged surfaces and the consumer's
+# exclusions with reasons. A quiet scheduled run means the consumers are
+# converged — scheduled silence is the health signal.
 
 name: Sync to consumers
 
@@ -165,19 +167,22 @@ jobs:
           rendered_tree="$(git -C consumer write-tree)"
           echo "rendered tree: $rendered_tree"
           skip=false
+          matched=""
           while IFS="$(printf '\t')" read -r number head_ref head_oid; do
             [ -n "$number" ] || continue
             tree="$(gh api "repos/$GH_REPO/git/commits/$head_oid" --jq .tree.sha)"
             echo "open sync PR #$number ($head_ref): tree $tree"
             if [ "$tree" = "$rendered_tree" ]; then
               skip=true
+              matched="$number"
               echo "PR #$number already carries this run's rendered content; skipping."
             fi
           done <<EOF
-          $(gh pr list --state open --json number,headRefName,headRefOid \
+          $(gh pr list --state open --limit 100 --json number,headRefName,headRefOid \
             --jq '.[] | select((.headRefName | startswith("sync/")) or .headRefName == "sync-from-foundation") | [.number, .headRefName, .headRefOid] | @tsv')
           EOF
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          echo "matched_pr=$matched" >> "$GITHUB_OUTPUT"
 
       - name: Create the sync branch via the Git Data API
         id: commit
@@ -192,7 +197,8 @@ jobs:
             --changes "$RUNNER_TEMP/sync-emit/changes.json" --branch "$branch"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
-      - name: Open the sync pull request and close superseded ones
+      - name: Open the sync pull request
+        id: open
         if: steps.sync.outputs.changed == 'true' && steps.compare.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -203,13 +209,38 @@ jobs:
           new_pr="$(gh pr create --base main --head "$BRANCH" --title "$PR_TITLE" \
             --body-file "$RUNNER_TEMP/sync-emit/pr-body.md" | tail -1)"
           echo "opened $new_pr"
-          gh pr list --state open --json number,headRefName \
+          echo "url=$new_pr" >> "$GITHUB_OUTPUT"
+
+      # Every run ends here, including no-change and skipped runs: exactly one
+      # open sync PR may survive — the one just opened, or the one whose tree
+      # already matches. When the consumer is converged (no changes rendered),
+      # every open sync PR is stale and closes. Branches are deleted with the
+      # PRs: they are bot-created and reproducible (any later run re-renders
+      # the same canon), and GitHub's restore-branch button covers the rare
+      # salvage.
+      - name: Reconcile open sync pull requests
+        if: steps.sync.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ matrix.consumer.repo }}
+          KEEP_BRANCH: ${{ steps.commit.outputs.branch }}
+          MATCHED_PR: ${{ steps.compare.outputs.matched_pr }}
+          NEW_PR_URL: ${{ steps.open.outputs.url }}
+        run: |
+          if [ -n "$NEW_PR_URL" ]; then
+            comment="Superseded by $NEW_PR_URL (a newer sync run)."
+          elif [ -n "$MATCHED_PR" ]; then
+            comment="Superseded by #$MATCHED_PR, which already carries the current rendered content."
+          else
+            comment="The consumer is converged with repo-foundation; this sync pull request is stale."
+          fi
+          gh pr list --state open --limit 100 --json number,headRefName \
             --jq '.[] | select((.headRefName | startswith("sync/")) or .headRefName == "sync-from-foundation") | [.number, .headRefName] | @tsv' |
             while IFS="$(printf '\t')" read -r number head_ref; do
               [ -n "$number" ] || continue
-              [ "$head_ref" = "$BRANCH" ] && continue
-              gh pr close "$number" --delete-branch \
-                --comment "Superseded by $new_pr (a newer sync run)."
+              [ -n "$KEEP_BRANCH" ] && [ "$head_ref" = "$KEEP_BRANCH" ] && continue
+              [ -n "$MATCHED_PR" ] && [ "$number" = "$MATCHED_PR" ] && continue
+              gh pr close "$number" --delete-branch --comment "$comment"
             done
 
   conclusion:
