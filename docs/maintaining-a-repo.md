@@ -25,7 +25,7 @@ The consumer's entry in `sync-manifest.yaml` lists the `component_sets` it subsc
 
 ## The foundation guard
 
-Every consumer also runs `foundation-guard.yml`, a required pull-request check: a pull request that edits a repo-foundation-managed file — or the content inside a managed region — fails with a pointer back here, because those files change in repo-foundation and arrive by sync. Consumer-owned content (everything outside the regions, plus `.claude/settings.addenda.json`) passes untouched, and only files the pull request itself modified are checked. The sync bot's own pull requests are exempt.
+Every consumer also runs `foundation-guard.yml`, a required pull-request check: a pull request that edits a repo-foundation-managed file — or the content inside a managed region — fails with a pointer back here, because those files change in repo-foundation and arrive by sync. Consumer-owned content (everything outside the regions, plus `.claude/settings.addenda.json`) passes untouched, and only files the pull request itself modified are checked. The sync bot's and Dependabot's pull requests are exempt — merging a Dependabot action-pin bump (a security fix especially) ahead of the canonical sync is fine; the sync converges the file after repo-foundation bumps its own copy.
 
 ## Keep scaffolds fresh
 

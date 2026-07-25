@@ -10,7 +10,11 @@
 # manifest from that checkout, never from consumer-writable content. Only
 # files the pull request itself touched can fail the check (merge-base
 # filter); the sync App's own pull requests are exempt — they are the
-# sanctioned channel for changing managed files. Tamper backstop: an in-tree
+# sanctioned channel for changing managed files — and so are Dependabot's: a
+# consumer may take a pinned-action bump (a security fix especially) ahead of
+# the canonical sync, and repo-foundation bumps its canon promptly so the next
+# sync converges the file rather than proposing a revert. Tamper backstop: an
+# in-tree
 # pull_request workflow cannot defend its own caller, so branch protection
 # requires this check BY NAME — a pull request that deletes or breaks the
 # workflow leaves the required check missing and stays blocked.
@@ -29,7 +33,9 @@ permissions: {}
 jobs:
   guard:
     name: Managed surfaces
-    if: github.repository_owner == 'toobuntu' && github.event.pull_request.user.login != 'toobuntu-token-app[bot]'
+    if: >-
+      github.repository_owner == 'toobuntu' &&
+      !contains(fromJSON('["toobuntu-token-app[bot]", "dependabot[bot]"]'), github.event.pull_request.user.login)
     runs-on: ubuntu-latest
     permissions:
       contents: read
