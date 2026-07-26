@@ -62,8 +62,25 @@ parse_pr_json() {
   TITLE=$(jq --raw-output '.title' <<< "$json")
 }
 
+#
+# The base fetch must succeed.  Everything downstream trusts
+# origin/$BASE_BRANCH: compute_merge_base() derives the rewrite point
+# from it, and the final push is --force-with-lease against it.  A
+# swallowed failure leaves a stale ref, so the lease compares against
+# an outdated view and the rewrite is computed from the wrong base --
+# a force-push over whatever landed in the meantime.
+#
+# The HEAD fetch may still fail non-fatally: a deleted PR branch is an
+# expected state that recreate_branch_if_needed() handles.
+#
 fetch_refs() {
-  git fetch origin "$BASE_BRANCH" || true
+  git fetch origin "$BASE_BRANCH" || {
+    echo "ERROR: failed to fetch origin/$BASE_BRANCH." >&2
+    echo "       Refusing to continue: the rewrite point and the" >&2
+    echo "       --force-with-lease guard would both be computed" >&2
+    echo "       from a stale ref." >&2
+    exit 1
+  }
   git fetch origin "$HEAD_BRANCH" || true
 }
 
