@@ -126,12 +126,14 @@ Worktrees go UNDER the project tree at `worktrees/` (gitignored) because the Cla
 
 ## Park merged branches; delete only on the remote
 
-After a branch merges, the local branch is not deleted. It is renamed into the `merged/` namespace — prefixed with the PR number that merged it — and only the remote copy is deleted:
+After a branch merges, the local branch is not deleted. It is renamed into the `merged/` namespace — under the PR number that merged it — and only the remote copy is deleted:
 
 ```sh
-git branch -m feature/foo merged/pr12-feature/foo
+git branch --move feature/foo merged/pr12/feature/foo
 git push origin --delete feature/foo   # or GitHub's delete-on-merge
 ```
+
+The separator after the PR number is a **slash**, not a hyphen (changed 2026-07-26). Branch names routinely contain `/` themselves, so `merged/pr12-feature/foo` read as one long name with a hyphen buried in it, while `merged/pr12/feature/foo` makes `merged/pr12/` a real namespace that `git branch --list 'merged/pr12/*'` and refspec globs can address. Historical `merged/prNN-<branch>` names are migrated, not left in place; the migration loop, and a companion that zero-pads PR numbers to a consistent width, are in the maintainer's `dotfiles-bootstrap/git-branch-maintenance.md`.
 
 The `merged/*` branches are cheap rollback handles and provenance markers. They are pruned opportunistically, at the maintainer's discretion — never as part of routine cleanup an agent performs or recommends. Agent hand-off reports and cleanup checklists must say "rename to `merged/…`", not "delete the local branch"; remote deletion is unaffected.
 
