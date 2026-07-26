@@ -203,10 +203,15 @@ if [ -n "$all_staged" ]; then
     fi
     # `git show ":$file"` prints the staged blob (not the working tree).
     # `--binary-files=without-match` skips blobs grep classifies as binary.
-    # `LC_ALL=en_US.UTF-8` ensures grep interprets the bracket expression
-    #  as Unicode characters.
+    # `LC_ALL=C.UTF-8` ensures grep interprets the bracket expression as
+    # Unicode characters. C.UTF-8 rather than en_US.UTF-8: both give the
+    # UTF-8 multibyte handling this needs, but a minimal Linux image (a CI
+    # container especially) is not guaranteed to carry the en_US locale,
+    # and grep silently falls back to single-byte matching when the locale
+    # is missing -- which would split each codepoint into bytes that the
+    # bracket expression then matches far too eagerly.
     if git show ":$_bfile" 2> /dev/null |
-      LC_ALL=en_US.UTF-8 /usr/bin/grep \
+      LC_ALL=C.UTF-8 /usr/bin/grep \
         --binary-files=without-match \
         --extended-regexp --quiet "$_pattern"; then
       bidi_found="${bidi_found:+$bidi_found
