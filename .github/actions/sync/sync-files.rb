@@ -684,7 +684,12 @@ end
 def run_audit(components, target_root, consumer_slug, excludes, header_template,
               merge_label_begin, merge_label_end, fragments_by_target)
   mtime = ->(path) { path.exist? ? path.mtime.strftime("%Y-%m-%d %H:%M") : "-" }
-  rows = components.filter_map do |component|
+  # map + compact rather than filter_map: this mode is the one an operator runs
+  # LOCALLY against sibling clones (the pre-sync freshness audit), where on
+  # macOS a bare `ruby` is the frozen system 2.6 -- and filter_map arrived in
+  # 2.7. The other modes only ever run on a runner with a current Ruby. Nothing
+  # else in the engine needs newer than 2.6, so keeping it there costs one call.
+  rows = components.map do |component|
     next if component["mode"] == "fragment"
 
     target_rel = component.fetch("target")
@@ -714,7 +719,7 @@ def run_audit(components, target_root, consumer_slug, excludes, header_template,
     else
       row.merge(status: "same")
     end
-  end
+  end.compact
 
   puts "Audit: #{consumer_slug} -> #{target_root} (#{rows.length} pairs)"
   width = rows.map { |r| r[:target].length }.max.to_i.clamp(6, 60)
