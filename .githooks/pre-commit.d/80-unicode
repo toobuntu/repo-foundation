@@ -77,13 +77,25 @@ U+2068:\342\201\250
 U+2069:\342\201\251
 U+FEFF:\357\273\277'
 
-# Build a UTF-8 bracket pattern from the table, optionally excluding
-# codepoints listed in the first argument (comma-separated U+XXXX).
-# Empty exclude list → full pattern. Returns 1 if every codepoint is
-# excluded (no pattern to build).
-build_pattern() {
+# Build the fixed-string pattern list from the table, one UTF-8 byte
+# sequence per line, optionally excluding codepoints listed in the first
+# argument (comma-separated U+XXXX). Empty exclude list → every codepoint.
+# Returns 1 if all are excluded (no pattern to match).
+#
+# One pattern per codepoint fed to `grep --fixed-strings`, NOT a bracket
+# expression: a bracket expression is a set of CHARACTERS, so it needs a
+# UTF-8 locale to read the table's multi-byte sequences as characters, and
+# a missing locale silently demotes it to a set of BYTES. That demotion is
+# not a subtle degradation -- it matches the E2 lead byte shared by every
+# U+2xxx character, so an ordinary em dash or curly quote trips the gate
+# and the hook rejects most prose files. Fixed strings under LC_ALL=C
+# compare exact byte sequences instead, which needs no locale at all and
+# cannot over-match: UTF-8 is self-synchronizing, so a lead byte never
+# appears as a continuation byte and each sequence matches only its own
+# codepoint.
+build_patterns() {
   _exclude_csv="${1:-}"
-  _fmt=""
+  _out=""
   _saved_ifs=$IFS
   IFS='
 '
@@ -93,14 +105,15 @@ build_pattern() {
     case ",$_exclude_csv," in
     *",$_cp,"*) continue ;;
     esac
-    _fmt="$_fmt$_esc"
+    # printf interprets the octal escapes into the raw UTF-8 bytes.
+    # shellcheck disable=SC2059  # intentional dynamic format string
+    _seq=$(printf "$_esc")
+    _out="${_out:+$_out
+}$_seq"
   done
   IFS=$_saved_ifs
-  [ -z "$_fmt" ] && return 1
-  # printf interprets the octal escapes; output is the bracket expression
-  # containing raw UTF-8 bytes for the codepoints to match.
-  # shellcheck disable=SC2059  # intentional dynamic format string
-  printf "[$_fmt]"
+  [ -n "$_out" ] || return 1
+  printf '%s' "$_out"
 }
 
 # Read the staged blob and extract the first bidi-allow annotation found.
@@ -118,31 +131,33 @@ read_bidi_allow() {
 scan_one() {
   _allow=$(read_bidi_allow "$1")
   if [ -n "$_allow" ]; then
-    _pattern=$(build_pattern "$_allow") || return 0
+    _patterns=$(build_patterns "$_allow") || return 0
   else
-    _pattern="$default_pattern"
+    _patterns="$default_patterns"
   fi
-  # `git show ":$file"` prints the staged blob (not the working tree).
-  # `--binary-files=without-match` skips blobs grep classifies as binary.
-  # `LC_ALL=C.UTF-8` ensures grep interprets the bracket expression as
-  # Unicode characters. C.UTF-8 rather than en_US.UTF-8: both give the
-  # UTF-8 multibyte handling this needs, but a minimal Linux image (a CI
-  # container especially) is not guaranteed to carry the en_US locale,
-  # and grep silently falls back to single-byte matching when the locale
-  # is missing -- which would split each codepoint into bytes that the
-  # bracket expression then matches far too eagerly.
-  #
+
+  # `git show ":$file"` prints the staged blob (not the working tree). It is
+  # written to a file rather than piped, for two reasons: grep's stdin is
+  # taken by the pattern list, and a pipeline's `$?` is the LAST command's,
+  # so a `git show | grep` pipeline reports grep's status and a failed
+  # git show reaches grep as empty input -- "no match", and the file passes
+  # unscanned. Checking it separately makes that a scan error.
+  if ! git show ":$1" > "$_blob" 2> /dev/null; then
+    printf 'error: could not read the staged blob for %s\n' "$1" >&2
+    printf 'x' >> "$_scan_errors"
+    return 0
+  fi
+
   # grep's status is three-valued and the third value matters here: 0 match,
   # 1 no match, 2 ERROR. An `if grep ...` treats 2 as "no match" and the file
-  # passes -- a security gate failing OPEN. Exit 2 is reachable in practice:
-  # build_pattern assembles its bracket expression from a file's own
-  # bidi-allow annotation, so a malformed one yields an invalid pattern and
-  # every subsequent file "passes".
+  # passes -- a security gate failing OPEN.
+  #
+  # `--binary-files=without-match` skips blobs grep classifies as binary.
   _status=0
-  git show ":$1" 2> /dev/null |
-    LC_ALL=C.UTF-8 /usr/bin/grep \
-      --binary-files=without-match \
-      --extended-regexp --quiet "$_pattern" || _status=$?
+  printf '%s\n' "$_patterns" |
+    LC_ALL=C /usr/bin/grep \
+      --fixed-strings --file=- \
+      --binary-files=without-match --quiet "$_blob" || _status=$?
   case "$_status" in
   0) printf '%s\n' "$1" ;;
   1) ;;
@@ -156,9 +171,10 @@ scan_one() {
   esac
 }
 
-default_pattern=$(build_pattern "")
+default_patterns=$(build_patterns "")
 _scan_errors=$(mktemp "${TMPDIR:-/tmp}/80-unicode.XXXXXX")
-trap 'rm -f "$_scan_errors"' EXIT INT TERM
+_blob=$(mktemp "${TMPDIR:-/tmp}/80-unicode-blob.XXXXXX")
+trap 'rm -f "$_scan_errors" "$_blob"' EXIT INT TERM
 
 bidi_found=$(
   staged_lines | while IFS= read -r _bfile; do

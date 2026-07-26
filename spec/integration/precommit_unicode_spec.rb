@@ -363,5 +363,51 @@ RSpec.describe "CI lint-unicode scanner" do
       end
     end
   end
+
+  # The codepoint table and its pattern builder exist twice on purpose: the
+  # plugin scans staged BLOBS and must stay dependency-free (a consumer can
+  # receive the hook without scripts/), while lint-unicode.sh scans the
+  # working tree for CI and `make lint`. Neither can source the other without
+  # giving up one of those properties, so the duplication stays -- but nothing
+  # structural stops the two from drifting, and a codepoint added to only one
+  # would leave a gate that passes what its twin rejects. These examples are
+  # that guard: they compare the two copies directly and fail on divergence.
+  describe "the duplicated detector stays in sync" do
+    PLUGIN = ".githooks/pre-commit.d/80-unicode"
+    SCRIPT = "scripts/lint-unicode.sh"
+
+    # Everything between `_bidi_table='` and the closing quote.
+    def bidi_table(path)
+      body = File.read(path)[/_bidi_table='(.*?)'/m, 1]
+      expect(body).not_to be_nil, "no _bidi_table found in #{path}"
+      body.lines.map(&:strip).reject(&:empty?).sort
+    end
+
+    it "carries an identical codepoint table in both copies" do
+      expect(bidi_table(PLUGIN)).to eq(bidi_table(SCRIPT))
+    end
+
+    it "covers every codepoint RHSB-2021-007 names, plus the project's own" do
+      # Guards against a codepoint being dropped from BOTH copies at once,
+      # which the comparison above would not catch.
+      required = %w[U+061C U+200B U+200C U+200D U+200E U+200F U+202A U+202B
+                    U+202C U+202D U+202E U+2066 U+2067 U+2068 U+2069 U+FEFF]
+      present = bidi_table(PLUGIN).map { |row| row.split(":").first }
+      expect(present).to match_array(required)
+    end
+
+    it "builds its patterns as fixed strings, never a bracket expression" do
+      # A bracket expression is a set of CHARACTERS and needs a UTF-8 locale;
+      # without one it degrades to a set of BYTES and matches the E2 lead byte
+      # shared by every U+2xxx character, so an em dash trips the gate. Fixed
+      # strings under LC_ALL=C compare exact bytes and need no locale.
+      [PLUGIN, SCRIPT].each do |path|
+        body = File.read(path)
+        expect(body).to include("--fixed-strings"), "#{path} lost --fixed-strings"
+        expect(body).not_to match(/LC_ALL=\S*UTF-8\s+\S*grep/),
+                            "#{path} reintroduced a locale-dependent grep"
+      end
+    end
+  end
 end
 # REUSE-IgnoreEnd

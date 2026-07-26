@@ -75,11 +75,16 @@ U+2068:\342\201\250
 U+2069:\342\201\251
 U+FEFF:\357\273\277'
 
-# Build a UTF-8 bracket pattern from the table, excluding codepoints in the
-# comma-separated U+XXXX list passed as $1. Returns 1 if all are excluded.
-build_pattern() {
+# Build the fixed-string pattern list from the table, one UTF-8 byte sequence
+# per line, excluding codepoints in the comma-separated U+XXXX list passed as
+# $1. Returns 1 if all are excluded. Kept identical to the 80-unicode plugin's
+# copy, which carries the full rationale: fixed strings under LC_ALL=C compare
+# exact bytes and need no locale, where a bracket expression needs a UTF-8
+# locale and silently degrades to a BYTE set without one -- matching the E2
+# lead byte of every U+2xxx character, so an em dash trips the gate.
+build_patterns() {
   _exclude_csv="${1:-}"
-  _fmt=""
+  _out=""
   _saved_ifs=$IFS
   IFS='
 '
@@ -89,12 +94,14 @@ build_pattern() {
     case ",$_exclude_csv," in
     *",$_cp,"*) continue ;;
     esac
-    _fmt="$_fmt$_esc"
+    # shellcheck disable=SC2059  # intentional dynamic format string
+    _seq=$(printf "$_esc")
+    _out="${_out:+$_out
+}$_seq"
   done
   IFS=$_saved_ifs
-  [ -z "$_fmt" ] && return 1
-  # shellcheck disable=SC2059  # intentional dynamic format string
-  printf "[$_fmt]"
+  [ -n "$_out" ] || return 1
+  printf '%s' "$_out"
 }
 
 # First bidi-allow annotation in the working-tree file, or empty.
@@ -102,22 +109,23 @@ read_bidi_allow() {
   LC_ALL=C sed -n 's/.*bidi-allow:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$1" | head -n 1
 }
 
-_default_pattern=$(build_pattern "")
+_default_patterns=$(build_patterns "")
 _found=""
 while IFS= read -r _f; do
   [ -z "$_f" ] && continue
   [ -f "$_f" ] || continue
   _allow=$(read_bidi_allow "$_f")
   if [ -n "$_allow" ]; then
-    _pattern=$(build_pattern "$_allow") || continue
+    _patterns=$(build_patterns "$_allow") || continue
   else
-    _pattern="$_default_pattern"
+    _patterns="$_default_patterns"
   fi
   # Three-valued status: 0 match, 1 no match, 2 error. Treating 2 as "no
   # match" would fail open -- see the same guard in the 80-unicode plugin.
   _status=0
-  LC_ALL=C.UTF-8 /usr/bin/grep --binary-files=without-match \
-    --extended-regexp --quiet "$_pattern" "$_f" || _status=$?
+  printf '%s\n' "$_patterns" |
+    LC_ALL=C /usr/bin/grep --fixed-strings --file=- \
+      --binary-files=without-match --quiet "$_f" || _status=$?
   case "$_status" in
   0)
     _found="${_found:+$_found
