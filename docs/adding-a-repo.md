@@ -30,13 +30,19 @@ The onboarding runbook: how a repository — brand new or pre-existing — comes
 
 5. **Install the sync App** (`toobuntu-token-app`) on the repository: GitHub → Settings → Installations → Repository access. Each sync matrix leg mints a token scoped to its one consumer, so a repo the App does not cover is simply unreachable — installation is the enable switch.
 
-6. **Run the sync**: dispatch `sync-to-consumers.yml` (`gh workflow run "Sync to consumers"`). Today a dispatch renders every consumer — legs without App access fail at token minting and do not block the others; a `consumer=<slug>` filter input is queued with the sync-mechanics work.
+6. **Run the sync**, filtered to the new repo:
+
+   ```sh
+   gh workflow run "Sync to consumers" -f consumer=<slug>
+   ```
+
+   The `consumer=` input accepts the full slug (`toobuntu/<name>`) or the short name; leaving it empty renders every consumer — legs without App access fail at token minting and do not block the others.
 
 7. **Merge the sync pull request** in the consumer. The managed regions fill, the canonical files arrive with their "do not modify it directly" headers, and the repo is aligned from then on.
 
 ## Pre-existing content
 
-A repository with real history needs a reconciliation pass before its first sync: compare what it carries against what the sync will impose, and disposition each divergence (adopt the canonical, record an exclusion with a reason, or promote the local improvement into repo-foundation). The pre-sync freshness audit (`docs/handoff/rf-upstream-notes.md` § 15, whose `--audit` engine mode is queued) is that pass; sweep the repo's own `docs/handoff/` for reconcile notes first — each consumer's notes are dispositions waiting to be consumed.
+A repository with real history needs a reconciliation pass before its first sync: compare what it carries against what the sync will impose, and disposition each divergence (adopt the canonical, record an exclusion with a reason, or promote the local improvement into repo-foundation). The engine's `--audit` mode is that comparison — run it from a repo-foundation checkout against a local clone of the repo (`ruby .github/actions/sync/sync-files.rb <slug> /path/to/clone --audit`) and work the rows; sweep the repo's own `docs/handoff/` for reconcile notes first — each consumer's notes are dispositions waiting to be consumed. The process is `docs/handoff/rf-upstream-notes.md` § 15.
 
 ## Dormant repositories
 

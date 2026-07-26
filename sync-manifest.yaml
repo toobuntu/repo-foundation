@@ -29,7 +29,12 @@
 #                  (AGENTS.md, CONTRIBUTING.md, .gitignore) keeps a
 #                  sentinel-delimited region; a JSON target (.claude/settings.json)
 #                  is deep-merged with the consumer's <stem>.addenda.json. The
-#                  source carries a `.baseline` infix (see ADR 0002).
+#                  source carries a `.baseline` infix (see ADR 0002). Marker
+#                  states are loud: inverted/duplicated markers abort; a target
+#                  without markers splits on marker history — never present
+#                  bootstraps the region by prepending it (position is
+#                  consumer-owned afterward); previously present aborts with a
+#                  restore command and a paste-ready exclude entry.
 #
 # `# CONFIRM` marks an inferred per-repo membership to validate before the
 # first real sync run.
@@ -38,7 +43,10 @@ version: 1
 
 defaults:
   strategy: pr
-  branch: sync-from-foundation
+  # Ephemeral sync branches: sync-to-consumers.yml creates one branch per run
+  # (sync/<run-id>-<attempt>) and auto-closes superseded sync PRs; a run whose
+  # rendered content matches an open sync PR skips instead.
+  branch_prefix: sync/
   pr_title: "Sync shared configuration from repo-foundation"
   # Prepended to each `canonical`/`template` target, rendered in the target's
   # comment syntax. `%<source>s` interpolates the source path.
@@ -82,7 +90,7 @@ upstreams:
         target: .github/actionlint.yaml
         mutations:
           - type: yq
-            expression: '.config-variables = ["SYNC_APP_CLIENT_ID", "SYNC_BOT_SIGN", "SYNC_BOT_NAME", "SYNC_BOT_EMAIL"]'
+            expression: '.config-variables = ["SYNC_APP_CLIENT_ID"]'
           - type: yq
             expression: 'del(.paths)'   # drop Homebrew/brew-internal path rules
       - source: .github/workflows/copilot-setup-steps.yml
@@ -235,6 +243,13 @@ component_sets:
     # Scheduled scaffold-staleness nudge (ADR 0015); pairs with the synced
     # scripts/foundation-doctor.sh it runs.
     - { source: .github/workflows/scaffold-drift.yml,    target: .github/workflows/scaffold-drift.yml,    mode: canonical }
+    # Foundation guard: required PR check rejecting consumer edits to
+    # repo-foundation-managed files (the engine's --guard mode; sync-App PRs
+    # exempt; branch protection requiring the check by name is the tamper
+    # backstop). The master lives under provides/ — repo-foundation is the hub,
+    # not a consumer of its own sync, so it does not run the guard on itself
+    # (ADR 0001).
+    - { source: provides/github/workflows/foundation-guard.yml, target: .github/workflows/foundation-guard.yml, mode: canonical }
 
   # Canonical org-wide Toobuntu prose style + vocab + the Vale CI job (ADR 0014).
   # The style RULES and the accept VOCAB are byte-identical org-wide, so they
@@ -377,8 +392,15 @@ community_health_source:
   # org-served file, so it is not listed here.
 
 # ---------------------------------------------------------------------------
-# Consumers. `sets` lists component_sets to include; `exclude` drops specific
-# targets from those sets; `extra` adds one-off components.
+# Consumers. `sets` lists component_sets to include; `extra` adds one-off
+# components. `exclude` drops specific targets from those sets, and every
+# entry is a mapping with a cited reason —
+#   exclude:
+#     - { target: scripts/foo.sh, reason: "why this repo diverges" }
+# — never a bare string: the reasons are structured so the engine's --audit
+# report and each sync PR body print them, making every variance
+# self-documenting. The § 15 audit's record-divergence dispositions land as
+# exactly these entries.
 # ---------------------------------------------------------------------------
 consumers:
   - repo: toobuntu/blackoutd

@@ -12,6 +12,3 @@ self-hosted-runner:
 # Empty array means no configuration variable is allowed.
 config-variables:
   - SYNC_APP_CLIENT_ID
-  - SYNC_BOT_SIGN
-  - SYNC_BOT_NAME
-  - SYNC_BOT_EMAIL

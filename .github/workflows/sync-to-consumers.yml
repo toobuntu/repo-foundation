@@ -3,9 +3,23 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Push-from-canonical: apply repo-foundation's canonical files to every consumer
-# listed in sync-manifest.yaml and open/update a PR on each one that drifts.
-# Uses a GitHub App (SYNC_APP_CLIENT_ID + SYNC_APP_PRIVATE_KEY) so the bot can
-# push a branch to each consumer; the App must be installed on every consumer.
+# listed in sync-manifest.yaml and open a pull request on each one that drifts.
+# Uses a GitHub App (SYNC_APP_CLIENT_ID + SYNC_APP_PRIVATE_KEY) to mint a token
+# scoped to each consumer; the App must be installed on every consumer.
+#
+# Commit mechanics (rf-upstream-notes § 18i, verified 2026-07-15): the engine
+# renders files and emits a change list; git-data-commit.rb turns it into
+# per-file chained commits through the Git Data API. Under the App token those
+# commits are GitHub-signed (web-flow, Verified) and carry real file modes on
+# new AND modified files — no machine user, no SSH signing key. Branches are
+# ephemeral (sync/<run-id>-<attempt>): a run whose rendered content matches an
+# open sync PR skips, anything else opens a fresh PR — and every run ends by
+# reconciling open sync PRs, closing all but the live one (or all of them when
+# the consumer is already converged) with a comment, so a human fix-up commit
+# on an old sync branch is never force-push-clobbered and stale sync PRs never
+# linger. The PR body lists the converged surfaces and the consumer's
+# exclusions with reasons. A quiet scheduled run means the consumers are
+# converged — scheduled silence is the health signal.
 
 name: Sync to consumers
 
@@ -39,6 +53,13 @@ on:
   schedule:
     - cron: "0 8 * * 1" # Monday 08:00 UTC
   workflow_dispatch:
+    inputs:
+      consumer:
+        description: >-
+          Limit the run to one consumer (repo slug like toobuntu/blackoutd, or
+          the short name like blackoutd). Empty runs every consumer.
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -62,13 +83,21 @@ jobs:
 
       - name: Build consumer matrix from sync-manifest.yaml
         id: gen
+        env:
+          CONSUMER_FILTER: ${{ inputs.consumer }}
         run: |
           matrix="$(ruby -ryaml -rjson -e '
             m = YAML.load_file("sync-manifest.yaml")
-            print JSON.generate(Array(m["consumers"]).map { |c|
+            consumers = Array(m["consumers"]).map { |c|
               slug = c.fetch("repo")
               { "repo" => slug, "name" => slug.split("/").last }
-            })
+            }
+            filter = ENV.fetch("CONSUMER_FILTER", "").strip
+            unless filter.empty?
+              consumers.select! { |c| [c["repo"], c["name"]].include?(filter) }
+              abort("no consumer entry matches #{filter.inspect}") if consumers.empty?
+            end
+            print JSON.generate(consumers)
           ')"
           printf "matrix=%s\n" "$matrix" >> "$GITHUB_OUTPUT"
 
@@ -94,7 +123,7 @@ jobs:
           # Scope the token to exactly what the sync needs. workflows:write is
           # required because consumers receive workflow files (actionlint.yml,
           # lint.yml, spec.yml, copilot-setup-steps.yml) and neither GITHUB_TOKEN
-          # nor an App token lacking it may push .github/workflows/*.
+          # nor an App token lacking it may write .github/workflows/* blobs.
           permission-contents: write
           permission-metadata: read
           permission-pull-requests: write
@@ -111,31 +140,10 @@ jobs:
           repository: ${{ matrix.consumer.repo }}
           path: consumer
           token: ${{ steps.app-token.outputs.token }}
-          # Persisted so the pull-request step below can push the sync branch.
-          persist-credentials: true # zizmor: ignore[artipacked]
-
-      - name: Configure the bot git identity
-        env:
-          # Set these repo variables to a machine-user account to get "Verified"
-          # signed commits (see the signing step below): BOT_EMAIL must match a
-          # verified email on the account whose SSH signing key is used.
-          BOT_NAME: ${{ vars.SYNC_BOT_NAME || 'repo-foundation-sync[bot]' }}
-          BOT_EMAIL: ${{ vars.SYNC_BOT_EMAIL || 'repo-foundation-sync[bot]@users.noreply.github.com' }}
-        run: |
-          git -C consumer config user.name "$BOT_NAME"
-          git -C consumer config user.email "$BOT_EMAIL"
-
-      # Opt-in signed bot commits: set the SYNC_BOT_SIGN repo variable to 'true'
-      # and provide SYNC_APP_SSH_SIGNING_KEY (the bot's SSH private signing key).
-      # setup-commit-signing configures git so the per-file commits the engine
-      # makes below are SSH-signed. For a "Verified" badge the matching public key
-      # must be registered as a signing key on the committing identity (typically
-      # a machine-user whose email matches user.email above) — see session notes.
-      - name: Set up commit signing
-        if: vars.SYNC_BOT_SIGN == 'true'
-        uses: Homebrew/actions/setup-commit-signing@main
-        with:
-          signing_key: ${{ secrets.SYNC_APP_SSH_SIGNING_KEY }}
+          # Full history: the engine's managed-region history split
+          # (git log -S) must distinguish never-existed from deleted.
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Apply canonical configuration
         id: sync
@@ -143,23 +151,97 @@ jobs:
         with:
           repo: ${{ matrix.consumer.repo }}
           target_path: ${{ github.workspace }}/consumer
+          emit_dir: ${{ runner.temp }}/sync-emit
 
-      - name: Open or update the sync pull request
-        if: steps.sync.outputs.pull_request == 'true'
+      # An open sync PR whose head tree equals the freshly rendered tree is
+      # already this run's content (same consumer main + same changes): skip
+      # instead of opening a duplicate. Any other open sync PR is superseded.
+      - name: Compare against open sync pull requests
+        id: compare
+        if: steps.sync.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ matrix.consumer.repo }}
-          BRANCH: sync-from-foundation
+        run: |
+          git -C consumer add --all
+          rendered_tree="$(git -C consumer write-tree)"
+          echo "rendered tree: $rendered_tree"
+          skip=false
+          matched=""
+          while IFS="$(printf '\t')" read -r number head_ref head_oid; do
+            [ -n "$number" ] || continue
+            tree="$(gh api "repos/$GH_REPO/git/commits/$head_oid" --jq .tree.sha)"
+            echo "open sync PR #$number ($head_ref): tree $tree"
+            if [ "$tree" = "$rendered_tree" ]; then
+              skip=true
+              matched="$number"
+              echo "PR #$number already carries this run's rendered content; skipping."
+            fi
+          done <<EOF
+          $(gh pr list --state open --limit 100 --json number,headRefName,headRefOid \
+            --jq '.[] | select((.headRefName | startswith("sync/")) or .headRefName == "sync-from-foundation") | [.number, .headRefName, .headRefOid] | @tsv')
+          EOF
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          echo "matched_pr=$matched" >> "$GITHUB_OUTPUT"
+
+      - name: Create the sync branch via the Git Data API
+        id: commit
+        if: steps.sync.outputs.changed == 'true' && steps.compare.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          CONSUMER_REPO: ${{ matrix.consumer.repo }}
+        run: |
+          branch="sync/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          ruby .github/actions/sync/git-data-commit.rb \
+            --repo "$CONSUMER_REPO" --dir consumer \
+            --changes "$RUNNER_TEMP/sync-emit/changes.json" --branch "$branch"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Open the sync pull request
+        id: open
+        if: steps.sync.outputs.changed == 'true' && steps.compare.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ matrix.consumer.repo }}
+          BRANCH: ${{ steps.commit.outputs.branch }}
           PR_TITLE: "Sync shared configuration from repo-foundation"
         run: |
-          cd consumer
-          git switch --create "$BRANCH"
-          git push --force --set-upstream origin "$BRANCH"
-          open_count="$(gh pr list --head "$BRANCH" --state open --json number --jq 'length')"
-          if [ "$open_count" = "0" ]; then
-            gh pr create --base main --head "$BRANCH" --title "$PR_TITLE" \
-              --body 'Automated sync from [toobuntu/repo-foundation](https://github.com/toobuntu/repo-foundation). Do not edit synced files here; change them in repo-foundation and re-sync.'
+          new_pr="$(gh pr create --base main --head "$BRANCH" --title "$PR_TITLE" \
+            --body-file "$RUNNER_TEMP/sync-emit/pr-body.md" | tail -1)"
+          echo "opened $new_pr"
+          echo "url=$new_pr" >> "$GITHUB_OUTPUT"
+
+      # Every run ends here, including no-change and skipped runs: exactly one
+      # open sync PR may survive — the one just opened, or the one whose tree
+      # already matches. When the consumer is converged (no changes rendered),
+      # every open sync PR is stale and closes. Branches are deleted with the
+      # PRs: they are bot-created and reproducible (any later run re-renders
+      # the same canon), and GitHub's restore-branch button covers the rare
+      # salvage.
+      - name: Reconcile open sync pull requests
+        if: steps.sync.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ matrix.consumer.repo }}
+          KEEP_BRANCH: ${{ steps.commit.outputs.branch }}
+          MATCHED_PR: ${{ steps.compare.outputs.matched_pr }}
+          NEW_PR_URL: ${{ steps.open.outputs.url }}
+        run: |
+          if [ -n "$NEW_PR_URL" ]; then
+            comment="Superseded by $NEW_PR_URL (a newer sync run)."
+          elif [ -n "$MATCHED_PR" ]; then
+            comment="Superseded by #$MATCHED_PR, which already carries the current rendered content."
+          else
+            comment="The consumer is converged with repo-foundation; this sync pull request is stale."
           fi
+          gh pr list --state open --limit 100 --json number,headRefName \
+            --jq '.[] | select((.headRefName | startswith("sync/")) or .headRefName == "sync-from-foundation") | [.number, .headRefName] | @tsv' |
+            while IFS="$(printf '\t')" read -r number head_ref; do
+              [ -n "$number" ] || continue
+              [ -n "$KEEP_BRANCH" ] && [ "$head_ref" = "$KEEP_BRANCH" ] && continue
+              [ -n "$MATCHED_PR" ] && [ "$number" = "$MATCHED_PR" ] && continue
+              gh pr close "$number" --delete-branch --comment "$comment"
+            done
 
   conclusion:
     needs: sync

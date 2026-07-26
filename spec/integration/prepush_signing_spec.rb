@@ -95,6 +95,10 @@ module PrePushSpecHelpers
       system(env, "gpgconf", "--kill", "all", out: File::NULL, err: File::NULL)
       ok
     end
+  rescue SystemCallError
+    # The sandbox may deny /tmp itself (mkdir EPERM) before gpg ever runs;
+    # same disposition as a blocked agent: probe unavailable, examples skip.
+    false
   end
 end
 

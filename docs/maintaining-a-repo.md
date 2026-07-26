@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-last_review_date: 2026-07-23
+last_review_date: 2026-07-24
 ---
 
 # Maintaining a repository
@@ -21,7 +21,11 @@ The consumer's entry in `sync-manifest.yaml` lists the `component_sets` it subsc
 
 ## Receiving a sync
 
-`sync-to-consumers.yml` runs on a schedule and on dispatch. For each consumer it clones the target, runs the engine, and — when a managed file has changed — opens a `sync-from-foundation` pull request, one commit per file. Review and merge it like any other pull request. A consumer never has to pull; the foundation pushes. Scheduled silence is the health signal: a quiet sync day means the consumers are converged, not that the sync is broken.
+`sync-to-consumers.yml` runs on a schedule and on dispatch. For each consumer it clones the target, runs the engine, and — when a managed file has changed — opens a pull request from an ephemeral `sync/<run-id>` branch: one **Verified** commit per file (created through the Git Data API under the sync App's token), a body listing the converged surfaces and any exclusions with their reasons. Review and merge it like any other pull request; a newer sync run closes a superseded sync pull request with a comment. A consumer never has to pull; the foundation pushes. Scheduled silence is the health signal: a quiet sync day means the consumers are converged, not that the sync is broken.
+
+## The foundation guard
+
+Every consumer also runs `foundation-guard.yml`, a required pull-request check: a pull request that edits a repo-foundation-managed file — or the content inside a managed region — fails with a pointer back here, because those files change in repo-foundation and arrive by sync. Consumer-owned content (everything outside the regions, plus `.claude/settings.addenda.json`) passes untouched, and only files the pull request itself modified are checked. The sync bot's and Dependabot's pull requests are exempt — merging a Dependabot action-pin bump (a security fix especially) ahead of the canonical sync is fine; the sync converges the file after repo-foundation bumps its own copy.
 
 ## Keep scaffolds fresh
 

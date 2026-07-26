@@ -60,6 +60,16 @@ The bot signs its commits only when opted in (`SYNC_BOT_SIGN` plus an SSH signin
 - Bad, because the sync needs a GitHub App token with write and workflows scope, and the PR-existence query couples to the REST response shape.
 - Neutral, because the rolling force-pushed branch means the PR always reflects the latest computed state; PRs are opportunistic, not durable.
 
+### Amendment (2026-07-24) — Git Data commits, ephemeral branches
+
+The reference-evaluation outcome (`docs/handoff/rf-upstream-notes.md` § 18, implemented at the sync-mechanics session) supersedes three details above:
+
+- **Commit mechanics.** The engine no longer makes local git commits. It emits a change list, and `git-data-commit.rb` creates per-file chained commits through the GitHub Git Data API under the App installation token — GitHub-signed (web-flow, **Verified**, verified by test 2026-07-15), real file modes on new and modified files, deletions as `sha: null` tree entries. The opt-in machine-user signing path (`SYNC_BOT_SIGN` plus an SSH key) retired unimplemented.
+- **Branch model.** The rolling force-pushed `sync-from-foundation` branch is replaced by one ephemeral branch per run (`sync/<run-id>-<attempt>`). A run whose rendered tree equals an open sync pull request's head tree skips; any other open sync pull request is closed with a superseded comment. A human fix-up commit on a sync branch is therefore never force-push-clobbered.
+- **Pull-request existence.** With ephemeral branches, the REST-plus-`jq` head-branch existence query gives way to a tree-equality comparison across open sync-branch pull requests — the question is no longer "does a PR exist for this branch" but "does any open sync PR already carry this content".
+
+The consumer-side complement — the required `foundation-guard.yml` check running the engine's `--guard` mode — and the `--audit` freshness mode are described in `docs/architecture.md`.
+
 ## More Information
 
 Models Homebrew/.github's `sync-shared-config` engine and workflow. Absorbs homebrew-cask-tools' prior sync-branch-PR-strategy ADR (the REST-plus-`jq` existence check and the rolling-branch rationale). The `.template` infix the `template` mode strips is ADR 0002; how copilot-setup-steps is distributed through this sync is ADR 0015; the analytics and signing policies the bot honors are ADRs 0013 and 0007.
