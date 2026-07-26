@@ -43,6 +43,8 @@ RSpec.describe "pre-commit plugin: .ai memory files are append-only" do
 
           An established fact.
 
+          - A bullet fact, whose removed-diff form starts with two hyphens.
+
           ## 2026-01-02 — Second
 
           Another established fact.
@@ -79,6 +81,33 @@ RSpec.describe "pre-commit plugin: .ai memory files are append-only" do
           expect(err).to include("append-only")
           expect(err).to include("An established fact.")
           expect(err).to include("AI_MEMORY_ALLOW_REWRITE=1")
+        end
+      end
+
+      it "rejects a removed bullet line, whose diff form begins with --" do
+        # Regression: the original implementation excluded the `--- a/…` diff
+        # header with the pattern ^-([^-]|$), which also excluded any removed
+        # content line that itself begins with `-` — every Markdown bullet.
+        with_memory_repo(path) do
+          body = File.read(path)
+                     .sub("- A bullet fact, whose removed-diff form starts with two hyphens.\n", "")
+          File.write(path, body)
+          sh!("git", "add", path)
+          _out, err, status = run_plugin
+          expect(status.success?).to eq(false)
+          expect(err).to include("A bullet fact")
+        end
+      end
+
+      it "is not bypassed by AI_MEMORY_ALLOW_REWRITE values other than 1" do
+        # Enforcement gate, not a test seam: someone exporting the variable
+        # as 0 to mean "do not bypass" must get enforcement.
+        with_memory_repo(path) do
+          body = File.read(path).sub("An established fact.\n", "")
+          File.write(path, body)
+          sh!("git", "add", path)
+          _out, _err, status = run_plugin("AI_MEMORY_ALLOW_REWRITE" => "0")
+          expect(status.success?).to eq(false)
         end
       end
 

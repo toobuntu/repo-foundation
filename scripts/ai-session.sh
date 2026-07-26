@@ -11,8 +11,8 @@
 # per-developer, rewritten freely, no history. That is right for status and
 # wrong for anything that turns out to be a commitment — and a rewrite has no
 # diff, so a dropped line leaves no trace anywhere. This happened: a queued
-# first-sync cleanup item ("Homebrew-tree allowWrite drop") vanished in a
-# wholesale rewrite on 2026-07-25 and surfaced a day later only by accident.
+# cleanup item vanished in a wholesale rewrite on 2026-07-25 and surfaced a
+# day later only by accident (incident record: repo-foundation ADR 0022).
 #
 # `start` snapshots progress.md; `end` reports what the session removed from
 # it. The point of `end` is NOT to forbid removals — most are correct, since
@@ -75,6 +75,15 @@ end)
       "${0##*/}" >&2
     exit 0
   fi
+
+  # The snapshot's mtime is the session start (cp sets it; reading the
+  # original does not touch the original's). Progress not newer than that
+  # means the end ritual's rewrite never happened.
+  if [ ! "$progress" -nt "$snapshot" ]; then
+    printf 'ai-session: .ai/progress.md was NOT updated this session.\n'
+    printf 'Rewrite it to the current state and next action before closing,\n'
+    printf 'or state in the handoff why it stands unchanged.\n'
+  fi
   # Lines present at session start and absent now. `comm` needs sorted input,
   # and sorting is right here: this reports WHAT was removed, not where.
   # Blank lines are dropped — their coming and going is formatting, not
@@ -104,9 +113,27 @@ relay-consume)
     printf 'ai-session: no .ai/org/relay.md to consume\n'
     exit 0
   }
-  consumed="$root/.ai/org/relay.consumed-$(date +%Y-%m-%d-%H%M%S).md"
+  # A holding copy must never clobber an earlier holding copy, and a
+  # one-second timestamp alone cannot guarantee that (a relay recreated and
+  # consumed twice quickly, or two concurrent invocations). Counter-suffix
+  # until the name is free; the bound only guards against a pathological
+  # filesystem loop.
+  _base="$root/.ai/org/relay.consumed-$(date +%Y-%m-%d-%H%M%S)"
+  consumed="$_base.md"
+  _n=1
+  while [ -e "$consumed" ]; do
+    _n=$((_n + 1))
+    if [ "$_n" -gt 100 ]; then
+      printf 'ai-session: could not reserve a free consumed-relay name near %s\n' \
+        "$_base.md" >&2
+      exit 1
+    fi
+    consumed="$_base.$_n.md"
+  done
   mv "$relay" "$consumed"
   printf 'ai-session: relay retired to %s\n' "${consumed#"$root"/}"
+  printf 'The relay is tracked: commit its deletion together with the promotion,\n'
+  printf 'so the consumption is reviewable.\n'
   printf 'This is a holding copy, not the record. Delete it by hand once every\n'
   printf 'entry has landed somewhere TRACKED (.ai/org/memory.md, an ADR, a\n'
   printf 'dispatch row) or been declined in writing — that condition, never an\n'

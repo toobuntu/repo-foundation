@@ -30,6 +30,11 @@
 #
 #   AI_MEMORY_ALLOW_REWRITE=1 git commit …
 #
+# The value must be exactly 1. The org's test seams (REUSE_LINT_SKIP and
+# friends) accept any non-empty value, but this is an enforcement gate, not a
+# seam: someone exporting AI_MEMORY_ALLOW_REWRITE=0 to mean "do not bypass"
+# must get enforcement, not a silent pass.
+#
 # The intended use is the periodic CONSOLIDATION pass, not day-to-day editing:
 # append-only means these files only grow, so eventually entries want merging,
 # superseded ones want pruning, and durable material wants graduating (a
@@ -50,7 +55,10 @@
 
 set -e
 
-[ -z "${AI_MEMORY_ALLOW_REWRITE:-}" ] || exit 0
+case "${AI_MEMORY_ALLOW_REWRITE:-}" in
+1) exit 0 ;;
+*) ;;
+esac
 
 # The guarded set. A consumer that carries only one of these is fine: a path
 # absent from the diff simply never matches.
@@ -68,17 +76,29 @@ for _f in $MEMORY_FILES; do
   *) ;;
   esac
 
-  # Count removed content lines, ignoring the `---` file header that unified
-  # diff emits with the same leading character.
-  _removed=$(git diff --cached --unified=0 -- "$_f" |
-    /usr/bin/grep --extended-regexp --count '^-([^-]|$)' || true)
-  [ "${_removed:-0}" -eq 0 ] && continue
+  # An enforcement gate fails CLOSED: a diff that cannot be read is a refusal,
+  # never a pass.
+  _diff=$(git diff --cached --unified=0 -- "$_f") || {
+    printf 'error: could not read the staged diff for %s; refusing the commit\n' \
+      "$_f" >&2
+    printf '  rather than passing a file the gate never managed to scan.\n' >&2
+    exit 1
+  }
+
+  # Removed content lines are the `-` lines INSIDE hunks (after the first
+  # `@@`), located structurally rather than by pattern. A leading-character
+  # regex cannot do this job: the file-header line `--- a/…` shares the `-`
+  # prefix, and excluding it by pattern (`^-[^-]`) also excludes any removed
+  # content line that itself begins with `-` — which is every Markdown bullet,
+  # and these files are full of them.
+  _removed_lines=$(printf '%s\n' "$_diff" |
+    awk '/^@@/ { in_hunk = 1; next } in_hunk && /^-/ { print }')
+  [ -n "$_removed_lines" ] || continue
 
   rc=1
   printf 'error: %s is append-only and this commit removes %s line(s):\n' \
-    "$_f" "$_removed" >&2
-  git diff --cached --unified=0 -- "$_f" |
-    /usr/bin/grep --extended-regexp '^-([^-]|$)' |
+    "$_f" "$(printf '%s\n' "$_removed_lines" | wc -l | tr -d ' ')" >&2
+  printf '%s\n' "$_removed_lines" |
     sed -e 's/^-/  removed: /' -e 's/\(.\{100\}\).*/\1…/' >&2
   printf '\n' >&2
 done
