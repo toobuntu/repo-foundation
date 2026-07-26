@@ -130,9 +130,10 @@ seed_md_region "$target/CONTRIBUTING.md" "Contributing"
 # arrives). Placing the lines inside the region is self-healing: the first
 # sync replaces the region wholesale with the full baseline, which carries
 # these same lines.
+# .ai/org/relay.md is deliberately absent: it is TRACKED (ADR 0022,
+# 2026-07-26 amendment), so org knowledge in transit travels with the clone.
 ai_ignores='.ai/progress.md
 .ai/scratchpad/
-.ai/org/relay.md
 .ai/.progress.session-start
 .ai/org/relay.consumed-*.md'
 if [ ! -e "$target/.gitignore" ]; then

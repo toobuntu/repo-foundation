@@ -12,10 +12,11 @@
 
 # Agent session continuity (ADR 0022): volatile per-developer state.
 # .ai/memory.md, .ai/org/memory.md, and .ai/progress.template.md are
-# committed; these are not.
+# committed; these are not. .ai/org/relay.md is deliberately NOT ignored
+# (2026-07-26 amendment): it carries org knowledge in transit, and ignoring
+# it stranded that knowledge on whichever machine wrote it.
 .ai/progress.md
 .ai/scratchpad/
-.ai/org/relay.md
 # scripts/ai-session.sh bookkeeping: the session-start snapshot of
 # progress.md, and relays retired after promotion (kept for a grace period,
 # never the record — see the script's header).
