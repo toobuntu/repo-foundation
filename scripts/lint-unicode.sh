@@ -8,12 +8,18 @@
 # the CI lint-unicode job and `make lint`; .githooks/pre-commit applies the
 # same policy to staged blobs (its own copy, scoped to a commit).
 #
-# Prefers python3: Unicode category Cf+Cc detection plus UTF-8/UTF-16/UTF-32
-# validation. Falls back to a POSIX-sh detector (the RHSB-2021-007 grep
-# approach over a fixed bidi/zero-width/BOM codepoint set) when python3 is
-# unavailable — less capable (no Cc sweep, no encoding validation beyond the
-# BOM byte sequence), but the accepted floor. Rationale and codepoint
-# coverage: https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0006-trojan-source-detection-strategy.md.
+# Prefers python3 (scripts/lint-unicode.py): Unicode category Cf+Cc detection
+# plus UTF-8/UTF-16/UTF-32 validation. Falls back to a POSIX-sh detector (the
+# RHSB-2021-007 grep approach over a fixed bidi/zero-width/BOM codepoint set)
+# when python3 is unavailable — less capable (no Cc sweep, no encoding
+# validation beyond the BOM byte sequence), but the accepted floor. Rationale
+# and codepoint coverage: https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0006-trojan-source-detection-strategy.md.
+#
+# The detector is a separate file, not a heredoc in this one: Homebrew's shfmt
+# wrapper (`brew style --fix`, which runs over these canonicals in the
+# Homebrew-aligned consumers) applies line-based transforms that track no
+# heredoc state and rewrite an embedded Python body as if it were shell. That
+# is how this file was corrupted once already.
 #
 # Usage:
 #   scripts/lint-unicode.sh           # scan all tracked files (git ls-files)
@@ -45,98 +51,7 @@ collect_files "$@" > "$_files_tmp"
 [ -s "$_files_tmp" ] || exit 0
 
 if [ -z "${LINT_UNICODE_NO_PYTHON:-}" ] && command -v python3 > /dev/null 2>&1; then
-  # Program on stdin (`python3 -`); file list path in argv[1].
-  python3 - "$_files_tmp" << 'PYEOF'
-import re, sys, pathlib, unicodedata
-# Mirrors Red Hat's RHSB-2021-007 approach: flag every character in Unicode
-# category Cf (Format), extended to Cc (Control) minus a TAB/LF/CR allowlist.
-# Future-proof: invisible characters added to Cf/Cc in later Unicode
-# revisions are caught when the runner's python3 updates. Per-file opt-out
-# via a `bidi-allow: U+XXXX,U+YYYY` annotation anywhere in the file.
-ALLOWED = {0x09, 0x0A, 0x0D}  # TAB, LF, CR
-ALLOW_RE = re.compile(r'bidi-allow:\s*([U+0-9A-Fa-f,]+)')
-
-
-def parse_allow(text):
-    m = ALLOW_RE.search(text)
-    if not m:
-        return frozenset()
-    cps = set()
-    for token in m.group(1).split(','):
-        token = token.strip()
-        if token.startswith('U+'):
-            try:
-                cps.add(int(token[2:], 16))
-            except ValueError:
-                pass
-    return frozenset(cps)
-
-
-def is_suspicious(ch, allow):
-    cp = ord(ch)
-    if cp in ALLOWED or cp in allow:
-        return False
-    return unicodedata.category(ch) in ('Cf', 'Cc')
-
-
-with open(sys.argv[1]) as fh:
-    paths = [line.rstrip('\n') for line in fh if line.strip()]
-
-bidi_failures = []
-utf8_failures = []
-for p in paths:
-    path = pathlib.Path(p)
-    if not path.is_file():
-        continue
-    try:
-        with path.open('rb') as fh:
-            head = fh.read(4096)
-            if b'\x00' in head:
-                # A NUL alone does not prove "binary": UTF-16/UTF-32 text
-                # contains NULs but is still text we reject under the UTF-8
-                # policy.
-                for enc in ('utf-16', 'utf-32'):
-                    try:
-                        head.decode(enc)
-                    except UnicodeDecodeError:
-                        continue
-                    utf8_failures.append(
-                        f'{path} (looks like {enc}; project requires UTF-8)')
-                    break
-                # NUL but not decodable as UTF-16/32: treat as binary and skip,
-                # mirroring RHSB-2021-007's text/* MIME gate. Falling through to
-                # the UTF-8 check would mis-flag tracked binaries as violations.
-                continue
-            raw = head + fh.read()
-    except OSError:
-        continue
-    try:
-        text = raw.decode('utf-8')
-    except UnicodeDecodeError:
-        utf8_failures.append(str(path))
-        continue
-    allow = parse_allow(text)
-    if any(is_suspicious(c, allow) for c in text):
-        bidi_failures.append(str(path))
-
-ok = True
-if utf8_failures:
-    print('Files violating UTF-8-without-BOM policy:', file=sys.stderr)
-    for f in utf8_failures:
-        print(f'  {f}', file=sys.stderr)
-    ok = False
-if bidi_failures:
-    print('Invisible Unicode characters found (CVE-2021-42574):', file=sys.stderr)
-    for f in bidi_failures:
-        print(f'  {f}', file=sys.stderr)
-    print('', file=sys.stderr)
-    print('A file may opt out of specific codepoints with an in-file',
-          file=sys.stderr)
-    print('annotation, e.g.:  // bidi-allow: U+200E,U+200F', file=sys.stderr)
-    ok = False
-if not ok:
-    sys.exit(1)
-PYEOF
+  python3 "$(dirname "$0")/lint-unicode.py" "$_files_tmp"
   exit 0
 fi
 
