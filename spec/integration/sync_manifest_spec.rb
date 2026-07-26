@@ -86,12 +86,19 @@ RSpec.describe "sync-manifest.yaml contract" do
   end
 
   it "ignores the volatile .ai files in gitignore.baseline and RF's own .gitignore" do
-    volatile = [".ai/progress.md", ".ai/scratchpad/", ".ai/org/relay.md"]
+    volatile = [".ai/progress.md", ".ai/scratchpad/",
+                ".ai/.progress.session-start", ".ai/org/relay.consumed-*.md"]
     [File.join(REPO_ROOT, "provides/repo/gitignore.baseline"),
      File.join(REPO_ROOT, ".gitignore")].each do |path|
       lines = File.readlines(path, chomp: true)
       missing = volatile - lines
       expect(missing).to be_empty, "#{path} lacks ignore lines: #{missing.join(", ")}"
+      # The relay is deliberately TRACKED (ADR 0022, 2026-07-26): it carries
+      # org knowledge in transit, and ignoring it stranded that knowledge on
+      # whichever machine wrote it. Guard the inversion so the line does not
+      # creep back with a future ignore-list edit.
+      expect(lines).not_to include(".ai/org/relay.md"),
+                           "#{path} re-ignores the relay, which must stay tracked"
     end
   end
 

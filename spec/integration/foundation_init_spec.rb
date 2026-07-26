@@ -52,7 +52,7 @@ RSpec.describe "foundation-init.sh" do
       gitignore = File.read("#{target}/.gitignore")
       region_begin = gitignore.index(">>>")
       region_end = gitignore.index("<<<")
-      %w[.ai/progress.md .ai/scratchpad/ .ai/org/relay.md].each do |line|
+      %w[.ai/progress.md .ai/scratchpad/ .ai/.progress.session-start].each do |line|
         expect(gitignore).to include(line)
         expect(gitignore.index(line)).to be_between(region_begin, region_end)
       end
@@ -130,8 +130,9 @@ RSpec.describe "foundation-init.sh" do
       expect(lines.count("# <<< #{label_end} <<<")).to eq(1)
       expect(begin_i).not_to be_nil
       expect(end_i).to be > begin_i
-      # All three seeded entries land as full lines strictly between the markers.
-      %w[.ai/progress.md .ai/scratchpad/ .ai/org/relay.md].each do |entry|
+      # The seeded entries land as full lines strictly between the markers
+      # (relay.md is deliberately absent: tracked since the ADR 0022 amendment).
+      %w[.ai/progress.md .ai/scratchpad/ .ai/.progress.session-start].each do |entry|
         entry_i = lines.index(entry)
         expect(entry_i).not_to(be_nil, "#{entry} missing from .gitignore")
         expect(entry_i).to be_between(begin_i + 1, end_i - 1)
