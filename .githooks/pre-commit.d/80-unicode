@@ -116,36 +116,39 @@ build_patterns() {
   printf '%s' "$_out"
 }
 
-# Read the staged blob and extract the first bidi-allow annotation found.
-# Output: comma-separated U+XXXX list, or empty if no annotation.
-# Annotation may appear anywhere in the file (not restricted to top).
-# Malformed tokens (non-U+XXXX) are silently ignored: build_pattern's
-# table lookup discards anything not present in _bidi_table.
+# Extract the first bidi-allow annotation from the fetched blob content
+# ($1 = the temp file scan_one filled). Output: comma-separated U+XXXX
+# list, or empty if no annotation. The annotation may appear anywhere in
+# the file (not restricted to the top). Malformed tokens (non-U+XXXX) are
+# silently ignored: build_patterns' table lookup discards anything not
+# present in _bidi_table.
 read_bidi_allow() {
-  git show ":$1" 2> /dev/null |
-    sed -n 's/.*bidi-allow:[[:space:]]*\([^[:space:]]*\).*/\1/p' |
+  sed -n 's/.*bidi-allow:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$1" |
     head -n 1
 }
 
 # Scan one staged path; print it when it carries a disallowed codepoint.
 scan_one() {
-  _allow=$(read_bidi_allow "$1")
-  if [ -n "$_allow" ]; then
-    _patterns=$(build_patterns "$_allow") || return 0
-  else
-    _patterns="$default_patterns"
-  fi
-
-  # `git show ":$file"` prints the staged blob (not the working tree). It is
-  # written to a file rather than piped, for two reasons: grep's stdin is
-  # taken by the pattern list, and a pipeline's `$?` is the LAST command's,
-  # so a `git show | grep` pipeline reports grep's status and a failed
-  # git show reaches grep as empty input -- "no match", and the file passes
-  # unscanned. Checking it separately makes that a scan error.
+  # `git show ":$file"` prints the staged blob (not the working tree). One
+  # fetch per path, written to a temp file that both the bidi-allow parse
+  # and the grep then read -- a pipe would not do: grep's stdin is taken by
+  # the pattern list, and a pipeline's `$?` is the LAST command's, so a
+  # `git show | grep` pipeline reports grep's status and a failed git show
+  # reaches grep as empty input -- "no match", and the file passes
+  # unscanned. Fetching first and checking separately makes that a scan
+  # error, and means a blob git cannot produce is refused before its
+  # annotation is ever parsed.
   if ! git show ":$1" > "$_blob" 2> /dev/null; then
     printf 'error: could not read the staged blob for %s\n' "$1" >&2
     printf 'x' >> "$_scan_errors"
     return 0
+  fi
+
+  _allow=$(read_bidi_allow "$_blob")
+  if [ -n "$_allow" ]; then
+    _patterns=$(build_patterns "$_allow") || return 0
+  else
+    _patterns="$default_patterns"
   fi
 
   # grep's status is three-valued and the third value matters here: 0 match,
