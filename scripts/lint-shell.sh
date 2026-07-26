@@ -21,8 +21,13 @@
 # sh / bash scripts get shfmt (reads .editorconfig, two-space) + shellcheck
 # (dialect from the shebang). `ksh -n` — a stricter syntax check than
 # bash -n / sh -n — runs over ALL shell wherever ksh is present (stock on
-# macOS), as the authoritative syntax pass. shellcheck runs at --severity=warning
-# (warning-and-above gates; the .shellcheckrc `enable=`s stay advisory).
+# macOS), as the authoritative syntax pass. shellcheck runs at
+# --severity=style — the lowest tier, so EVERY finding gates, including the
+# optional checks .shellcheckrc enables (two of which, avoid-nullary-conditions
+# and quote-safe-variables, emit at style and would be invisible to any higher
+# threshold). Policy changed 2026-07-26 from --severity=warning, which had
+# left the enable= list advisory; a deliberate exception is a scoped
+# `# shellcheck disable=SCnnnn` with the explanation above it.
 #
 # Homebrew-aligned repos defer to `brew style` and do not ship this script.
 #
@@ -30,7 +35,7 @@
 
 set -eu
 
-severity=warning
+severity=style
 
 usage() {
   printf 'Usage: %s [--staged | --tracked | <path>...]\n' "${0##*/}" >&2
@@ -41,6 +46,7 @@ usage() {
 is_shell() {
   case "$1" in
   *.sh | *.bash | *.ksh) return 0 ;;
+  *) ;;
   esac
   [ -f "$1" ] || return 1
   head -n 1 "$1" 2> /dev/null | grep -qE '^#!.*sh([[:space:]]|$)'
@@ -51,6 +57,7 @@ is_shell() {
 is_ksh() {
   case "$1" in
   *.ksh) return 0 ;;
+  *) ;;
   esac
   [ -f "$1" ] || return 1
   head -n 1 "$1" 2> /dev/null | grep -qE '^#!.*[/ ]ksh[0-9]*([[:space:]]|$)'

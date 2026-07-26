@@ -6,8 +6,9 @@
 # synced byte-for-byte to every consumer. The per-language build/test jobs are
 # NOT here — those live in each repo's own ci.yml (see
 # provides/github/workflows/ci.template.yml). The jobs below assume only the
-# shared scripts that ship alongside this workflow (scripts/lint-unicode.sh,
-# scripts/lint-perms.sh), so they run identically in any repo.
+# shared scripts that ship alongside this workflow (scripts/lint-unicode.sh
+# with its scripts/lint-unicode.py detector, scripts/lint-perms.sh), so they
+# run identically in any repo.
 
 name: Lint
 
@@ -41,8 +42,10 @@ jobs:
   lint-unicode:
     # CI backstop for the pre-commit hook: detects CVE-2021-42574 (Trojan
     # Source) plus enforces UTF-8 without BOM. Single source of truth for the
-    # scan logic is scripts/lint-unicode.sh (python3 here; the same script runs
-    # locally and the pre-commit hook applies the same policy to staged blobs).
+    # scan logic is scripts/lint-unicode.sh, which prefers its python3 detector
+    # (scripts/lint-unicode.py) and falls back to a POSIX-sh grep pass; the same
+    # script runs locally, and the pre-commit hook applies the same policy to
+    # staged blobs. The runner has python3, so CI always takes the python path.
     # Rationale: https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0006-trojan-source-detection-strategy.md
     runs-on: ubuntu-latest
     permissions:

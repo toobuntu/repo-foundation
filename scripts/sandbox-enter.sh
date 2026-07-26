@@ -146,6 +146,7 @@ main() {
     printf 'note: %s is under the macOS tmp reaper (files untouched for 3 days are deleted);\n' "$parent_abs" >&2
     printf '      fine for a clone that lives under a day, risky for longer (see agent-principles.md).\n' >&2
     ;;
+  *) ;;
   esac
 
   repo_name=$(basename "$source_abs")
@@ -156,7 +157,7 @@ main() {
   # Capture source's remotes BEFORE cloning. After clone the new repo's
   # origin points at the source path, not at the source's GitHub URL,
   # so the source's remote list cannot be reconstructed from the clone.
-  saved_remotes=$(mktemp -t blackoutd-sandbox.XXXXXX)
+  saved_remotes=$(mktemp -t sandbox-enter.XXXXXX)
   save_source_remotes "$source_abs" "$saved_remotes"
   [ -s "$saved_remotes" ] || {
     rm -f "$saved_remotes"
@@ -184,6 +185,7 @@ main() {
     git remote set-url origin "$original_origin"
     git remote add local "$source_abs"
     ;;
+  *) die "unknown --mode: $mode (no-remote, repoint-origin, add-local)" ;;
   esac
 
   printf '%s\n' "$sandbox_dir"

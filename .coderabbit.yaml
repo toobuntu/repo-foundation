@@ -60,6 +60,29 @@ reviews:
         (`-z`) as macOS/BSD incompatibilities. Verified on macOS 26.5.2: the system
         xargs accepts `-r`/`--no-run-if-empty` (a no-op, since BSD xargs already
         skips empty input) and the system grep supports `-z`/`--null-data`.
+    - path: "{.githooks/pre-commit.d/80-unicode,scripts/lint-unicode.*}"
+      instructions: |
+        The invisible-Unicode detector exists TWICE on purpose: the plugin scans
+        staged blobs and must stay dependency-free (a consumer can receive the hook
+        without scripts/), while lint-unicode.sh scans the working tree for CI and
+        `make lint`. Neither can source the other without losing one of those
+        properties. Do not propose consolidating them; the drift risk is covered by
+        executable guards in spec/integration/precommit_unicode_spec.rb, which
+        compare the two codepoint tables and fail on divergence.
+        Both match with `grep --fixed-strings` under `LC_ALL=C`, deliberately. Do
+        NOT suggest a UTF-8 locale (C.UTF-8, en_US.UTF-8, LC_CTYPE=UTF-8) or a
+        bracket expression. A bracket expression is a set of CHARACTERS and needs a
+        UTF-8 locale to read multi-byte sequences; where that locale is absent it
+        silently degrades to a set of BYTES and matches the E2 lead byte shared by
+        every U+2xxx character, so an ordinary em dash or curly quote trips the
+        gate. Fixed strings compare exact byte sequences, need no locale, and
+        cannot over-match because UTF-8 is self-synchronizing.
+    - path: "spec/**"
+      instructions: |
+        `REUSE_LINT_SKIP=1` in the hook specs is load-bearing, not leftover: the
+        85-reuse plugin reads it, and the runner still runs that plugin. Without it
+        every throwaway fixture (no SPDX headers, no LICENSES/) fails the REUSE gate
+        and masks the check under test. Do not suggest removing it.
     - path: "docs/decisions/**"
       instructions: |
         ADRs are MADR 4.0, linted by `adrs doctor`. The SPDX header belongs INSIDE

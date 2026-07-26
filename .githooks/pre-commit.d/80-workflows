@@ -1,0 +1,79 @@
+#!/bin/sh
+
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Workflow pre-commit plugin: actionlint + act --validate + zizmor on staged
+# GitHub Actions workflows. Run by .githooks/pre-commit through the
+# run-parts-style runner.
+#
+# Three different nets over the same files: actionlint's schema and expression
+# checks, the runner's own parser (act), and zizmor's security audit.
+#
+# The pattern covers repo-foundation's canonical workflow MASTERS under
+# provides/github/workflows/ as well as each repo's live .github/workflows/.
+# A master is a workflow file that no repo runs from that path — it is
+# rendered into consumers by the sync — so without this it would reach every
+# consumer having never been linted anywhere. The CI actionlint job carries
+# the same extension. Harmless in a consumer, which has no provides/ tree.
+#
+# Universal: mastered at this natural path — repo-foundation runs it on its
+# own commits (ADR 0001) — and synced to every hook-carrying consumer
+# (git_hooks in sync-manifest.yaml). Run-parts classicalre name (no
+# extension); disable with a dot suffix (80-workflows.off). In the 80-
+# verifier tier, which runs after the tiers that restage files; independent
+# of the other verifiers.
+#
+# Each tool is gated on being installed and warns rather than failing when it
+# is absent: a contributor without the full toolchain still gets the other
+# checks, and CI is the backstop that always has them.
+
+set -e
+
+WORKFLOW_RE='(\.github|provides/github)/workflows/.*\.ya?ml$'
+
+# The runner exports PRE_COMMIT_STAGED_LIST: a NUL-delimited list of staged
+# paths (--diff-filter=ACMRT) computed once for every plugin. Fall back to
+# deriving it here so the plugin still runs standalone for debugging.
+staged_z() {
+  if [ -n "${PRE_COMMIT_STAGED_LIST:-}" ] && [ -r "${PRE_COMMIT_STAGED_LIST}" ]; then
+    /usr/bin/grep --extended-regexp --null-data "$1" < "$PRE_COMMIT_STAGED_LIST" || true
+  else
+    git diff --cached --name-only --diff-filter=ACMRT -z |
+      /usr/bin/grep --extended-regexp --null-data "$1" || true
+  fi
+}
+has_files() { [ "$(staged_z "$1" | wc -c)" -gt 0 ]; }
+
+has_files "$WORKFLOW_RE" || exit 0
+
+# actionlint takes file arguments (xargs -0 -r); act and zizmor scan the
+# working tree and take none, which is why the has_files gate above decides
+# whether they run at all.
+if command -v actionlint > /dev/null 2>&1; then
+  staged_z "$WORKFLOW_RE" | xargs -0 -r actionlint --
+else
+  printf "warning: actionlint not found — skipping workflow lint (brew install actionlint)\n" >&2
+fi
+
+# act --validate exercises the runner's own workflow parser (a different
+# net than actionlint's schema checks). Parse-only: no container and no
+# Docker daemon are needed; only actually executing a job would need one.
+if command -v act > /dev/null 2>&1; then
+  act --container-architecture=NOASSERTION --validate > /dev/null
+else
+  printf "warning: act not found — skipping workflow parse check (brew install act)\n" >&2
+fi
+
+if command -v zizmor > /dev/null 2>&1; then
+  if zizmor --quiet .; then
+    :
+  else
+    status=$?
+    printf "hint: try auto-fix (zizmor --fix .)\n" >&2
+    exit "$status"
+  fi
+else
+  printf "warning: zizmor not found — skipping workflow security scan (brew install zizmor)\n" >&2
+fi

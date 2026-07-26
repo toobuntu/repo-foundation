@@ -299,6 +299,7 @@ sign_one() {
         git -C "$repo_dir" push --force-with-lease="$lease" origin "HEAD:${branch}"
         return 0
         ;;
+      *) ;; # anything but yes falls through to the hint below
       esac
     fi
     printf '  If only your own rewritten history differs, push with:\n' >&2

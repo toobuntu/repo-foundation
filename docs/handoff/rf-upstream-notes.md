@@ -6,6 +6,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Upstream work queued from the babble W3 session (2026-07-04)
 
+> **CLOSED 2026-07-25.** This file is the historical record and takes no new work. Its durable findings live in `.ai/memory.md` (the Homebrew/`brew style` constraints, §§ 2/9/12e/12f) and `.ai/org/memory.md`; the sandbox-placement material of § 13 graduated into `docs/agent-principles.md` when it was implemented on 2026-07-21. What remains open is tracked as dispatch rows and `.ai/progress.md`, not here. The § 18 build items landed at the sync-mechanics session (§ 18l); §§ 1–14 were dispositioned at the canonical-repairs session, whose amendment is the last section below. Read the amendment before acting on any section above it: several items were already fixed by the time they were executed, and one was disproven.
+
 Two destinations: toobuntu/repo-foundation (RF) and Homebrew/brew. Babble's hand-staged copies on `b1-tap-toolchain` are the reference implementations; each item below names its reference file.
 
 ## 1. repo-foundation
@@ -463,3 +465,48 @@ The sync-mechanics session implemented §§ 18.1–18.5, 18b–18d, and 18i as c
 ## 19. Test harnesses migrated to RSpec (2026-07-21)
 
 Supersedes the §§ 12d/14 references to `scripts/sign-push-test.sh` and `scripts/promote-from-isolated-test.sh`: both standalone shell harnesses were ported to RSpec on intake and the `.sh` files deleted, so every test now shares one framework and one CI job (`spec.yml`). `spec/integration/sign_push_spec.rb` and `spec/integration/promote_from_isolated_spec.rb` use the same real-git approach (throwaway repos, a throwaway SSH signing key with a local allowedSignersFile, bare-repo origins for real pushes, no network) that `sync_files_spec.rb` already used. The "35 assertions" of the old sign-push harness were 35 individual `check`/`expect_out`/`no_n_in` calls across 13 scenarios; the RSpec port reports **13 examples** (plus four added on intake — `--help`, unknown-option, and the two interactive diverged-origin confirm paths), each carrying several `expect`s — same coverage, `example` as the unit rather than `assertion`. The interactive confirm cases drive the `[y/N]` prompt through a Ruby `PTY`+`expect` pty; the Seatbelt sandbox denies `/dev/ptmx`, so they `skip` in-sandbox and run for real on a developer machine and the CI runner.
+
+## 20. Canonical-repairs amendment (2026-07-25): §§ 1–14 dispositioned
+
+The repairs session executed §§ 1–14 top to bottom. Four items were already fixed before it started, one is disproven, and the rest landed or are named below as still-open with a home. This section is authoritative where it conflicts with anything above it.
+
+### Already fixed (the queue had gone stale)
+
+- **§ 1.1's premise.** `scripts/lint-unicode.sh` parses fine and both detector paths run — the mangling described was repaired at some point before this session. The `.sh` + `.py` split was adopted anyway, on its own merits: the § 2 shfmt hazard that caused the corruption is still live, so keeping the detector in a heredoc leaves the file one `brew style --fix` away from the same failure. RF's copy keeps `#!/bin/sh`; the bash shebang babble's repair also carried was for babble's own `[[ ]]` usage, which RF's copy lacks.
+- **§ 1.2.** No `reuse` invocation anywhere in the tree is missing `--no-multiprocessing`, and no `|| true` masks a total failure of the command driving its script. The sweep found nothing to fix.
+- **§ 1.3.** The six `ksh -n` warnings are gone; `scripts/lint-shell.sh` is clean over the whole tracked tree.
+- **§ 1.4.** `sign-push.sh` and `rewrite-pr-as-merge-commit.sh` are both tracked `100755`, and `scripts/lint-perms.sh --tracked` passes.
+
+### Disproven — checkbashisms is not adopted
+
+§ 5 asked for checkbashisms in `scripts/lint-shell.sh`'s checker set. Measured against the tools already there, it is a net loss and was reverted:
+
+- **ShellCheck at the severity the org gates on already covers it.** On a planted sh script (`[[ ]]`, `==`, `echo -e`, an array assignment, an array reference, `source`, `let`, `++`), `shellcheck --severity=warning` reported every construct checkbashisms did **plus one it missed** — the `arr=(a b c)` assignment, SC3030. The SC3xxx family *is* the POSIX-sh conformance check, and it gates at warning severity.
+- **It produces false positives on canonical code, with no way to suppress them.** It reads the literal `<<<` inside `foundation-init.sh`'s sentinel marker strings as a here-string and flags two lines. checkbashisms has no inline directive and no per-file exclusion, so the only remedies would be a skip list (which would hide real findings in a 200-line script) or rewriting the sentinel construction to please a linter — and the sentinel format is safety-critical: a change there rewrites files in every consumer.
+
+Reopen only with a case that ShellCheck misses and checkbashisms catches.
+
+### Landed
+
+- **§ 6, all four CodeRabbit items.** The bidi scan moved from `LC_ALL=en_US.UTF-8` to `C.UTF-8` in both the hook and `lint-unicode.sh` (the en_US locale is not guaranteed on a minimal Linux image, and grep silently degrades to single-byte matching without it); `rewrite-pr-as-merge-commit.sh` now fails loudly when the base fetch fails, instead of leaving a stale `origin/<base>` that the merge-base and the `--force-with-lease` both trust; `sandbox-enter.sh`'s mktemp template no longer says `blackoutd-sandbox`; and `licenses.instructions.md` gained the H1 that MD041 wants.
+- **§ 6's last item, recorded not implemented.** ruff: yes in principle, and now more relevant with `lint-unicode.py` in the tree — but adding a linter is its own proposal, not a repair. markdownlint is superseded by rumdl (ADR 0020); CodeRabbit will keep running its own, which is why the MD041 fix above was worth taking.
+- **§ 1.5 / § 5, the babble half.** The slug was already `homebrew-babble`. `brew_plugin` and `homebrew_tap` are now confirmed on its consumer entry.
+
+### Still open, with a home
+
+- **§ 1.5's upstream-pull half, and § 8 with it.** The `brew_style_config` set (`.shellcheckrc` + `.editorconfig` from Homebrew/brew), the `reject-conventional-commits.yml` relay, the `.githooks/commit-msg` stage and its tap module, the checksum drift guard (option 1, the loud complaint), and the `commit-msg` alternation § 8 wants in `lint-perms.sh`'s `PERMS_PATTERN` are one interlocking feature — a new hook stage plus a new upstream pull — not a repair. They belong to a session of their own; § 8's pattern change is meaningless until the stage exists.
+- **§ 1.6 / § 12e, the sync-time formatting mutation.** Unchanged and still the right answer; nothing this session touched it.
+
+### Surfaced by § 18k's required reading (blackoutd's own reconcile notes)
+
+Recorded here as dispositions, not implemented — each is a canonical change with org-wide blast radius and wants its own decision:
+
+- **The canonical `pre-push` does not skip merge commits** (blackoutd D3). Its scan is `git rev-list --reverse "${range[@]}"` with no `--no-merges`, so a platform merge commit — GPG-signed by GitHub, `%G? = N` under a repo verifying with `gpg.format=ssh` — reads as unsigned and blocks the push. blackoutd hit this for real on PR #21. `sign-push.sh` has since learned to rebuild merges (§ 12c), which covers the re-sign path but not a merge that merely enters the pushed range. Worth deciding deliberately: skipping merges is a real relaxation of the gate.
+- **`bidi-allow:` → `invisible-allow:` was decided and never applied** (w1-scaffolding-reconcile, 2026-07-25 marked "apply in ACTION phase"). It names the hazard class rather than one use, and the ADR now discusses ESC, where `bidi-allow: U+001B` reads as a contradiction. It must move as one change across the canonical hook plugin, `lint-unicode.sh`, `lint-unicode.py`, ADR 0006, the specs, CONTRIBUTING, and every consumer — a consumer-only edit would be reverted by the next sync. Cheapest before the first sync.
+- **The `sandbox-vm-*.sh` canonicals still carry blackoutd names.** `BLACKOUTD_VM_NAME`, `BLACKOUTD_GOLDEN_NAME`, defaults of `blackoutd-sandbox` and `blackoutd-golden`, and blackoutd-specific prose — in three `mode: canonical` files that sync byte-identical to every consumer. Same class as the § 6 mktemp prefix fixed above, but larger: renaming the variables is an interface change for the maintainer's own workflow.
+- **`require_tool()` is not unified, and its exit code is wrong.** The scripts and hooks each inline their own tool-presence check; the convention for command-not-found is 127. A candidate for a canonical `lib/sh` helper.
+
+### Evaluated as RF-managed candidates (§ 18k asked; not implemented)
+
+- **blackoutd `docs/branch-protection.md` — plausible, as `baseline-merge`.** The required-checks list differs per consumer by construction (each repo runs a different set of jobs), so `canonical` is wrong; a managed region carrying the org-wide policy, with each repo's check list outside it, fits. It also pairs with the foundation guard's required-by-name backstop, which every consumer needs documented identically. Recommend adopting when the branch-protection bootstrap doc is next revised.
+- **blackoutd `docs/releases.md` — recommend per-repo, not managed.** Release process is genuinely repo-specific (blackoutd tags a signed macOS daemon; a tap has no release at all), and the parts that *are* shared are already in `docs/agent-principles.md` and the ADRs. Managing it would mean a managed region holding little more than the commit and signing rules that are already canonical elsewhere.

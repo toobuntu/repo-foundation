@@ -312,6 +312,7 @@ main() {
   first-run) first_run_mode ;;
   update-golden) update_golden_mode ;;
   status) status_mode ;;
+  *) die "Unknown --mode: ${mode} (see --help)" ;;
   esac
 }
 

@@ -6,6 +6,11 @@
 # These are off by default; each catches a real portability or correctness
 # footgun. Homebrew-aligned repos defer to `brew style` and carry Homebrew's
 # own config instead of this one.
+#
+# These GATE, not advise: scripts/lint-shell.sh runs shellcheck at
+# --severity=style, the lowest tier, precisely so the two checks here that
+# emit at style (avoid-nullary-conditions, quote-safe-variables) are
+# enforced along with the rest (2026-07-26).
 
 # Suggest adding a default case in `case` statements
 enable=add-default-case

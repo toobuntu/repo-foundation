@@ -43,6 +43,9 @@ if has_files '\.md$'; then
     # ONE vale invocation over all survivors rather than one per file. The word
     # after the -c script is the inner sh's $0 (a label, not a command), so the
     # xargs-supplied filenames land in $1..$N and "$@" iterates them.
+    # The single quotes are the point: $@ must reach the INNER sh
+    # unexpanded, which is exactly the case SC2016 warns about.
+    # shellcheck disable=SC2016
     staged_z '\.md$' |
       xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' keep-readable |
       xargs -0 -r vale

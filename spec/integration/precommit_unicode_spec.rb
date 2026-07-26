@@ -27,6 +27,7 @@ require "tmpdir"
 # self-contained and avoids requiring the actual GitHub Actions runtime.
 
 HOOK_PATH = File.join(REPO_ROOT, ".githooks", "pre-commit")
+UNICODE_PLUGIN_PATH = File.join(REPO_ROOT, ".githooks", "pre-commit.d", "80-unicode")
 LINT_PERMS_PATH = File.join(REPO_ROOT, "scripts", "lint-perms.sh")
 LINT_UNICODE_PATH = File.join(REPO_ROOT, "scripts", "lint-unicode.sh")
 
@@ -45,25 +46,28 @@ GREEK_ALPHA       = "\u03B1"  # α
 EM_DASH           = "\u2014"  # —
 
 module HookSpecHelpers
-  # Creates a temp git repo, configures the local pre-commit hook,
-  # writes the given files, stages them, and yields the working dir.
+  # Creates a temp git repo, configures the local pre-commit runner and the
+  # 80-unicode plugin that now carries the scan, writes the given files,
+  # stages them, and yields the working dir.
   #
-  # scripts/lint-perms.sh is also copied in (and staged 0755) because
-  # the hook's perms check trust guard requires its presence. Without
-  # this, the hook would error out before reaching the unicode check
-  # the rest of the suite is testing.
+  # scripts/lint-perms.sh is also copied in (and staged 0755) because it is
+  # what the fixtures' own execute bits are checked against; 80-perms is
+  # deliberately NOT installed here, so a perms finding cannot mask the
+  # Unicode check under test (it has its own coverage in lint_perms_spec.rb).
   def with_git_repo(files)
     Dir.mktmpdir("rf-hook-test-") do |dir|
       Dir.chdir(dir) do
         run!("git", "init", "--quiet", "--initial-branch=feature/test")
         run!("git", "config", "user.email", "test@example.invalid")
         run!("git", "config", "user.name",  "Test")
-        # Copy the project's hook into this throwaway repo.
-        FileUtils.mkdir_p(".githooks")
+        # Copy the project's runner and the Unicode plugin into this
+        # throwaway repo.
+        FileUtils.mkdir_p(".githooks/pre-commit.d")
         FileUtils.cp(HOOK_PATH, ".githooks/pre-commit")
         File.chmod(0o755, ".githooks/pre-commit")
+        FileUtils.cp(UNICODE_PLUGIN_PATH, ".githooks/pre-commit.d/80-unicode")
+        File.chmod(0o755, ".githooks/pre-commit.d/80-unicode")
         run!("git", "config", "core.hooksPath", ".githooks")
-        # Copy the perms-check script so the hook's trust guard passes.
         FileUtils.mkdir_p("scripts")
         FileUtils.cp(LINT_PERMS_PATH, "scripts/lint-perms.sh")
         File.chmod(0o755, "scripts/lint-perms.sh")
@@ -83,11 +87,13 @@ module HookSpecHelpers
   # Runs the hook directly (not through `git commit`) so the test can
   # observe its exit status and stderr without committing.
   #
-  # REUSE_LINT_SKIP=1: these specs target the hook's Unicode
-  # scanner, not its REUSE gate. The throwaway repos carry no SPDX
-  # headers, so with reuse installed the REUSE stanza would reject every
-  # fixture and mask the check under test. The REUSE path has its own
-  # coverage (precommit_reuse_spec.rb and the lint-reuse CI job).
+  # REUSE_LINT_SKIP=1: these specs target the Unicode scanner, not the
+  # REUSE gate. The throwaway repos carry no SPDX headers, so with reuse
+  # installed the 85-reuse plugin would reject every fixture and mask the
+  # check under test. Still required after the runner refactor -- the seam
+  # moved from the base hook into 85-reuse, which the runner still runs.
+  # The REUSE path has its own coverage (precommit_reuse_spec.rb and the
+  # lint-reuse CI job).
   def run_hook
     Open3.capture3({ "REUSE_LINT_SKIP" => "1", "GIT_DIR" => ".git", "GIT_INDEX_FILE" => ".git/index" },
                    "./.githooks/pre-commit")
@@ -354,6 +360,52 @@ RSpec.describe "CI lint-unicode scanner" do
         File.write(File.join(dir, "deep.rb"), content)
         _out, err, status = run_scanner_in(dir)
         expect(status.success?).to eq(true), "stderr=#{err.inspect}"
+      end
+    end
+  end
+
+  # The codepoint table and its pattern builder exist twice on purpose: the
+  # plugin scans staged BLOBS and must stay dependency-free (a consumer can
+  # receive the hook without scripts/), while lint-unicode.sh scans the
+  # working tree for CI and `make lint`. Neither can source the other without
+  # giving up one of those properties, so the duplication stays -- but nothing
+  # structural stops the two from drifting, and a codepoint added to only one
+  # would leave a gate that passes what its twin rejects. These examples are
+  # that guard: they compare the two copies directly and fail on divergence.
+  describe "the duplicated detector stays in sync" do
+    PLUGIN = ".githooks/pre-commit.d/80-unicode"
+    SCRIPT = "scripts/lint-unicode.sh"
+
+    # Everything between `_bidi_table='` and the closing quote.
+    def bidi_table(path)
+      body = File.read(path)[/_bidi_table='(.*?)'/m, 1]
+      expect(body).not_to be_nil, "no _bidi_table found in #{path}"
+      body.lines.map(&:strip).reject(&:empty?).sort
+    end
+
+    it "carries an identical codepoint table in both copies" do
+      expect(bidi_table(PLUGIN)).to eq(bidi_table(SCRIPT))
+    end
+
+    it "covers every codepoint RHSB-2021-007 names, plus the project's own" do
+      # Guards against a codepoint being dropped from BOTH copies at once,
+      # which the comparison above would not catch.
+      required = %w[U+061C U+200B U+200C U+200D U+200E U+200F U+202A U+202B
+                    U+202C U+202D U+202E U+2066 U+2067 U+2068 U+2069 U+FEFF]
+      present = bidi_table(PLUGIN).map { |row| row.split(":").first }
+      expect(present).to match_array(required)
+    end
+
+    it "builds its patterns as fixed strings, never a bracket expression" do
+      # A bracket expression is a set of CHARACTERS and needs a UTF-8 locale;
+      # without one it degrades to a set of BYTES and matches the E2 lead byte
+      # shared by every U+2xxx character, so an em dash trips the gate. Fixed
+      # strings under LC_ALL=C compare exact bytes and need no locale.
+      [PLUGIN, SCRIPT].each do |path|
+        body = File.read(path)
+        expect(body).to include("--fixed-strings"), "#{path} lost --fixed-strings"
+        expect(body).not_to match(/LC_ALL=\S*UTF-8\s+\S*grep/),
+                            "#{path} reintroduced a locale-dependent grep"
       end
     end
   end

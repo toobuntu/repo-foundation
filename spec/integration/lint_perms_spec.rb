@@ -19,6 +19,7 @@ require "tmpdir"
 
 LINT_PERMS_SRC = File.join(REPO_ROOT, "scripts", "lint-perms.sh")
 HOOK_SRC = File.join(REPO_ROOT, ".githooks", "pre-commit")
+PERMS_PLUGIN_SRC = File.join(REPO_ROOT, ".githooks", "pre-commit.d", "80-perms")
 
 module LintPermsSpecHelpers
   # Initializes a temp git repo with scripts/lint-perms.sh present and
@@ -284,10 +285,14 @@ RSpec.describe "scripts/lint-perms.sh" do
   end
 end
 
-# Verifies the trust guard in .githooks/pre-commit: when
+# Verifies the trust guard in the 80-perms plugin: when
 # scripts/lint-perms.sh is absent or not executable, the hook must
 # fail early with a clear, actionable message rather than a cryptic
 # "command not found" / "Permission denied".
+#
+# The guard used to live in the base hook. It moved out with the runner
+# refactor, so these run the real runner with only 80-perms installed --
+# which is also what proves the runner still surfaces a plugin's exit code.
 RSpec.describe "pre-commit hook: lint-perms.sh trust guard" do
   include LintPermsSpecHelpers
 
@@ -297,9 +302,11 @@ RSpec.describe "pre-commit hook: lint-perms.sh trust guard" do
         run!("git", "init", "--quiet", "--initial-branch=feature/test")
         run!("git", "config", "user.email", "test@example.invalid")
         run!("git", "config", "user.name",  "Test")
-        FileUtils.mkdir_p(".githooks")
+        FileUtils.mkdir_p(".githooks/pre-commit.d")
         FileUtils.cp(HOOK_SRC, ".githooks/pre-commit")
         File.chmod(0o755, ".githooks/pre-commit")
+        FileUtils.cp(PERMS_PLUGIN_SRC, ".githooks/pre-commit.d/80-perms")
+        File.chmod(0o755, ".githooks/pre-commit.d/80-perms")
         run!("git", "config", "core.hooksPath", ".githooks")
         File.write("dummy.txt", "content\n")
         run!("git", "add", "dummy.txt")

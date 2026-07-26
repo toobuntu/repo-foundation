@@ -6,7 +6,8 @@ require "fileutils"
 require "open3"
 require "tmpdir"
 
-# Regression test for the REUSE-failure path in .githooks/pre-commit.
+# Regression test for the REUSE-failure path, which lives in the
+# .githooks/pre-commit.d/85-reuse plugin since the runner refactor.
 # A `set -e` bug let the bare `reuse lint-file` re-run terminate the
 # hook before the annotate hint and the explicit `exit 1` could run,
 # so a developer staging a non-compliant file saw a silent non-zero
@@ -17,6 +18,7 @@ require "tmpdir"
 # spec runner has none.
 RSpec.describe "pre-commit hook: REUSE non-compliance surfaces the annotate hint" do
   let(:hook_src) { File.expand_path("../../.githooks/pre-commit", __dir__) }
+  let(:reuse_plugin_src) { File.expand_path("../../.githooks/pre-commit.d/85-reuse", __dir__) }
   let(:lint_perms_src) { File.expand_path("../../scripts/lint-perms.sh", __dir__) }
 
   def sh!(*cmd)
@@ -30,9 +32,11 @@ RSpec.describe "pre-commit hook: REUSE non-compliance surfaces the annotate hint
         sh!("git", "init", "--quiet", "--initial-branch=feature/test")
         sh!("git", "config", "user.email", "test@example.invalid")
         sh!("git", "config", "user.name", "Test")
-        FileUtils.mkdir_p(".githooks")
+        FileUtils.mkdir_p(".githooks/pre-commit.d")
         FileUtils.cp(hook_src, ".githooks/pre-commit")
         File.chmod(0o755, ".githooks/pre-commit")
+        FileUtils.cp(reuse_plugin_src, ".githooks/pre-commit.d/85-reuse")
+        File.chmod(0o755, ".githooks/pre-commit.d/85-reuse")
         sh!("git", "config", "core.hooksPath", ".githooks")
         FileUtils.mkdir_p("scripts")
         FileUtils.cp(lint_perms_src, "scripts/lint-perms.sh")

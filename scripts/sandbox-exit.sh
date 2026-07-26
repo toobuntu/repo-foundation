@@ -67,7 +67,8 @@ main() {
 
   _tab=$(printf '\t')
   while IFS="$_tab" read -r name url; do
-    [ -n "$name" ] && [ -n "$url" ] || continue
+    [ -n "$name" ] || continue
+    [ -n "$url" ] || continue
     git remote add "$name" "$url"
     printf 'Restored remote: %s -> %s\n' "$name" "$url"
   done < "$saved"

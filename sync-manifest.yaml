@@ -121,9 +121,22 @@ component_sets:
     - { source: .github/instructions/licenses.instructions.md, target: .github/instructions/licenses.instructions.md, mode: canonical }
 
   # Base hooks (repo-agnostic, NO language checks) — canonical to ALL repos.
+  # pre-commit is a RUNNER: it blocks commits to main, computes the staged-file
+  # list once (exported as PRE_COMMIT_STAGED_LIST), and runs the pre-commit.d
+  # plugins. Every check it used to perform inline is now one of the four
+  # universal verifier plugins below, which therefore travel with it — a
+  # consumer that received the runner without them would silently lose the
+  # perms, Unicode, workflow, and REUSE gates. They are mastered at the natural
+  # path (.githooks/pre-commit.d/) rather than under provides/ because
+  # repo-foundation runs them on its own commits, the ADR 0001 rule that also
+  # governs 10-shell, 15-prose, and 50-adrs.
   git_hooks:
     - { source: .githooks/pre-commit, target: .githooks/pre-commit, mode: canonical }
     - { source: .githooks/pre-push,   target: .githooks/pre-push,   mode: canonical }
+    - { source: .githooks/pre-commit.d/80-perms,     target: .githooks/pre-commit.d/80-perms,     mode: canonical }
+    - { source: .githooks/pre-commit.d/80-unicode,   target: .githooks/pre-commit.d/80-unicode,   mode: canonical }
+    - { source: .githooks/pre-commit.d/80-workflows, target: .githooks/pre-commit.d/80-workflows, mode: canonical }
+    - { source: .githooks/pre-commit.d/85-reuse,     target: .githooks/pre-commit.d/85-reuse,     mode: canonical }
 
   # Per-language pre-commit.d plugin MASTERS (run-parts classicalre names, no
   # extension). RF owns them; each syncs ONLY to consumers of that language, so
@@ -140,8 +153,10 @@ component_sets:
   objc_plugin:
     - { source: provides/githooks/pre-commit.d/20-objc, target: .githooks/pre-commit.d/20-objc, mode: canonical }
   # Homebrew-tap toolchain plugin: brew style on staged Ruby (and shell). Maps to
-  # tap consumers only (cask-tools today). brew style is tap-specific; a generic
-  # Ruby repo would get a different plugin (e.g. bundle exec rubocop).
+  # the Homebrew-aligned consumers — homebrew-cask-tools, and homebrew-babble
+  # since its cmd/babble.rb made it an external command shipped in a tap. brew
+  # style is tap-specific; a generic Ruby repo would get a different plugin
+  # (e.g. bundle exec rubocop).
   brew_plugin:
     - { source: provides/githooks/pre-commit.d/20-brew, target: .githooks/pre-commit.d/20-brew, mode: canonical }
   # Swift toolchain plugin: swiftformat + swiftlint on staged .swift. Maps to
@@ -202,6 +217,10 @@ component_sets:
   scripts_core:
     - { source: scripts/lint-perms.sh,                 target: scripts/lint-perms.sh,                 mode: canonical }
     - { source: scripts/lint-unicode.sh,               target: scripts/lint-unicode.sh,               mode: canonical }
+    # The python3 detector lint-unicode.sh prefers. A separate file rather than
+    # a heredoc because Homebrew's shfmt wrapper corrupts embedded Python; the
+    # two must travel together or the .sh silently drops to its grep fallback.
+    - { source: scripts/lint-unicode.py,               target: scripts/lint-unicode.py,               mode: canonical }
     - { source: scripts/annotate.sh,                   target: scripts/annotate.sh,                   mode: canonical }
     - { source: scripts/rewrite-pr-as-merge-commit.sh, target: scripts/rewrite-pr-as-merge-commit.sh, mode: canonical }
     - { source: scripts/sign-push.sh,           target: scripts/sign-push.sh,           mode: canonical }
@@ -411,13 +430,15 @@ consumers:
 
   - repo: toobuntu/homebrew-babble
     # Renamed from toobuntu/babble (2026-07-22): it becomes a Homebrew external
-    # command shipped in a tap. CONFIRM at the pre-sync reconcile (queued in
-    # docs/handoff/rf-upstream-notes.md § 12d/§ 1.2): add brew_plugin and
-    # homebrew_tap, which supersede the per-repo copilot-setup-steps note that
-    # applied while it was a plain wrapper (ADR 0015).
+    # command shipped in a tap. brew_plugin and homebrew_tap CONFIRMED at the
+    # 2026-07-25 repairs session (the queued item in
+    # docs/handoff/rf-upstream-notes.md § 1.5/§ 5): cmd/babble.rb landed in W3
+    # Block B, so brew style applies to it exactly as it does to the tap, and
+    # homebrew_tap supersedes the per-repo copilot-setup-steps note that applied
+    # while it was a plain wrapper (ADR 0015).
     # CONFIRM ruby_hook_tests once homebrew-babble is Ruby. CONFIRM swift_plugin
     # if W3 revives the JXA quit_alert.swift from archive/ into active source.
-    sets: [agent_docs, prose_lint, git_hooks, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline, ai_continuity, homebrew_sandbox]
+    sets: [agent_docs, prose_lint, git_hooks, brew_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, homebrew_tap, repo_baseline, ai_continuity, homebrew_sandbox]
 
   - repo: toobuntu/bob-book
     sets: [agent_docs, prose_lint, git_hooks, shell_lint, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, repo_baseline, ai_continuity]  # CONFIRM sandbox?

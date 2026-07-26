@@ -126,12 +126,14 @@ Worktrees go UNDER the project tree at `worktrees/` (gitignored) because the Cla
 
 ## Park merged branches; delete only on the remote
 
-After a branch merges, the local branch is not deleted. It is renamed into the `merged/` namespace — prefixed with the PR number that merged it — and only the remote copy is deleted:
+After a branch merges, the local branch is not deleted. It is renamed into the `merged/` namespace — under the PR number that merged it — and only the remote copy is deleted:
 
 ```sh
-git branch -m feature/foo merged/pr12-feature/foo
+git branch --move feature/foo merged/pr12/feature/foo
 git push origin --delete feature/foo   # or GitHub's delete-on-merge
 ```
+
+The separator after the PR number is a **slash**, not a hyphen (changed 2026-07-26). Branch names routinely contain `/` themselves, so `merged/pr12-feature/foo` read as one long name with a hyphen buried in it, while `merged/pr12/feature/foo` makes `merged/pr12/` a real namespace that `git branch --list 'merged/pr12/*'` and refspec globs can address. Historical `merged/prNN-<branch>` names are migrated, not left in place; the migration loop, and a companion that zero-pads PR numbers to a consistent width, are in the maintainer's `dotfiles-bootstrap/git-branch-maintenance.md`.
 
 The `merged/*` branches are cheap rollback handles and provenance markers. They are pruned opportunistically, at the maintainer's discretion — never as part of routine cleanup an agent performs or recommends. Agent hand-off reports and cleanup checklists must say "rename to `merged/…`", not "delete the local branch"; remote deletion is unaffected.
 
@@ -150,7 +152,7 @@ These repositories target macOS end-users, and macOS ships the BSD userland, not
 - **No GNU-only flags.** `sed -E` with multi-line address ranges, `date -d`, `find -printf`, `grep -P`, `readlink -f`, `xargs -d` and the like are unavailable on stock macOS. Use a POSIX form that works on both userlands, or a Homebrew `g`-prefixed tool (`gsed`, `gdate`) when a GNU extension is genuinely required — and say which.
 - **A concrete trap:** BSD `date -j -f` needs a clean field count, and OpenSSL's `enddate` prints a double space before a single-digit day (`Jun  5 …`), so pipe through `tr -s ' '` before parsing.
 - **Portable shell.** A `#!/bin/sh` script must be POSIX `sh` (macOS `/bin/sh` is bash 3.2 in POSIX mode); no `mapfile`, process substitution, `[[ ]]`, or other bash-isms. A script that needs those declares `#!/usr/bin/env bash` (or `ksh`/`zsh`) explicitly. Do not depend on Linux-only paths (`/proc`, `/sys`) or package managers (`apt`, `dpkg`).
-- **Shell is linted**, dialect-aware. `sh`/`bash` scripts pass `ksh -n` (syntax; stricter than `bash -n`/`sh -n`, stock on macOS), are `shfmt`-formatted (two-space, per `.editorconfig`), and are `shellcheck`-clean at `--severity=warning` (per `.shellcheckrc`). AT&T **ksh93** scripts (a `.ksh` extension or a ksh shebang) are checked with `ksh -n` and `shellcheck --shell=ksh` but **not** `shfmt` — shfmt has no ksh93 dialect and mangles or rejects it (mvdan/sh#614). The `pre-commit.d/10-shell` plugin enforces this on staged shell and a `shell-lint` CI job on the whole tree, both through `scripts/lint-shell.sh` (ADR 0017). **Homebrew-aligned repositories are the exception:** homebrew-cask-tools and homebrew-babble defer to `brew style`, which runs `shfmt` + `shellcheck` (and RuboCop) with Homebrew/brew's own config — four-space and a few other differences — carried verbatim; they do not use the two-space toobuntu config or the `10-shell` plugin.
+- **Shell is linted**, dialect-aware. `sh`/`bash` scripts pass `ksh -n` (syntax; stricter than `bash -n`/`sh -n`, stock on macOS), are `shfmt`-formatted (two-space, per `.editorconfig`), and are `shellcheck`-clean at `--severity=style` — the lowest tier, so every finding gates, including the optional checks `.shellcheckrc` enables (changed 2026-07-26 from `--severity=warning`, which had left the `enable=` list advisory; a deliberate exception is a scoped `# shellcheck disable=` with the explanation above it). AT&T **ksh93** scripts (a `.ksh` extension or a ksh shebang) are checked with `ksh -n` and `shellcheck --shell=ksh` but **not** `shfmt` — shfmt has no ksh93 dialect and mangles or rejects it (mvdan/sh#614). The `pre-commit.d/10-shell` plugin enforces this on staged shell and a `shell-lint` CI job on the whole tree, both through `scripts/lint-shell.sh` (ADR 0017). **Homebrew-aligned repositories are the exception:** homebrew-cask-tools and homebrew-babble defer to `brew style`, which runs `shfmt` + `shellcheck` (and RuboCop) with Homebrew/brew's own config — four-space and a few other differences — carried verbatim; they do not use the two-space toobuntu config or the `10-shell` plugin.
 
 ## Plain, literal prose
 

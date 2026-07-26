@@ -1,0 +1,36 @@
+#!/bin/sh
+
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Execute-bit pre-commit plugin: scripts/lint-perms.sh --staged. Run by
+# .githooks/pre-commit through the run-parts-style runner. Policy and
+# implementation live in the script; the CI lint-perms job calls the same
+# script with --tracked over the whole tree.
+#
+# Universal: mastered at this natural path — repo-foundation runs it on its
+# own commits (ADR 0001) — and synced to every hook-carrying consumer
+# (git_hooks in sync-manifest.yaml). Run-parts classicalre name (no
+# extension); disable with a dot suffix (80-perms.off).
+#
+# In the 80- verifier tier, which runs after the format (10-) and language
+# (20-) tiers because those restage files and this must see the result.
+# Within the tier the verifiers are independent: nothing here depends on
+# 80-unicode or 80-workflows running before or after it.
+#
+# The missing-script case is an error, not a warning: unlike a linter that a
+# contributor may not have installed, this script ships with the hook, so its
+# absence means the checkout is broken rather than under-provisioned.
+
+set -e
+
+if [ ! -x scripts/lint-perms.sh ]; then
+  printf 'error: scripts/lint-perms.sh missing or not executable\n' >&2
+  printf '  Required for the executable-bit policy check.\n' >&2
+  printf '  Fix: chmod 755 scripts/lint-perms.sh && \\\n' >&2
+  printf '       git update-index --chmod=+x scripts/lint-perms.sh\n' >&2
+  exit 1
+fi
+
+scripts/lint-perms.sh --staged

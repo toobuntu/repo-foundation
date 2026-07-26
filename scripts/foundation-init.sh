@@ -76,10 +76,10 @@ manifest="$rf_root/sync-manifest.yaml"
 # second one — so they are read from one source, not hard-coded.
 label_begin=$(sed -n 's/^  merge_label_begin: "\(.*\)"$/\1/p' "$manifest")
 label_end=$(sed -n 's/^  merge_label_end: "\(.*\)"$/\1/p' "$manifest")
-[ -n "$label_begin" ] && [ -n "$label_end" ] || {
+if [ -z "$label_begin" ] || [ -z "$label_end" ]; then
   printf 'error: could not read merge labels from %s\n' "$manifest" >&2
   exit 1
-}
+fi
 html_begin="<!-- >>> ${label_begin} >>> -->"
 html_end="<!-- <<< ${label_end} <<< -->"
 hash_begin="# >>> ${label_begin} >>>"
@@ -196,7 +196,13 @@ fi
 #    for it (reuse lint names the missing one).
 if command -v reuse > /dev/null 2>&1; then
   (cd "$target" && ANNOTATE_LICENSE="$license" "$rf_root/scripts/annotate.sh")
-  (cd "$target" && reuse download "$license" GPL-3.0-or-later > /dev/null 2>&1 || true)
+  # The download is best-effort, the `cd` is not: `cd … && download || true`
+  # let a failed cd take the `|| true` branch too, so the subshell reported
+  # success having downloaded nothing.
+  (
+    cd "$target" || exit 1
+    reuse download "$license" GPL-3.0-or-later > /dev/null 2>&1 || true
+  )
   printf 'annotated under %s and downloaded license texts\n' "$license"
 else
   printf 'warning: reuse not found — skipping annotation (brew install reuse)\n' >&2
