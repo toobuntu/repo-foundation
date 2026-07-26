@@ -27,6 +27,7 @@ require "tmpdir"
 # self-contained and avoids requiring the actual GitHub Actions runtime.
 
 HOOK_PATH = File.join(REPO_ROOT, ".githooks", "pre-commit")
+UNICODE_PLUGIN_PATH = File.join(REPO_ROOT, ".githooks", "pre-commit.d", "80-unicode")
 LINT_PERMS_PATH = File.join(REPO_ROOT, "scripts", "lint-perms.sh")
 LINT_UNICODE_PATH = File.join(REPO_ROOT, "scripts", "lint-unicode.sh")
 
@@ -45,25 +46,28 @@ GREEK_ALPHA       = "\u03B1"  # α
 EM_DASH           = "\u2014"  # —
 
 module HookSpecHelpers
-  # Creates a temp git repo, configures the local pre-commit hook,
-  # writes the given files, stages them, and yields the working dir.
+  # Creates a temp git repo, configures the local pre-commit runner and the
+  # 80-unicode plugin that now carries the scan, writes the given files,
+  # stages them, and yields the working dir.
   #
-  # scripts/lint-perms.sh is also copied in (and staged 0755) because
-  # the hook's perms check trust guard requires its presence. Without
-  # this, the hook would error out before reaching the unicode check
-  # the rest of the suite is testing.
+  # scripts/lint-perms.sh is also copied in (and staged 0755) because it is
+  # what the fixtures' own execute bits are checked against; 80-perms is
+  # deliberately NOT installed here, so a perms finding cannot mask the
+  # Unicode check under test (it has its own coverage in lint_perms_spec.rb).
   def with_git_repo(files)
     Dir.mktmpdir("rf-hook-test-") do |dir|
       Dir.chdir(dir) do
         run!("git", "init", "--quiet", "--initial-branch=feature/test")
         run!("git", "config", "user.email", "test@example.invalid")
         run!("git", "config", "user.name",  "Test")
-        # Copy the project's hook into this throwaway repo.
-        FileUtils.mkdir_p(".githooks")
+        # Copy the project's runner and the Unicode plugin into this
+        # throwaway repo.
+        FileUtils.mkdir_p(".githooks/pre-commit.d")
         FileUtils.cp(HOOK_PATH, ".githooks/pre-commit")
         File.chmod(0o755, ".githooks/pre-commit")
+        FileUtils.cp(UNICODE_PLUGIN_PATH, ".githooks/pre-commit.d/80-unicode")
+        File.chmod(0o755, ".githooks/pre-commit.d/80-unicode")
         run!("git", "config", "core.hooksPath", ".githooks")
-        # Copy the perms-check script so the hook's trust guard passes.
         FileUtils.mkdir_p("scripts")
         FileUtils.cp(LINT_PERMS_PATH, "scripts/lint-perms.sh")
         File.chmod(0o755, "scripts/lint-perms.sh")

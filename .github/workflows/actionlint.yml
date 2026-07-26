@@ -53,7 +53,21 @@ jobs:
         run: |
           echo "::add-matcher::.github/actionlint-matcher.json"
 
-      - run: actionlint
+      - name: Lint workflows
+        run: |
+          # Bare actionlint walks .github/workflows/ and nothing else.
+          actionlint
+          # repo-foundation additionally holds canonical workflow MASTERS
+          # under provides/github/workflows/. No repo runs a workflow from
+          # that path -- the sync renders them into consumers -- so without
+          # naming them explicitly they would reach every consumer having
+          # never been linted anywhere. The directory does not exist in a
+          # consumer, where this whole step is just the bare run above.
+          if [ -d provides/github/workflows ]; then
+            find provides/github/workflows -type f \
+              \( -name '*.yml' -o -name '*.yaml' \) -print0 |
+              xargs -0 -r actionlint
+          fi
 
       # act's own workflow parser as a second net; parse-only, so no container
       # or Docker daemon is involved.

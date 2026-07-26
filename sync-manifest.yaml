@@ -121,9 +121,22 @@ component_sets:
     - { source: .github/instructions/licenses.instructions.md, target: .github/instructions/licenses.instructions.md, mode: canonical }
 
   # Base hooks (repo-agnostic, NO language checks) — canonical to ALL repos.
+  # pre-commit is a RUNNER: it blocks commits to main, computes the staged-file
+  # list once (exported as PRE_COMMIT_STAGED_LIST), and runs the pre-commit.d
+  # plugins. Every check it used to perform inline is now one of the four
+  # universal verifier plugins below, which therefore travel with it — a
+  # consumer that received the runner without them would silently lose the
+  # perms, Unicode, workflow, and REUSE gates. They are mastered at the natural
+  # path (.githooks/pre-commit.d/) rather than under provides/ because
+  # repo-foundation runs them on its own commits, the ADR 0001 rule that also
+  # governs 10-shell, 15-prose, and 50-adrs.
   git_hooks:
     - { source: .githooks/pre-commit, target: .githooks/pre-commit, mode: canonical }
     - { source: .githooks/pre-push,   target: .githooks/pre-push,   mode: canonical }
+    - { source: .githooks/pre-commit.d/80-perms,     target: .githooks/pre-commit.d/80-perms,     mode: canonical }
+    - { source: .githooks/pre-commit.d/80-unicode,   target: .githooks/pre-commit.d/80-unicode,   mode: canonical }
+    - { source: .githooks/pre-commit.d/80-workflows, target: .githooks/pre-commit.d/80-workflows, mode: canonical }
+    - { source: .githooks/pre-commit.d/85-reuse,     target: .githooks/pre-commit.d/85-reuse,     mode: canonical }
 
   # Per-language pre-commit.d plugin MASTERS (run-parts classicalre names, no
   # extension). RF owns them; each syncs ONLY to consumers of that language, so
