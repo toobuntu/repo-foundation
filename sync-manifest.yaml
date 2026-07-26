@@ -133,6 +133,7 @@ component_sets:
   git_hooks:
     - { source: .githooks/pre-commit, target: .githooks/pre-commit, mode: canonical }
     - { source: .githooks/pre-push,   target: .githooks/pre-push,   mode: canonical }
+    - { source: .githooks/pre-commit.d/40-memory,    target: .githooks/pre-commit.d/40-memory,    mode: canonical }
     - { source: .githooks/pre-commit.d/80-perms,     target: .githooks/pre-commit.d/80-perms,     mode: canonical }
     - { source: .githooks/pre-commit.d/80-unicode,   target: .githooks/pre-commit.d/80-unicode,   mode: canonical }
     - { source: .githooks/pre-commit.d/80-workflows, target: .githooks/pre-commit.d/80-workflows, mode: canonical }
@@ -215,6 +216,7 @@ component_sets:
     - { source: .githooks/pre-commit.d/10-shell,         target: .githooks/pre-commit.d/10-shell,  mode: canonical }
 
   scripts_core:
+    - { source: scripts/ai-session.sh,                 target: scripts/ai-session.sh,                 mode: canonical }
     - { source: scripts/lint-perms.sh,                 target: scripts/lint-perms.sh,                 mode: canonical }
     - { source: scripts/lint-unicode.sh,               target: scripts/lint-unicode.sh,               mode: canonical }
     # The python3 detector lint-unicode.sh prefers. A separate file rather than

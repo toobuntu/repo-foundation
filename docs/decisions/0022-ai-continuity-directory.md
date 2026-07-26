@@ -46,6 +46,18 @@ Distribution follows the ownership tiers (ADR 0003, ADR 0016), implemented 2026-
 - Bad, because org-memory additions from consumer-rooted sessions take a relay hop and a sync cycle to reach every clone; acceptable, since the file's genre is durable knowledge, not fast-moving status.
 - Neutral, because `memory.md` overlaps in spirit with ADRs and `docs/`; the rule above (decisions become ADRs; facts and gotchas stay in `memory.md`) draws the line.
 
+## Amendment (2026-07-26): the tier rules are enforced, not merely stated
+
+Both halves of this decision rested on prose, and prose is what gets dropped. A queued first-sync cleanup item was lost on 2026-07-25 in a wholesale rewrite of `.ai/progress.md` and surfaced a day later only by accident. The append-only rule for the memory files had the same shape of exposure and a worse blast radius, since `.ai/org/memory.md` syncs to every consumer.
+
+Three mechanisms, matched to how each file is stored:
+
+- **Tracked, append-only (`.ai/memory.md`, `.ai/org/memory.md`).** Git already keeps the history; what was missing was a gate. The canonical `40-memory` pre-commit plugin rejects any commit removing a line from either file. `AI_MEMORY_ALLOW_REWRITE=1` overrides. The check is deliberately blunt — a reflow or an in-place typo fix trips it too — because loosening a gate later is easier than discovering it was lax.
+- **Gitignored, rewritten freely (`.ai/progress.md`).** No history is possible, so the answer is accountability rather than recovery: `scripts/ai-session.sh start` snapshots the file, `… end` lists what the session removed, and the handoff report must account for each line. A backup alone would not have caught the 2026-07-25 loss, because nobody diffs a backup they have no reason to suspect — the maintainer's own dated snapshots under `workspace/.ai/` are the proof.
+- **Gitignored, consumed once (`.ai/org/relay.md`).** Retired by rename to a dated `.ai/org/relay.consumed-*.md` rather than deleted, so an over-eager consumption is recoverable. Deletion is by hand and gated on a CONDITION, never on age: every entry has landed somewhere tracked or been declined in writing. A time-based sweep was considered and rejected — a maintainer away for a month through holiday or illness would return to find unpromoted org knowledge tidied away, which is the exact loss this amendment exists to prevent. Instead `ai-session.sh start` names any lingering consumed relay every session; the nag is the mechanism.
+
+Consequence to plan for: append-only plus enforcement means the memory files only grow. A periodic **consolidation pass** — merging entries, pruning superseded ones, graduating durable material to an ADR, to `agent-principles.md`, or into code — is the intended use of the override, and is expected to run as its own reviewable pull request whose diff is mostly removals.
+
 ## More Information
 
 Adopted from BrewUI's `.ai/` pattern (reference evaluation in `workspace/reference-eval-recommendations.md` §§ 1–2 and `reference-eval-next-steps.md`). The org tier was bootstrapped 2026-07-15 (`workspace/.ai/`, `workspace/dispatch.md`) and its durable half moved into repo-foundation by the 2026-07-23 amendment above (the conventions session), sourced from rf-upstream-notes §§ 18.6 and 18d–18j. The session rituals live in `docs/agent-principles.md` ("Session continuity") with a reminder in the `AGENTS.baseline.md` managed region; the surrounding docs-and-status conventions are `docs/workflow.md`. The distinction between this layer and Claude Code memory is the maintainer's ruling recorded in the reference evaluation.

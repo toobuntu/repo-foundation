@@ -132,7 +132,9 @@ seed_md_region "$target/CONTRIBUTING.md" "Contributing"
 # these same lines.
 ai_ignores='.ai/progress.md
 .ai/scratchpad/
-.ai/org/relay.md'
+.ai/org/relay.md
+.ai/.progress.session-start
+.ai/org/relay.consumed-*.md'
 if [ ! -e "$target/.gitignore" ]; then
   printf '%s\n%s\n%s\n' "$hash_begin" "$ai_ignores" "$hash_end" > "$target/.gitignore"
   printf 'seeded: %s\n' "$target/.gitignore"

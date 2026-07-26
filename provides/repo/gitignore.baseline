@@ -23,3 +23,8 @@ vendor/bundle/
 .ai/progress.md
 .ai/scratchpad/
 .ai/org/relay.md
+# scripts/ai-session.sh bookkeeping: the session-start snapshot of
+# progress.md, and relays retired after promotion (kept for a grace period,
+# never the record — see the script's header).
+.ai/.progress.session-start
+.ai/org/relay.consumed-*.md

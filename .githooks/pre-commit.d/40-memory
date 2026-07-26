@@ -1,0 +1,94 @@
+#!/bin/sh
+
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Append-only gate for the .ai/ knowledge files. Run by .githooks/pre-commit
+# through the run-parts-style runner.
+#
+# `.ai/memory.md` and `.ai/org/memory.md` are append-only by policy (ADR 0022):
+# dated entries accumulate, and a correction is a NEW entry naming what it
+# supersedes, never an edit to the old one. That rule exists for provenance —
+# knowing when something was learned, and what it replaced — and to catch the
+# errant removal, which is otherwise invisible in a wholesale rewrite. Until
+# now it was prose, and prose is exactly the kind of rule that gets dropped by
+# accident. This makes it an executable check.
+#
+# `.ai/org/memory.md` is the one that most needs it: it is canonical and syncs
+# read-only to every consumer, so a silently dropped org fact propagates
+# everywhere at the next sync.
+#
+# The check is deliberately blunt: ANY removed line fails. It therefore also
+# fires on a legitimate reflow or a typo fix inside an existing entry, which is
+# not a removal in spirit. That is the accepted trade — under the org's rumdl
+# config (soft wrap, ADR 0020) these files are one line per paragraph, so an
+# edit to existing text is rare and worth a deliberate override. Loosening a
+# gate later is easy; discovering it was too lax is not.
+#
+# Override for the rare legitimate rewrite:
+#
+#   AI_MEMORY_ALLOW_REWRITE=1 git commit …
+#
+# The intended use is the periodic CONSOLIDATION pass, not day-to-day editing:
+# append-only means these files only grow, so eventually entries want merging,
+# superseded ones want pruning, and durable material wants graduating (a
+# decision to an ADR, an org-wide rule to agent-principles, a code-visible fact
+# into the code). That pass is a deliberate, reviewable operation — its whole
+# diff is removals — and the override is how it gets through. Reach for it
+# there; a routine commit that trips this check is usually rewriting history it
+# should be superseding instead.
+#
+# Universal: mastered at this natural path — repo-foundation runs it on its own
+# commits (ADR 0001) — and synced to every hook-carrying consumer (git_hooks in
+# sync-manifest.yaml). Run-parts classicalre name (no extension); disable with
+# a dot suffix (40-memory.off).
+#
+# Numbered 40 to sit after the format and language tiers and before the 80-
+# verifiers: it inspects the staged diff and stages nothing, so its position is
+# a readability choice, not a dependency.
+
+set -e
+
+[ -z "${AI_MEMORY_ALLOW_REWRITE:-}" ] || exit 0
+
+# The guarded set. A consumer that carries only one of these is fine: a path
+# absent from the diff simply never matches.
+MEMORY_FILES=".ai/memory.md .ai/org/memory.md"
+
+rc=0
+for _f in $MEMORY_FILES; do
+  # Staged at all? --quiet exits 1 when there IS a difference, so the sense is
+  # inverted: a non-zero status means the file is staged.
+  git diff --cached --quiet -- "$_f" 2> /dev/null && continue
+
+  # A new file is all additions; there is nothing to remove.
+  case "$(git diff --cached --name-status -- "$_f" | cut -f1)" in
+  A*) continue ;;
+  *) ;;
+  esac
+
+  # Count removed content lines, ignoring the `---` file header that unified
+  # diff emits with the same leading character.
+  _removed=$(git diff --cached --unified=0 -- "$_f" |
+    /usr/bin/grep --extended-regexp --count '^-([^-]|$)' || true)
+  [ "${_removed:-0}" -eq 0 ] && continue
+
+  rc=1
+  printf 'error: %s is append-only and this commit removes %s line(s):\n' \
+    "$_f" "$_removed" >&2
+  git diff --cached --unified=0 -- "$_f" |
+    /usr/bin/grep --extended-regexp '^-([^-]|$)' |
+    sed -e 's/^-/  removed: /' -e 's/\(.\{100\}\).*/\1…/' >&2
+  printf '\n' >&2
+done
+
+if [ "$rc" -ne 0 ]; then
+  printf 'A correction is a NEW dated entry naming what it supersedes, not an\n' >&2
+  printf 'edit to the old one — that is what keeps the provenance readable.\n\n' >&2
+  printf 'If this is the deliberate consolidation pass (merging entries,\n' >&2
+  printf 'graduating durable material to an ADR or agent-principles), rerun as:\n' >&2
+  printf '  AI_MEMORY_ALLOW_REWRITE=1 git commit …\n' >&2
+fi
+
+exit "$rc"
