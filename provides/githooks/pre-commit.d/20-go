@@ -21,6 +21,9 @@ has_files() { [ "$(staged_z "$1" | wc -c)" -gt 0 ]; }
 # Auto-fix guard (ADR 0017): the format + re-stage below is exact only when a
 # staged file has no unstaged edits; otherwise `git add` would silently stage
 # withheld hunks (a `git add -p` workflow). Refuse those files with a recipe.
+# The single quotes are the point: $1 must reach the INNER sh unexpanded,
+# which is exactly the case SC2016 warns about.
+# shellcheck disable=SC2016
 partial=$(staged_z '\.go$' | xargs -0 -r -n1 sh -c 'git diff --quiet -- "$1" || printf "  %s\n" "$1"' guard)
 if [ -n "$partial" ]; then
   printf '20-go: staged files below also have unstaged edits; gofmt re-stage would take those edits too:\n%s\n' "$partial" >&2

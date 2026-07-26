@@ -66,4 +66,6 @@ Against that, `checkbashisms` reports two false positives on `scripts/foundation
 
 ## More Information
 
+Amendment (2026-07-26): the gate severity moved from `--severity=warning` to `--severity=style` (maintainer ruling), so every `.shellcheckrc` `enable=` now gates rather than advises. The comparison above was measured at warning; the change only strengthens the chosen option, since everything ShellCheck reports at warning it also reports at style.
+
 The evidence and the reverted change are recorded in `docs/handoff/rf-upstream-notes.md` § 20 (the closing amendment), which supersedes that document's § 5 proposal. `lint-shell.sh`'s dialect split — and why AT&T ksh93 files are analyzed with `shellcheck --shell=ksh` but never formatted with `shfmt` — is ADR 0017. The related constraint that `brew style --fix` rewrites POSIX `[ ]` tests in Homebrew-aligned consumers, which is a different pressure on the same files, is recorded in `.ai/memory.md` (2026-07-25).

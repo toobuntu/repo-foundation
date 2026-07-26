@@ -146,6 +146,7 @@ main() {
     printf 'note: %s is under the macOS tmp reaper (files untouched for 3 days are deleted);\n' "$parent_abs" >&2
     printf '      fine for a clone that lives under a day, risky for longer (see agent-principles.md).\n' >&2
     ;;
+  *) ;;
   esac
 
   repo_name=$(basename "$source_abs")
@@ -184,6 +185,7 @@ main() {
     git remote set-url origin "$original_origin"
     git remote add local "$source_abs"
     ;;
+  *) die "unknown --mode: $mode (no-remote, repoint-origin, add-local)" ;;
   esac
 
   printf '%s\n' "$sandbox_dir"

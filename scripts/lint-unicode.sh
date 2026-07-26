@@ -93,6 +93,7 @@ build_patterns() {
     _esc="${_row#*:}"
     case ",$_exclude_csv," in
     *",$_cp,"*) continue ;;
+    *) ;;
     esac
     # shellcheck disable=SC2059  # intentional dynamic format string
     _seq=$(printf "$_esc")

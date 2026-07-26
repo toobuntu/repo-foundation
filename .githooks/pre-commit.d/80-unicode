@@ -104,6 +104,7 @@ build_patterns() {
     _esc="${_row#*:}"
     case ",$_exclude_csv," in
     *",$_cp,"*) continue ;;
+    *) ;;
     esac
     # printf interprets the octal escapes into the raw UTF-8 bytes.
     # shellcheck disable=SC2059  # intentional dynamic format string

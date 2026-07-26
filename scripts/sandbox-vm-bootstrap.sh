@@ -57,15 +57,26 @@ ensure_homebrew() {
   NONINTERACTIVE=1 \
     /bin/bash -c \
     "$(curl --fail --silent --show-error --location https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  # The prefix is hardcoded per architecture here, and ONLY here, because
+  # `$(brew --prefix)` cannot answer yet: Homebrew was installed seconds ago
+  # by the line above and is not on PATH — putting it there is what the
+  # `shellenv` eval below does. Asking brew for its own prefix requires
+  # already being able to run brew. These two paths are the ones Homebrew's
+  # own post-install instructions name. Everywhere brew is already on PATH,
+  # query it (`brew --prefix`, `brew --repository`) instead of hardcoding.
   arch=$(uname -m)
   case "${arch}" in
   arm64) brew_prefix=/opt/homebrew ;;
   x86_64) brew_prefix=/usr/local ;;
   *) die "Unrecognized architecture: ${arch}" ;;
   esac
-  eval "$(${brew_prefix}/bin/brew shellenv)"
+  eval "$("${brew_prefix}/bin/brew" shellenv)"
   {
     printf '\n# Homebrew (added by sandbox-vm-bootstrap.sh)\n'
+    # The unexpanded "$(...)" is the payload: this line writes a literal
+    # eval command into .zprofile for future shells to expand, which is
+    # exactly the case SC2016 warns about.
+    # shellcheck disable=SC2016
     printf 'eval "$(%s/bin/brew shellenv)"\n' "${brew_prefix}"
   } >> "${HOME}/.zprofile"
   command -v brew > /dev/null 2>&1 || die "Homebrew install appears incomplete"

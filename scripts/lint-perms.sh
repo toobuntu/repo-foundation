@@ -72,6 +72,7 @@ emit_paths() {
   case "$scope" in
   --staged) git diff --cached --name-only --diff-filter=ACMRT -z ;;
   --tracked) git ls-files -z ;;
+  *) ;; # unreachable: $scope is validated at startup
   esac
 }
 

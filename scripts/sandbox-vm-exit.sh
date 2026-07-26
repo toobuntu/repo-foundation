@@ -166,6 +166,7 @@ main() {
   reset) reset_mode ;;
   destroy) destroy_mode ;;
   status) status_mode ;;
+  *) die "Unknown --mode: ${mode} (see --help)" ;;
   esac
 }
 
