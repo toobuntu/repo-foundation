@@ -1,0 +1,150 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Guard-pin freshness: fail main whenever the pinned canon in
+# provides/github/workflows/foundation-guard.yml trails a manifest or engine
+# commit. The consumer-side guard checks out repo-foundation at that pin and
+# reads the manifest FROM THAT CHECKOUT, so a stale pin makes every consumer
+# enforce yesterday's contract — new managed files unknown to the guard, or an
+# engine too old for its own options. The pin went stale twice in two
+# consecutive pull requests before this check existed (ADR 0024).
+#
+# repo-foundation-only: NOT in sync-manifest.yaml. Consumers have no
+# provides/ tree and no pin to keep fresh; the synced lint.yml (ci_core) is
+# deliberately not the home for this job.
+#
+# Runs on every push to main, not under a paths: filter, on purpose. The
+# correct pin value is the merge commit itself, which does not exist until
+# the merge — so the check has to run after it, and the bump commit touches
+# only foundation-guard.yml: under a paths: filter the bump's own merge would
+# not re-run the workflow, leaving the last failing run as the branch's
+# visible status. An unfiltered run costs seconds and turns green the moment
+# the bump lands.
+#
+# Not a required PR check by design: the invariant is about main, and a PR
+# cannot satisfy it (it cannot know its own merge SHA). This is a
+# post-merge health signal — red main means "open the bump PR the log
+# message spells out."
+
+name: Guard pin
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: "guard-pin-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  freshness:
+    name: Pin covers manifest and engine
+    if: github.repository == 'toobuntu/repo-foundation'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out main with full history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Full history: the ancestry check and the pin..HEAD range walk
+          # both need it.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compare the pin against manifest and engine history
+        run: |
+          guard=provides/github/workflows/foundation-guard.yml
+          pin_re='^[[:space:]]*ref:[[:space:]]*[0-9a-f]\{40\}[[:space:]]*$'
+
+          # Emit a GitHub annotation: $1 line (empty for file-level), $2 title,
+          # $3 message. Annotations attach to the file and line in the Files
+          # view and appear on the commit and the run summary, so the fix is
+          # visible without opening the log. Workflow commands are read from
+          # STDOUT, so these deliberately do not go to stderr; a literal newline
+          # in a message must be encoded as %0A.
+          annotate() {
+            if [ -n "$1" ]; then
+              printf '::error file=%s,line=%s,title=%s::%s\n' "$guard" "$1" "$2" "$3"
+            else
+              printf '::error file=%s,title=%s::%s\n' "$guard" "$2" "$3"
+            fi
+          }
+
+          pin=$(sed -n "s/^[[:space:]]*ref:[[:space:]]*\([0-9a-f]\{40\}\)[[:space:]]*$/\1/p" "$guard")
+          pin_line=$(grep -n "$pin_re" "$guard" | head -n 1 | cut -d: -f1)
+          # Exactly one pin: word splitting counts the matches (hex has no
+          # internal whitespace, and a literal-newline case pattern would
+          # break this YAML block scalar's indentation).
+          # shellcheck disable=SC2086  # deliberate word splitting
+          set -- $pin
+          if [ "$#" -ne 1 ]; then
+            annotate "" 'Guard pin unreadable' \
+              "Expected exactly one 40-hex \"ref:\" pin, found $#."
+            exit 1
+          fi
+          pin=$1
+          head_sha=$(git rev-parse HEAD)
+
+          if ! git cat-file -e "${pin}^{commit}" 2> /dev/null; then
+            annotate "$pin_line" 'Guard pin does not exist' \
+              "Pinned commit $pin is not in this repository. Set ref: to $head_sha"
+            exit 1
+          fi
+
+          # The pin must be a main commit: consumers fetch it from
+          # repo-foundation, and a commit reachable only from an unmerged or
+          # squashed-away branch is canon nobody reviewed onto main.
+          if ! git merge-base --is-ancestor "$pin" HEAD; then
+            annotate "$pin_line" 'Guard pin is not on main' \
+              "Pinned commit $pin is not reachable from main. Set ref: to $head_sha"
+            exit 1
+          fi
+
+          # The freshness invariant: no commit after the pin may touch the
+          # manifest or the engine. These are the two surfaces the guard
+          # reads from the pinned checkout (.ai/memory.md standing rule,
+          # 2026-07-24). The bump commit itself touches neither, so it
+          # cannot re-trigger the requirement it satisfies.
+          stale=$(git rev-list "${pin}..HEAD" -- sync-manifest.yaml .github/actions/sync/)
+          if [ -z "$stale" ]; then
+            printf 'guard pin %.12s... covers every manifest and engine commit on main\n' "$pin"
+            exit 0
+          fi
+
+          count=$(printf '%s\n' "$stale" | wc -l | tr -d ' ')
+
+          # The annotation carries the replacement SHA so the fix is a copy,
+          # not a lookup. It lands on the ref: line itself in the Files view.
+          annotate "$pin_line" 'Guard pin is stale' \
+            "Set ref: to $head_sha%0A%0A${count} commit(s) on main after the current pin touch sync-manifest.yaml or the sync engine, so consumer guards are enforcing an older contract than main ships."
+
+          # The log keeps the detail the annotation cannot hold.
+          printf 'error: the guard pin is stale. Commits after %.12s... touch the\n' "$pin" >&2
+          printf 'manifest or the engine, so consumer guards are enforcing an older\n' >&2
+          printf 'contract than main ships:\n\n' >&2
+          git log --no-decorate --oneline "${pin}..HEAD" -- sync-manifest.yaml .github/actions/sync/ >&2
+          printf '\nFix, via a pull request like any change:\n' >&2
+          printf '  set "ref:" in %s (line %s) to %s\n' "$guard" "$pin_line" "$head_sha" >&2
+
+          # The run summary is the copy-paste surface. Its Markdown is full of
+          # literal backticks (code spans and a fence), which ShellCheck reads
+          # inside single quotes as command substitution that will not expand.
+          # Here the literal text is the whole point.
+          # shellcheck disable=SC2016
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              printf '## Guard pin is stale\n\n'
+              printf 'Set the pin in `%s` (line %s) to the current `main`:\n\n' "$guard" "$pin_line"
+              printf '```yaml\n          ref: %s\n```\n\n' "$head_sha"
+              printf '<details><summary>%s commit(s) the current pin does not cover</summary>\n\n' "$count"
+              printf '```\n'
+              git log --no-decorate --oneline "${pin}..HEAD" -- sync-manifest.yaml .github/actions/sync/
+              printf '```\n\n</details>\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 1
