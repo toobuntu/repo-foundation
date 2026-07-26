@@ -113,11 +113,22 @@ while IFS= read -r _f; do
   else
     _pattern="$_default_pattern"
   fi
-  if LC_ALL=C.UTF-8 /usr/bin/grep --binary-files=without-match \
-    --extended-regexp --quiet "$_pattern" "$_f"; then
+  # Three-valued status: 0 match, 1 no match, 2 error. Treating 2 as "no
+  # match" would fail open -- see the same guard in the 80-unicode plugin.
+  _status=0
+  LC_ALL=C.UTF-8 /usr/bin/grep --binary-files=without-match \
+    --extended-regexp --quiet "$_pattern" "$_f" || _status=$?
+  case "$_status" in
+  0)
     _found="${_found:+$_found
 }$_f"
-  fi
+    ;;
+  1) ;;
+  *)
+    printf 'error: grep exited %s scanning %s\n' "$_status" "$_f" >&2
+    exit 1
+    ;;
+  esac
 done < "$_files_tmp"
 
 if [ -n "$_found" ]; then

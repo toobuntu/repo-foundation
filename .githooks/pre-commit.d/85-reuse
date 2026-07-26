@@ -65,12 +65,12 @@ staged_z() {
   fi
 }
 
-if ! staged_z '.' | xargs -0 -r reuse --no-multiprocessing lint-file --quiet; then
+if ! staged_z '.' | xargs -0 -r reuse --no-multiprocessing lint-file --quiet --; then
   # Re-run without --quiet to surface the report. `|| true` keeps
   # set -e from killing the plugin on this bare pipeline (reuse exits
   # non-zero by definition in this branch) before the hint and the
   # explicit exit below can run.
-  staged_z '.' | xargs -0 -r reuse --no-multiprocessing lint-file || true
+  staged_z '.' | xargs -0 -r reuse --no-multiprocessing lint-file -- || true
   cat >&2 << 'HINT'
 
 To annotate unannotated files, run:

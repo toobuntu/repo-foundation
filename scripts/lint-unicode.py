@@ -23,6 +23,7 @@
 # Rationale, codepoint coverage, and alternatives considered (org-wide ADR):
 # https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0006-trojan-source-detection-strategy.md
 
+import codecs
 import contextlib
 import pathlib
 import re
@@ -58,37 +59,52 @@ def read_utf8(path):
 
     Returns (text, issue): decoded text on success; an issue string when
     the file violates the encoding policy; (None, None) when the file
-    should be skipped (unreadable, or binary per the NUL heuristic).
+    should be skipped (unreadable, or binary).
+
+    A NUL byte decides nothing on its own, so the order matters:
+
+    1. UTF-8 first. Anything that decodes as UTF-8 IS UTF-8 text, whatever
+       bytes it holds -- NUL included, since U+0000 is a perfectly legal
+       UTF-8 codepoint. Return the text and let the Cc sweep flag the NUL
+       as the invisible control character it is. Deciding "binary" from
+       the presence of a NUL, as this function used to, let a UTF-8 file
+       with an embedded NUL skip the scan entirely.
+    2. Then a UTF-16/UTF-32 BOM. Those encodings are text that the
+       UTF-8-without-BOM policy rejects, so they are a reported violation
+       rather than a skip -- but only on the evidence of a real BOM. A
+       bare `.decode('utf-16')` attempt is not evidence: almost any
+       even-length byte string decodes as UTF-16 into garbage, which
+       misreports ordinary binaries as UTF-16 documents.
+    3. Then NUL as the binary tiebreak. Undecodable and NUL-bearing is a
+       genuine binary: skip, because reporting it would flag every
+       tracked image, and RHSB-2021-007 scopes itself to text/* for that
+       reason. Undecodable WITHOUT a NUL is a text file in some other
+       encoding, which the policy does reject.
+
+    A UTF-8 BOM needs no case here: it decodes, and U+FEFF is category Cf,
+    so the ordinary sweep reports it.
     """
     try:
-        with path.open('rb') as fh:
-            head = fh.read(4096)
-            if b'\x00' in head:
-                # A NUL alone does not prove "binary": UTF-16/UTF-32
-                # text contains NULs but is still text we reject under
-                # the UTF-8 policy.
-                for enc in ('utf-16', 'utf-32'):
-                    try:
-                        head.decode(enc)
-                    except UnicodeDecodeError:
-                        continue
-                    return None, f'{path} (looks like {enc}; project requires UTF-8)'
-                # NUL but not decodable as UTF-16/32: treat as binary
-                # and skip, mirroring RHSB-2021-007's text/* MIME gate.
-                # Falling through to the UTF-8 check would mis-flag
-                # tracked binaries as violations.
-                return None, None
-            raw = head + fh.read()
+        raw = path.read_bytes()
     except OSError:
         return None, None
     try:
         return raw.decode('utf-8'), None
     except UnicodeDecodeError:
-        return None, str(path)
+        pass
+    # UTF-32's little-endian BOM begins with UTF-16's, so test it first.
+    for bom, enc in ((codecs.BOM_UTF32_LE, 'utf-32'), (codecs.BOM_UTF32_BE, 'utf-32'),
+                     (codecs.BOM_UTF16_LE, 'utf-16'), (codecs.BOM_UTF16_BE, 'utf-16')):
+        if raw.startswith(bom):
+            return None, f'{path} (looks like {enc}; project requires UTF-8)'
+    return (None, None) if b'\x00' in raw else (None, str(path))
 
 
 def main():
-    with open(sys.argv[1]) as fh:
+    # The list is written by lint-unicode.sh from git output, which is
+    # UTF-8; decoding it in the locale's encoding instead would raise on a
+    # non-ASCII path under a C locale.
+    with open(sys.argv[1], encoding='utf-8') as fh:
         paths = [line.rstrip('\n') for line in fh if line.strip()]
 
     bidi_failures = []

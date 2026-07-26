@@ -131,21 +131,47 @@ scan_one() {
   # and grep silently falls back to single-byte matching when the locale
   # is missing -- which would split each codepoint into bytes that the
   # bracket expression then matches far too eagerly.
-  if git show ":$1" 2> /dev/null |
+  #
+  # grep's status is three-valued and the third value matters here: 0 match,
+  # 1 no match, 2 ERROR. An `if grep ...` treats 2 as "no match" and the file
+  # passes -- a security gate failing OPEN. Exit 2 is reachable in practice:
+  # build_pattern assembles its bracket expression from a file's own
+  # bidi-allow annotation, so a malformed one yields an invalid pattern and
+  # every subsequent file "passes".
+  _status=0
+  git show ":$1" 2> /dev/null |
     LC_ALL=C.UTF-8 /usr/bin/grep \
       --binary-files=without-match \
-      --extended-regexp --quiet "$_pattern"; then
-    printf '%s\n' "$1"
-  fi
+      --extended-regexp --quiet "$_pattern" || _status=$?
+  case "$_status" in
+  0) printf '%s\n' "$1" ;;
+  1) ;;
+  *)
+    printf 'error: grep exited %s scanning %s\n' "$_status" "$1" >&2
+    # scan_one runs inside a command-substitution subshell, so `exit` here
+    # would end only that subshell and the commit would proceed. Record the
+    # failure where the caller can see it.
+    printf 'x' >> "$_scan_errors"
+    ;;
+  esac
 }
 
 default_pattern=$(build_pattern "")
+_scan_errors=$(mktemp "${TMPDIR:-/tmp}/80-unicode.XXXXXX")
+trap 'rm -f "$_scan_errors"' EXIT INT TERM
+
 bidi_found=$(
   staged_lines | while IFS= read -r _bfile; do
     [ -n "$_bfile" ] || continue
     scan_one "$_bfile"
   done
 )
+
+if [ -s "$_scan_errors" ]; then
+  printf 'error: the invisible-Unicode scan could not complete; refusing the\n' >&2
+  printf '  commit rather than passing files it never managed to read.\n' >&2
+  exit 1
+fi
 
 if [ -n "$bidi_found" ]; then
   printf 'error: invisible Unicode character(s) in staged files:\n' >&2

@@ -87,11 +87,13 @@ module HookSpecHelpers
   # Runs the hook directly (not through `git commit`) so the test can
   # observe its exit status and stderr without committing.
   #
-  # REUSE_LINT_SKIP=1: these specs target the hook's Unicode
-  # scanner, not its REUSE gate. The throwaway repos carry no SPDX
-  # headers, so with reuse installed the REUSE stanza would reject every
-  # fixture and mask the check under test. The REUSE path has its own
-  # coverage (precommit_reuse_spec.rb and the lint-reuse CI job).
+  # REUSE_LINT_SKIP=1: these specs target the Unicode scanner, not the
+  # REUSE gate. The throwaway repos carry no SPDX headers, so with reuse
+  # installed the 85-reuse plugin would reject every fixture and mask the
+  # check under test. Still required after the runner refactor -- the seam
+  # moved from the base hook into 85-reuse, which the runner still runs.
+  # The REUSE path has its own coverage (precommit_reuse_spec.rb and the
+  # lint-reuse CI job).
   def run_hook
     Open3.capture3({ "REUSE_LINT_SKIP" => "1", "GIT_DIR" => ".git", "GIT_INDEX_FILE" => ".git/index" },
                    "./.githooks/pre-commit")

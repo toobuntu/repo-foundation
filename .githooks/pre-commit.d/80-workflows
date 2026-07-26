@@ -52,7 +52,7 @@ has_files "$WORKFLOW_RE" || exit 0
 # working tree and take none, which is why the has_files gate above decides
 # whether they run at all.
 if command -v actionlint > /dev/null 2>&1; then
-  staged_z "$WORKFLOW_RE" | xargs -0 -r actionlint
+  staged_z "$WORKFLOW_RE" | xargs -0 -r actionlint --
 else
   printf "warning: actionlint not found — skipping workflow lint (brew install actionlint)\n" >&2
 fi
