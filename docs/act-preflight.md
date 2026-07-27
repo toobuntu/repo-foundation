@@ -76,10 +76,11 @@ act --job spec --platform macos-latest=-self-hosted \
 # Plain `lume ssh` here, no options: the run phase needs no sudo and no key.
 lume clone macos-baseline macos-run                    # lume clone <name> <new-name>
 lume run --no-display --shared-dir "${PWD}:ro" macos-run &
+until lume ssh macos-run 'test -d "/Volumes/My Shared Files/repo-foundation"'; do sleep 5; done
 lume ssh macos-run 'cp -R "/Volumes/My Shared Files/repo-foundation" ~/work && \
   cd ~/work && act --job spec --platform macos-latest=-self-hosted \
     --container-architecture darwin/arm64 --quiet'
-lume stop macos-run && lume delete macos-run           # discard everything
+lume delete macos-run --force                          # stops it too; no lume stop
 ```
 
 **Leaving Colima up** between runs is fine and saves the boot; `colima stop` is for reclaiming the VM's memory. `--pull=false` after the first run skips the image check.
@@ -162,7 +163,7 @@ act --job spec --platform macos-latest=-self-hosted --container-architecture dar
 
 `-self-hosted` runs the job on your real Mac, so its `brew install` and Ruby setup touch the host. To isolate it, run the job inside a throwaway macOS VM with [lume](https://github.com/trycua/lume) (Apple's Virtualization.framework). lume's telemetry is on by default (pseudonymous install/usage metadata only — no names, paths, or VM contents); turn it off once with `lume config telemetry disable`.
 
-> **Status: E2E-verified 2026-07-27 (maintainer-run).** The full sequence — create, run, key install, build-time sudo grant, Homebrew install, revoke, `brew install act` — has been executed top to bottom. Two refinements came out of that run and are folded in below: the grant is revoked **immediately after `install.sh`** (nothing later needs sudo — pouring bottles is root-free), and `brew` must be `shellenv`-evaluated inline because ssh command execution never reads `.zprofile`.
+> **Status (2026-07-27, maintainer-run): the BASELINE BUILD is E2E-verified; the RUN PHASE is not.** Create, run, key install, build-time sudo grant, Homebrew install, revoke, `brew install act` executes top to bottom and ends `BASELINE READY`. The clone-and-run step then fails: the read-only share does not appear at `/Volumes/My Shared Files/` inside the guest — see *Run-phase blocker* below. Until that is solved, the host form is the working way to exercise the macOS job.
 
 **Build the baseline once.** A vanilla image has no Homebrew, so the toolchain install is the slow part; do it once and keep the result as a template you never run jobs in.
 
@@ -221,9 +222,10 @@ lume clone macos-baseline macos-run                       # lume clone <name> <n
 lume run --no-display --shared-dir "${PWD}:ro" macos-run &
 
 # Copy the read-only share to a writable path INSIDE the guest, then run there.
+until lume ssh macos-run 'test -d "/Volumes/My Shared Files/repo-foundation"'; do sleep 5; done   # see Run-phase blocker
 lume ssh macos-run 'cp -R "/Volumes/My Shared Files/repo-foundation" ~/work && cd ~/work && act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet'
 
-lume stop macos-run && lume delete macos-run              # discard everything
+lume delete macos-run --force                             # stops it too; no lume stop
 ```
 
 <!-- rumdl-enable MD013 -->
@@ -247,6 +249,34 @@ On updating the toolchain: do `brew update && brew upgrade` **in the baseline, d
 For fast iteration a `git reset --hard` in the guest and a re-run is fine; prefer the delete-and-reclone cycle whenever the result matters, since a re-used guest carries the previous run's Homebrew state and caches.
 
 The VM is the isolation boundary — the `brew install` and Ruby setup happen inside it, and your real Mac is untouched. (The share's mount name under `/Volumes/My Shared Files/` follows the shared directory's basename; adjust the `cp` if yours differs.)
+
+### Run-phase blocker: the share does not mount
+
+Reproduced 2026-07-27. `lume run --shared-dir "${PWD}:ro"` accepts the share and the launch log confirms lume passed it through:
+
+```text
+sharedDirectories=/Users/…/repo-foundation:com.apple.virtio-fs.automount:ro
+```
+
+But inside the guest the path is absent:
+
+```text
+cp: /Volumes/My Shared Files/repo-foundation: No such file or directory
+```
+
+SSH was up by then (lume had already written its VNC config over SSH), so this is not a boot race in the ordinary sense — but it may still be a *mount* race, since the guest's automount of the `com.apple.virtio-fs.automount` tag is not necessarily complete when sshd starts answering. Unverified either way. Diagnose before assuming:
+
+```sh
+lume ssh macos-run 'ls /Volumes/; ls "/Volumes/My Shared Files/" 2>&1; mount | grep -i virtio'
+```
+
+Three candidate causes, in the order worth testing:
+
+1. **Timing** — poll for the directory instead of sleeping a fixed interval (the loop below does this). Cheapest to rule out.
+2. **The automount needs a GUI login session.** The `tahoe` preset enables autologin, so one should exist headlessly, but `--no-display` has not been tested against this. Attaching to the VNC URL from `lume get --format=json … | jq -r '.[].vncUrl'` shows whether the desktop actually reached a logged-in state.
+3. **The mount point differs.** `/Volumes/My Shared Files/<basename>` is the documented macOS-guest convention for that tag; the first `ls` above settles it.
+
+If the share proves unusable headlessly, the fallback that keeps the isolation property is to push the tree in over SSH instead of sharing it — `rsync`/`tar` through the same key — at the cost of a copy per run.
 
 ### Baseline blocker: `sudo`, resolved
 
@@ -323,6 +353,7 @@ The alternative shape — a `Defaults:lume timestamp_timeout=60` entry instead o
 
 Incidental findings from the same runs, each of which costs real time to rediscover:
 
+- **`lume stop` on a VM that is not running can hang.** It reports `Found process N holding lock on config file` and then blocks indefinitely, taking the rest of a `;`-chained command with it. `lume delete --force` stops a running VM by itself, so a teardown line needs no `lume stop` at all — drop it rather than guarding it.
 - **`$ip` goes stale.** A deleted and re-created VM comes up on a new address (`…64.3` → `…64.4` here), and the unattended setup **stops the VM when it finishes** — so an `ssh … Operation timed out` right after `lume create` usually means "not started, and your captured address is last VM's." `lume run` first, then re-capture `ip=` after every create, clone, or run.
 - **`ssh-copy-id` with no `-i` installs every key in the agent** — two landed here. Public halves only, so nothing secret reaches the guest; still, name one key explicitly, or keep a dedicated throwaway pair for VMs.
 - **TCC blocks sshd from `~/Downloads`, `~/Documents`, `~/Desktop`** — `ls` over ssh returns `Operation not permitted` even under sudo, because the privacy prompt that would grant Full Disk Access has no way to appear. Work in `~` or `~/work` over ssh.
