@@ -8,19 +8,125 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 [`act`](https://github.com/nektos/act) runs GitHub Actions workflows locally, before a push, so a workflow edit can be checked without burning a CI round-trip. It is a **developer preflight tool**, never part of CI itself. This page records what works for repo-foundation's workflows on an Apple-silicon Mac with Colima, verified by running them, and what each flag is for — because the flags are hard to discover.
 
+## Quick reference
+
+Copy-paste forms for the common cases. Everything below is explained in the sections that follow.
+
+**Pick the event first.** `act` defaults to `push`, and a job whose workflow does not list `push` is then simply invisible — `scaffold-drift` (`schedule`) and `sync-from-upstreams` (`schedule`, `workflow_dispatch`) are the ones that catch people here. The event is a bare positional argument. List what an event actually reaches before running anything:
+
+```sh
+act --list                    # every job, with the events each responds to
+act pull_request --list       # only the jobs a pull request triggers
+act schedule --list           # only the cron jobs
+```
+
+**Structure check — no Docker, no Colima, fast.** `--validate` schema-checks and exits; it is the one form that also works inside the agent sandbox:
+
+```sh
+act --container-architecture=NOASSERTION pull_request --validate
+```
+
+**Plan check.** `--dryrun` plans every step without executing any. It does **not** pull: `NewDockerPullExecutor` returns early on `common.Dryrun(ctx)`, before `ImageExistsLocally` or `GetDockerClient`. What it still does, and each of these was measured rather than assumed:
+
+- **Reaches the Docker API for a *container* job**, somewhere later in job setup than the pull — so a daemon must be up. Forcing `--platform <label>=-self-hosted` skips that entirely and needs no daemon.
+- **Binds a TCP port for act's cache server** (default address, port 0). This is the cache server, not the artifact server — that one starts only when `--artifact-server-path` is given. `--no-cache-server` removes the bind.
+- **Writes to `~/.cache/act`** for the action cache and host workspaces. `--action-cache-path` moves it.
+
+The last two are what the agent sandbox refuses (`bind: operation not permitted`, then `mkdir …: operation not permitted`). Redirect both and `--dryrun` runs there:
+
+```sh
+act --container-architecture=NOASSERTION --no-cache-server \
+  --action-cache-path "$TMPDIR/actcache" \
+  --job spec --platform macos-latest=-self-hosted --dryrun
+```
+
+Verified in-sandbox to `✅ Success - Set up job`, stopping only where the sandbox intercepts TLS to `github.com` while fetching actions (`x509: OSStatus -26276`) — an environment limit, not act's. In an ordinary terminal the plain form is enough:
+
+```sh
+colima start
+act --container-architecture=NOASSERTION pull_request --job shell-lint --dryrun
+```
+
+**Real run of one `ubuntu-latest` job**, with the Colima lifecycle wrapped around it. `;` rather than `&&` before `colima stop` so the VM comes down even when the job fails:
+
+```sh
+colima start && act pull_request --job shell-lint \
+  --platform ubuntu-latest=catthehacker/ubuntu:full-latest \
+  --container-architecture linux/arm64 \
+  --container-daemon-socket=- ; colima stop
+```
+
+Notes on that form:
+
+- **No `DOCKER_HOST`, deliberately.** act finds a default-profile Colima by probing `~/.colima/docker.sock`; it is only Docker *contexts* that act ignores. Set `DOCKER_HOST` for a non-default profile or a remote daemon — see Setup for both forms and which to prefer.
+- **`--container-daemon-socket=-` is required** with Colima for any container job — otherwise act tries to bind-mount `~/.colima/docker.sock` and Colima refuses (see the flag table).
+- **`;` rather than `&&` before `colima stop`**, so the VM comes down even when the job fails.
+
+**The `macos-latest` job (`spec.yml`)** needs no Docker and no Colima at all — it runs on the host. That means a real `brew install` and Ruby setup against your actual Mac, so the isolated form runs it inside a throwaway lume VM instead:
+
+```sh
+# On the host — fast, and the only form verified end to end. It touches the
+# host: a real brew install, a real Ruby setup, and the suite runs in this
+# checkout.
+act --job spec --platform macos-latest=-self-hosted \
+  --container-architecture darwin/arm64 --quiet
+
+# Isolated in a lume VM — the host stays untouched. Needs a prepared,
+# STOPPED baseline; building that is the one-time part, in the lume section.
+# Plain `lume ssh` here, no options: the run phase needs no sudo and no key.
+lume clone macos-baseline macos-run                    # lume clone <name> <new-name>
+lume run --no-display --shared-dir "${PWD}:ro" macos-run &
+lume ssh macos-run 'cp -R "/Volumes/My Shared Files/repo-foundation" ~/work && \
+  cd ~/work && act --job spec --platform macos-latest=-self-hosted \
+    --container-architecture darwin/arm64 --quiet'
+lume stop macos-run && lume delete macos-run           # discard everything
+```
+
+**Leaving Colima up** between runs is fine and saves the boot; `colima stop` is for reclaiming the VM's memory. `--pull=false` after the first run skips the image check.
+
+`NOASSERTION` in the validate and dryrun forms is deliberate, not a placeholder: any non-empty `--container-architecture` value silences the M-series warning, and the value is unused when no container starts. A real run needs a real platform — `linux/arm64` here.
+
 ## Setup
 
 ```sh
-brew install act colima
-colima start            # boots a Linux VM (Lima) that speaks the Docker API
+brew install act colima docker      # core: everything except the lume VM path
+colima start                        # boots a Linux VM (Lima) that speaks the Docker API
+
+brew install lume jq                # only for "Isolating it in a VM (lume)" below
 ```
 
-`act` needs a Docker-API backend for `ubuntu-latest` jobs; Colima is the light, no-cost option (Docker Desktop also works). `colima start` makes Colima the active Docker context, so `act` picks up its socket from that context and runs work without `DOCKER_HOST` set. If a tool ever fails to find it (for example `act --bug-report` probes `/var/run/docker.sock` and errors), set it explicitly from whatever context is active — resolved with Docker's own `--format`, no `jq`:
+**Three separate pieces, and knowing which does what makes the failures legible.** [act speaks the Docker API directly](https://github.com/nektos/act#how-does-it-work) — "It uses the Docker API to either pull or build the necessary images … and finally … to run containers for each action" — so it never shells out to the `docker` command. Colima supplies the other end: a Lima VM running the Docker **daemon**. The `docker` formula is the **client** only, and [Colima requires it](https://github.com/abiosoft/colima#runtimes) for the Docker runtime — "Docker client is required for Docker runtime. Installable with `brew install docker`" — because Colima uses it to create and select the Docker context at startup. It is also what every diagnostic on this page is written in (`docker context inspect`, `docker system df`, `docker image rm`).
+
+So the client is genuinely required, just not by act. **Docker Desktop is not needed at any point** — `brew install docker` is the CLI alone, and Colima replaces the desktop application's daemon.
+
+**With a default-profile Colima you need no `DOCKER_HOST` at all** — verified, both for the host job and for a real container job that pulled an image and ran `docker exec`. The precise condition is that the compatibility socket `~/.colima/docker.sock` **exists**: a non-default profile does not create it, and neither does a Colima that is stopped. When it is absent, act falls through the rest of its probe list to `/var/run/docker.sock` and fails there — set `DOCKER_HOST` in that case (below). This is worth explaining, because it sits next to a true statement that sounds like it should forbid it.
+
+Two different mechanisms:
+
+- [act does not support Docker **contexts**.](https://nektosact.com/missing_functionality/docker_context.html) Selecting one with `docker context use` genuinely does not reach act. That is upstream's own note, and it is correct.
+- act does probe a fixed list of **socket paths** when `DOCKER_HOST` is unset. `$HOME/.colima/docker.sock` is the third entry in that list (`CommonSocketLocations` in `pkg/container/docker_socket.go`, after `/var/run/docker.sock` and Podman's), so a default-profile Colima is found by path — not by context. `DOCKER_HOST` wins whenever it is set.
+
+So the routine case needs nothing, and `act` announces what it picked:
+
+```text
+INFO Using docker host 'unix:///Users/you/.colima/docker.sock', and daemon socket 'unix:///Users/you/.colima/docker.sock'
+```
+
+**Set `DOCKER_HOST` when your socket is not on that list**: a non-default Colima profile (`colima start --profile x` puts its socket at `~/.colima/x/docker.sock`, which is not probed), a remote or TCP daemon, or another runtime that keeps its socket elsewhere. The symptom is `Couldn't get a valid docker connection: no DOCKER_HOST and an invalid container socket ''`. Upstream's workaround, resolved with Docker's own `--format` and no `jq`:
 
 ```sh
-ctx="$(docker context show)"
-export DOCKER_HOST="$(docker context inspect "$ctx" --format '{{ .Endpoints.docker.Host }}')"
+export DOCKER_HOST=$(docker context inspect --format '{{.Endpoints.docker.Host}}')
 ```
+
+That passes no context name, so it reads whichever context is active — brief, and correct when you know which that is. Naming the context is the deterministic form, and is the better habit on a machine with more than one:
+
+```sh
+export DOCKER_HOST=$(docker context inspect colima --format '{{.Endpoints.docker.Host}}')
+```
+
+The two resolve to different-looking but equivalent paths for a default Colima — auto-detection finds `~/.colima/docker.sock`, the named context reports `~/.colima/default/docker.sock`. Either connects.
+
+`DOCKER_CERT_PATH` (which upstream mentions alongside) is only for a daemon reached over TLS-secured TCP with client certificates. A local Unix socket never needs it, so it does not arise here.
 
 macOS jobs need no backend at all.
 
@@ -56,34 +162,198 @@ act --job spec --platform macos-latest=-self-hosted --container-architecture dar
 
 `-self-hosted` runs the job on your real Mac, so its `brew install` and Ruby setup touch the host. To isolate it, run the job inside a throwaway macOS VM with [lume](https://github.com/trycua/lume) (Apple's Virtualization.framework). lume's telemetry is on by default (pseudonymous install/usage metadata only — no names, paths, or VM contents); turn it off once with `lume config telemetry disable`.
 
+> **Status: E2E-verified 2026-07-27 (maintainer-run).** The full sequence — create, run, key install, build-time sudo grant, Homebrew install, revoke, `brew install act` — has been executed top to bottom. Two refinements came out of that run and are folded in below: the grant is revoked **immediately after `install.sh`** (nothing later needs sudo — pouring bottles is root-free), and `brew` must be `shellenv`-evaluated inline because ssh command execution never reads `.zprofile`.
+
+**Build the baseline once.** A vanilla image has no Homebrew, so the toolchain install is the slow part; do it once and keep the result as a template you never run jobs in.
+
 <!-- rumdl-disable MD013 -->
 
 ```sh
-# Create a vanilla macOS VM named 'macos-tahoe' from an Apple restore image.
-# The tahoe preset creates the lume user and enables SSH, autologin, and
-# no-sleep/no-lock; default login is lume / lume. (E2E-verified flow.)
-curl -L "$(lume ipsw | tail -n 1)" -o ~/Downloads/macos-tahoe.ipsw
-lume create macos-tahoe --ipsw ~/Downloads/macos-tahoe.ipsw --unattended tahoe
+# Create a vanilla macOS VM. `--ipsw latest` downloads the ~18 GB restore image.
+# If you'll recreate VMs repeatedly, download the image once and reuse it instead.
+#
+#  IPSW_URL="$(lume ipsw | tail -n 1)"
+#  curl -fL -o ~/Downloads/macos-tahoe.ipsw "$IPSW_URL"
+#
+# Then replace `--ipsw latest` below with:
+#
+#  --ipsw ~/Downloads/macos-tahoe.ipsw
+#
+# The tahoe preset creates the lume user (login lume / lume) and enables SSH,
+# autologin, and no-sleep/no-lock.
+lume create macos-baseline --ipsw latest --unattended tahoe
 
-# Start it headless with the checkout shared in read-write (VirtioFS; a macOS
-# guest surfaces the share under /Volumes/My Shared Files/<name>). Backgrounded
-# so the same terminal can drive it.
-lume run macos-tahoe --shared-dir "$PWD:rw" --no-display &
-
-# A vanilla image has NO Homebrew, so install brew + act once. To reuse the
-# toolchain later, skip the teardown (delete removes the disk) or clone a copy
-# first: `lume clone macos-tahoe macos-tahoe-act`.
-lume ssh macos-tahoe '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && brew install act'
-
-# Run the macOS job INSIDE the guest (lume ssh executes a command remotely):
-lume ssh macos-tahoe 'cd "/Volumes/My Shared Files/repo-foundation" && act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet'
-
-lume stop macos-tahoe && lume delete macos-tahoe   # tear down
+# Options come BEFORE the name: `lume run [<options>] <name>`. -n/--no-display
+# suppresses the VNC client, not the VM. The unattended setup STOPS the VM
+# when it finishes, so run it before trying to reach it.
+lume run --no-display macos-baseline &
 ```
 
 <!-- rumdl-enable MD013 -->
 
-The VM is the isolation boundary — the `brew install` and Ruby setup happen inside it, and your real Mac is untouched. (The share's mount name under `/Volumes/My Shared Files/` follows the shared directory's basename; adjust the `cd` if yours differs.)
+The install sequence itself — key, temporary sudo grant, Homebrew, act, revoke — is under *Baseline blocker: `sudo`, resolved* below, with the reasoning; it is the part that took three runs to get right, and the shape matters more than any single line.
+
+Each `sshvm` is its own invocation on purpose. Chaining them inside one single-quoted argument is what produced this, in the *host's* shell rather than the guest's:
+
+```text
+zsh: no such file or directory: /home/linuxbrew/.linuxbrew/bin/brew
+```
+
+A nested `'…'` inside a single-quoted string closes the outer quote, so the middle section is expanded locally before `lume ssh` ever runs. Where a command genuinely must be one unit, write it to a file and pipe it in rather than nesting quotes.
+
+Homebrew's environment file is worth seeding in the baseline too — it is read by every later `brew` call:
+
+<!-- rumdl-disable MD013 -->
+
+```sh
+sshvm 'mkdir -p ~/.homebrew && cat >> ~/.homebrew/brew.env <<EOF
+HOMEBREW_NO_ANALYTICS=1
+HOMEBREW_NO_ASK=1
+HOMEBREW_NO_UPDATE_REPORT_NEW=1
+HOMEBREW_DISPLAY_INSTALL_TIMES=1
+EOF'
+```
+
+**Then one ephemeral clone per run**, sharing the checkout **read-only**:
+
+```sh
+lume clone macos-baseline macos-run                       # lume clone <name> <new-name>
+lume run --no-display --shared-dir "${PWD}:ro" macos-run &
+
+# Copy the read-only share to a writable path INSIDE the guest, then run there.
+lume ssh macos-run 'cp -R "/Volumes/My Shared Files/repo-foundation" ~/work && cd ~/work && act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet'
+
+lume stop macos-run && lume delete macos-run              # discard everything
+```
+
+<!-- rumdl-enable MD013 -->
+
+**Ordinary act runs need none of the ssh apparatus above.** `sshvm`, the dedicated key, `RequestTTY`, and the sudo grant are all *baseline-build* machinery. The run phase uses plain `lume ssh <name> <command>` with no options at all, because nothing in `cp -R && act` needs `sudo` — so the missing TTY never bites — and `lume ssh` resolves the guest by name, which sidesteps an address lookup entirely.
+
+That last point is a trap worth naming, since the helper invites it: **`sshvm` is pinned to `$ip`, which holds the *baseline's* address.** Reusing it against `macos-run` reaches the wrong VM, or times out when the baseline is stopped. If you do want the system client for a run — to pass `-o` options, say — re-capture first:
+
+```sh
+ip=$(lume get --format=json macos-run | jq --raw-output '.[0].ipAddress')
+```
+
+Three deliberate choices in the run block, since the obvious shortcuts each give something away:
+
+- **`:ro`, not `:rw`.** With `-self-hosted` the job runs *in* the directory it is given, and this job writes: `actions/checkout` copies, Bundler populates `vendor/bundle`, act writes its own cache. A read-write share sends all of that back into your working tree through the mount — which relocates the mess rather than preventing it, and leaves the VM's only real job half done. Read-only plus a copy inside the guest keeps the host tree untouched. lume supports the tag natively (`path:ro`; a bare path means read-write).
+- **A share at all, rather than cloning from GitHub inside the VM.** The whole reason to preflight locally is to exercise a workflow edit that is *not pushed yet* — if the VM cloned from the remote it could only run what CI would already run for you, and you may as well push. The share is how uncommitted work reaches the guest; `:ro` is how it does so safely.
+- **An ephemeral clone per run, from a baseline you keep.** `lume delete` removes the disk, so without a baseline every run pays for the Homebrew install again.
+
+On updating the toolchain: do `brew update && brew upgrade` **in the baseline, deliberately**, not in each ephemeral clone. Per-run upgrades make every run slow and, worse, non-reproducible — a failure then has two candidate causes, your workflow and today's Homebrew, and you cannot tell them apart. Refresh the baseline when you mean to, and note when you did.
+
+For fast iteration a `git reset --hard` in the guest and a re-run is fine; prefer the delete-and-reclone cycle whenever the result matters, since a re-used guest carries the previous run's Homebrew state and caches.
+
+The VM is the isolation boundary — the `brew install` and Ruby setup happen inside it, and your real Mac is untouched. (The share's mount name under `/Volumes/My Shared Files/` follows the shared directory's basename; adjust the `cp` if yours differs.)
+
+### Baseline blocker: `sudo`, resolved
+
+Diagnosed across runs on 2026-07-27, lume 0.4.0 (Homebrew), `tahoe` preset, NAT. The short version: Homebrew's installer needs `sudo` several times; under `NONINTERACTIVE=1` it runs every one of them with `-n`, which **fails instead of prompting** whenever the cached credential has expired; and the Xcode Command Line Tools install in the middle of the script is long enough to outlive the default five-minute `timestamp_timeout` — sometimes. One run died at `sudo /bin/mkdir -p /etc/paths.d` after the CLT install; a later run on a faster path completed end to end from the identical command. **A one-shot `sudo --stdin --validate` before the installer is therefore a race, and a step that passes or fails with download speed must not be the recorded procedure.**
+
+Dead ends, each closed by an actual run rather than by argument:
+
+- **Running the installer under `sudo` (or `sudo --shell`)**: refused by design — `Don't run this as root!`.
+- **`chmod 4755 install.sh`**: the kernel ignores the setuid bit on interpreted scripts, so this changes nothing (verified: identical behavior) — and had it worked, see previous bullet.
+- **`sudo --validate <<< password`**: reads the terminal, not stdin, unless given `--stdin`. Fails immediately.
+- **A TTY (`-o RequestTTY=force`)** only converts the mid-install failure into a mid-install *prompt* — survivable when a human is watching, still not unattended.
+
+**The resolution: a temporary sudoers entry that exists only while the baseline is being built, removed before the VM is ever cloned.** This also answers the standing-root concern directly — `act` itself never needs `sudo`, so the run clones carry **no** grant at all, and the window in which the guest account is passwordless-root is the same window in which the only thing running is Homebrew's installer:
+
+<!-- rumdl-disable MD013 -->
+
+```sh
+ip=$(lume get --format=json macos-baseline | jq --raw-output '.[0].ipAddress')
+sshvm() { ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o RequestTTY=force -o IdentitiesOnly=yes -i "$VMKEY" lume@"$ip" "$@"; }
+
+# A dedicated VM key, named per the org's key schema
+# (PURPOSE_SCOPE_YM_ALGO--ID, comment PURPOSE:SCOPE:ID). Generate once and
+# reuse for every baseline; -N '' is deliberate, see below.
+YM=$(date +%Y-%m)
+ID="user:<you>+${YM}@<example.com>"
+VMKEY=~/.ssh/auth_lume_${YM}_ed25519--${ID}
+ssh-keygen -t ed25519 -a 100 -N '' -q -f "$VMKEY" -C "auth:lume:${ID}"
+chmod 600 "$VMKEY"
+
+# Install it so ssh itself stops prompting. -i names ONE key: without it,
+# ssh-copy-id installs EVERY public key currently in the agent (ssh-add -L).
+ssh-copy-id -i "${VMKEY}.pub" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null lume@"$ip"
+
+# Temporary build-time grant. Written to a TEMP file and validated there,
+# because visudo -cf on an already-installed file validates too late: a
+# malformed entry is in /etc/sudoers.d the moment tee returns, and a bad file
+# there can lock sudo out of the guest entirely. install(1) does the move
+# with the right mode in one step, and only if validation passed.
+sshvm 'set -eu; echo lume | sudo --stdin --validate
+  printf "lume ALL=(ALL) NOPASSWD: ALL\n" > /tmp/baseline-build
+  sudo visudo -cf /tmp/baseline-build
+  sudo install -m 440 -o root -g wheel /tmp/baseline-build /etc/sudoers.d/baseline-build
+  rm -f /tmp/baseline-build'
+
+# The slow install, now raceless: no credential cache to expire. NOTE this
+# executes remote code fetched at run time from a mutable ref (Homebrew's
+# documented entry point is HEAD; there is no released installer tag to pin).
+# That is acceptable HERE and only here: a disposable guest, on a private NAT,
+# whose root grant is revoked in the next command. Do not lift this line into
+# a context where any of those three stops being true.
+sshvm 'NONINTERACTIVE=1 /bin/bash -c "$(curl --fail --silent --show-error --location https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+
+# Revoke IMMEDIATELY: the grant existed strictly for install.sh. Everything
+# after this point is sudo-free -- pouring a bottle needs no root (verified:
+# `brew install act` ran clean after the revoke). Confirm the removal rather
+# than assuming it: a baseline cloned with the grant still in place would
+# propagate it to every run clone.
+sshvm 'sudo rm -f /etc/sudoers.d/baseline-build; ! test -e /etc/sudoers.d/baseline-build && echo "grant revoked"'
+
+sshvm 'echo "eval \"\$(/opt/homebrew/bin/brew shellenv)\"" >> ~/.zprofile'
+sshvm 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install act'
+lume stop macos-baseline
+```
+
+<!-- rumdl-enable MD013 -->
+
+Three behaviors of that helper worth knowing rather than rediscovering:
+
+- **"Warning: Permanently added … to the list of known hosts" on every call is expected**, not a fault: `UserKnownHostsFile=/dev/null` means each connection starts with an empty database, accepts the key, and "permanently" records it in `/dev/null`. `-o LogLevel=ERROR` (now in the helper) silences it without hiding real errors.
+- **`brew` is "not found" in `sshvm` commands even after the `.zprofile` line — by design.** `ssh host command` runs a non-login, non-interactive shell, which reads neither `~/.zprofile` nor `/etc/paths.d` (both are login-shell mechanisms). That is why every `brew` call here carries the inline `eval "$(/opt/homebrew/bin/brew shellenv)"`. An interactive `ssh` gets a login shell and finds `brew` on `PATH` normally.
+- **Use a dedicated per-VM key**, installed with `ssh-copy-id -i`: without `-i` it installs **every** public key in the agent (two landed here on the first attempt). `-o IdentitiesOnly=yes` stops the client offering agent keys in the other direction. Three notes on the generation above: the empty passphrase (`-N ''`) is deliberate and confined — the key opens only disposable guests on a private NAT, is never added to the agent, and a passphrase would reintroduce exactly the interactive prompt this section exists to remove; `-a 100` is kept for consistency with the schema even though it only affects passphrase encryption and is therefore inert here; and the memorable-suffix iteration the schema describes is skipped, since that ritual serves keys whose fingerprint you eyeball when pasting into a web UI, and this one is only ever named by path.
+
+The alternative shape — a `Defaults:lume timestamp_timeout=60` entry instead of `NOPASSWD` — trades "no password needed" for "one password entry whose grace covers the install," and is equally valid; it matters only if something else could run in the guest during the build window, which nothing does. Be clear-eyed about what either buys **in this guest**: the password is published (`lume`/`lume`), so anything running as the user can warm the cache itself with `echo lume | sudo --stdin --validate` — password-gated sudo protects nothing here, and the two shapes are security-equivalent. The revocation, and the VM boundary itself, are the controls doing real work; the timeout variant is genuinely tighter only where the password is secret. Either way the entry is deleted before `lume stop`, which is the part that answers "a machine with essentially a user who is always root-capable": after the build, no machine like that exists. Later baseline refreshes (`brew update && brew upgrade` in the baseline, deliberately, never in clones) re-create and re-remove the entry the same way.
+
+Incidental findings from the same runs, each of which costs real time to rediscover:
+
+- **`$ip` goes stale.** A deleted and re-created VM comes up on a new address (`…64.3` → `…64.4` here), and the unattended setup **stops the VM when it finishes** — so an `ssh … Operation timed out` right after `lume create` usually means "not started, and your captured address is last VM's." `lume run` first, then re-capture `ip=` after every create, clone, or run.
+- **`ssh-copy-id` with no `-i` installs every key in the agent** — two landed here. Public halves only, so nothing secret reaches the guest; still, name one key explicitly, or keep a dedicated throwaway pair for VMs.
+- **TCC blocks sshd from `~/Downloads`, `~/Documents`, `~/Desktop`** — `ls` over ssh returns `Operation not permitted` even under sudo, because the privacy prompt that would grant Full Disk Access has no way to appear. Work in `~` or `~/work` over ssh.
+- **`--ipsw latest` downloads the restore image itself** (~18 GB), so the separate `curl` is optional: keep the local `.ipsw` when you expect to rebuild baselines, use `latest` when you do not.
+- **Pre-installing the CLT by hand** (replicating the installer's `softwareupdate` block) is possible but unnecessary once the grant removes the race — and the transcribed attempt is a caution: a multi-line quoted `softwareupdate` pipeline with an unbalanced `if` and a variable borrowed from the installer's internals is exactly the kind of command the quoting rules above exist to prevent.
+
+### Networking: working, with one loose end
+
+An earlier reading of this page said the guest had no usable outbound HTTP. **It does.** From the guest:
+
+```console
+$ curl --ipv4 --fail --silent --show-error --head https://example.com
+HTTP/2 200
+```
+
+So IPv4 DNS, TCP, and TLS all work under the default NAT. Two corrections to how the earlier failure was read:
+
+- **`ping` is not a connectivity test here.** Apple's `vmnet` NAT does not forward ICMP echo, so 100% loss to `1.1.1.1` is expected and says nothing. Test TCP.
+- **The one unexplained observation** is a `curl: (56) … 404` fetching `raw.githubusercontent.com/Homebrew/install/HEAD/install.sh`, at a moment when DNS was resolving normally. A 404 is an HTTP-layer answer, so the request reached *something*. It has not recurred and may have been transient. If it returns, `curl --ipv4 --verbose --silent --show-error --output /dev/null <url> 2>&1 | tail -30` shows which address answered, and `curl -6` versus `curl -4` separates a stalled ULA IPv6 path from anything else.
+
+**Bridged networking is still unavailable on the Homebrew build**, which matters because it would sidestep the NAT stack entirely. [homebrew-core#269744](https://github.com/Homebrew/homebrew-core/pull/269744) (merged 2026-02-27) did add a signed bundle to the formula, but not this capability — checked on the installed binary:
+
+```console
+$ codesign -d --entitlements - "$(brew --cellar lume)/0.4.0/libexec/lume"
+[Key] com.apple.security.virtualization
+[Value] [Bool] true
+```
+
+That is the only entitlement present; `com.apple.vm.networking` is absent. The formula's own comment says why — it signs with `resources/lume.local.entitlements` to "Avoid SIGKILL with ad-hoc signing." `com.apple.vm.networking` is a **restricted** entitlement that Apple honors only under a provisioning profile, which an ad-hoc signature of a source build cannot carry. So this is structural to Homebrew builds rather than an oversight a formula patch can close, which is consistent with [trycua/cua#1133](https://github.com/trycua/cua/issues/1133) remaining open. Reinstalling lume from the official installer stays the prerequisite for `--network bridged`.
+
+([trycua/cua#483](https://github.com/trycua/cua/issues/483) — NAT DNS at `192.168.64.1` not resolving, workaround an external resolver — did not reproduce here; this guest resolves through a link-local IPv6 server without intervention.)
 
 ## The `ubuntu-latest` jobs
 
