@@ -76,8 +76,8 @@ act --job spec --platform macos-latest=-self-hosted \
 # Plain `lume ssh` here, no options: the run phase needs no sudo and no key.
 lume clone macos-baseline macos-run                    # lume clone <name> <new-name>
 lume run --no-display --shared-dir "${PWD}:ro" macos-run &
-until lume ssh macos-run 'test -d "/Volumes/My Shared Files/repo-foundation"'; do sleep 5; done
-lume ssh macos-run 'cp -R "/Volumes/My Shared Files/repo-foundation" ~/work && \
+until lume ssh macos-run 'mount | grep -q AppleVirtIOFS'; do sleep 5; done
+lume ssh macos-run 'mkdir -p ~/work && cp -R "/Volumes/My Shared Files/." ~/work/ && \
   cd ~/work && act --job spec --platform macos-latest=-self-hosted \
     --container-architecture darwin/arm64 --quiet'
 lume delete macos-run --force                          # stops it too; no lume stop
@@ -163,7 +163,7 @@ act --job spec --platform macos-latest=-self-hosted --container-architecture dar
 
 `-self-hosted` runs the job on your real Mac, so its `brew install` and Ruby setup touch the host. To isolate it, run the job inside a throwaway macOS VM with [lume](https://github.com/trycua/lume) (Apple's Virtualization.framework). lume's telemetry is on by default (pseudonymous install/usage metadata only — no names, paths, or VM contents); turn it off once with `lume config telemetry disable`.
 
-> **Status (2026-07-27, maintainer-run): the BASELINE BUILD is E2E-verified; the RUN PHASE is not.** Create, run, key install, build-time sudo grant, Homebrew install, revoke, `brew install act` executes top to bottom and ends `BASELINE READY`. The clone-and-run step then fails: the read-only share does not appear at `/Volumes/My Shared Files/` inside the guest — see *Run-phase blocker* below. Until that is solved, the host form is the working way to exercise the macOS job.
+> **Status (2026-07-27, maintainer-run): the BASELINE BUILD is E2E-verified.** Create, run, key install, build-time sudo grant, Homebrew install, revoke, `brew install act` executes top to bottom and ends `BASELINE READY`. The **run phase** had one wrong assumption in it — the share mounts at the volume root, not under a subdirectory named for the source — which is now corrected and confirmed against a live guest; the corrected `cp` has not yet been driven through a full `act` run, so that half is *fixed but unproven*.
 
 **Build the baseline once.** A vanilla image has no Homebrew, so the toolchain install is the slow part; do it once and keep the result as a template you never run jobs in.
 
@@ -222,8 +222,8 @@ lume clone macos-baseline macos-run                       # lume clone <name> <n
 lume run --no-display --shared-dir "${PWD}:ro" macos-run &
 
 # Copy the read-only share to a writable path INSIDE the guest, then run there.
-until lume ssh macos-run 'test -d "/Volumes/My Shared Files/repo-foundation"'; do sleep 5; done   # see Run-phase blocker
-lume ssh macos-run 'cp -R "/Volumes/My Shared Files/repo-foundation" ~/work && cd ~/work && act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet'
+until lume ssh macos-run 'mount | grep -q AppleVirtIOFS'; do sleep 5; done   # the share, not the mount point
+lume ssh macos-run 'mkdir -p ~/work && cp -R "/Volumes/My Shared Files/." ~/work/ && cd ~/work && act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet'
 
 lume delete macos-run --force                             # stops it too; no lume stop
 ```
@@ -248,35 +248,33 @@ On updating the toolchain: do `brew update && brew upgrade` **in the baseline, d
 
 For fast iteration a `git reset --hard` in the guest and a re-run is fine; prefer the delete-and-reclone cycle whenever the result matters, since a re-used guest carries the previous run's Homebrew state and caches.
 
-The VM is the isolation boundary — the `brew install` and Ruby setup happen inside it, and your real Mac is untouched. (The share's mount name under `/Volumes/My Shared Files/` follows the shared directory's basename; adjust the `cp` if yours differs.)
+The VM is the isolation boundary — the `brew install` and Ruby setup happen inside it, and your real Mac is untouched. (A single share mounts its contents at `/Volumes/My Shared Files` with no per-share subdirectory — see above.)
 
-### Run-phase blocker: the share does not mount
+### The share mounts at the volume root, not under a subdirectory
 
-Reproduced 2026-07-27. `lume run --shared-dir "${PWD}:ro"` accepts the share and the launch log confirms lume passed it through:
+Worth stating because the obvious guess is wrong and costs a run to discover. A single `--shared-dir` surfaces the shared directory's **contents directly at `/Volumes/My Shared Files`** — there is no per-share subdirectory named after the source. Measured in the guest:
 
-```text
-sharedDirectories=/Users/…/repo-foundation:com.apple.virtio-fs.automount:ro
+```console
+$ ls "/Volumes/My Shared Files/"
+AGENTS.md   CONTRIBUTING.md   docs   scripts   sync-manifest.yaml   …
+
+$ mount | grep -i virtio
+/dev/disk0 on /Volumes/My Shared Files (AppleVirtIOFS, local, nodev, nosuid, automounted)
 ```
 
-But inside the guest the path is absent:
-
-```text
-cp: /Volumes/My Shared Files/repo-foundation: No such file or directory
-```
-
-SSH was up by then (lume had already written its VNC config over SSH), so this is not a boot race in the ordinary sense — but it may still be a *mount* race, since the guest's automount of the `com.apple.virtio-fs.automount` tag is not necessarily complete when sshd starts answering. Unverified either way. Diagnose before assuming:
+So `cp -R "/Volumes/My Shared Files/repo-foundation" …` fails with `No such file or directory` while the share is mounted and healthy — the path is wrong, not the mount. Copy the contents instead:
 
 ```sh
-lume ssh macos-run 'ls /Volumes/; ls "/Volumes/My Shared Files/" 2>&1; mount | grep -i virtio'
+mkdir -p ~/work && cp -R "/Volumes/My Shared Files/." ~/work/
 ```
 
-Three candidate causes, in the order worth testing:
+(Apple's Virtualization.framework distinguishes a single-directory share from a multiple-directory share; only the latter names each entry, and lume's single `--shared-dir` produces the former. Passing several shares would change this.)
 
-1. **Timing** — poll for the directory instead of sleeping a fixed interval (the loop below does this). Cheapest to rule out.
-2. **The automount needs a GUI login session.** The `tahoe` preset enables autologin, so one should exist headlessly, but `--no-display` has not been tested against this. Attaching to the VNC URL from `lume get --format=json … | jq -r '.[].vncUrl'` shows whether the desktop actually reached a logged-in state.
-3. **The mount point differs.** `/Volumes/My Shared Files/<basename>` is the documented macOS-guest convention for that tag; the first `ls` above settles it.
+Poll for the filesystem rather than the directory, since the mount point exists before it is mounted:
 
-If the share proves unusable headlessly, the fallback that keeps the isolation property is to push the tree in over SSH instead of sharing it — `rsync`/`tar` through the same key — at the cost of a copy per run.
+```sh
+until lume ssh macos-run 'mount | grep -q AppleVirtIOFS'; do sleep 5; done
+```
 
 ### Baseline blocker: `sudo`, resolved
 
