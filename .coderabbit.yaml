@@ -45,10 +45,12 @@ reviews:
         hub references are the established convention (ADR URLs, plugin
         headers, canonical docs) — and do NOT propose rewriting measured
         transcripts or console output quoted in documentation into neutral
-        placeholders: transcripts record what actually happened, in the hub,
-        and are labeled as such; falsifying them to look generic destroys the
-        evidence they exist to preserve. Files not in the manifest are
-        repo-local and the neutrality rule does not apply to them at all.
+        placeholders merely to remove hub-specific details: transcripts record
+        what actually happened, in the hub, and are labeled as such;
+        falsifying them to look generic destroys the evidence they exist to
+        preserve. DO flag secrets, credentials, or other sensitive data that
+        appears in transcripts. Files not in the manifest are repo-local and
+        the neutrality rule does not apply to them at all.
     - path: "**/*.{sh,bash,ksh}"
       instructions: |
         These repositories target macOS, which ships the BSD userland. Do NOT flag
