@@ -291,13 +291,13 @@ mkdir -p ~/work && cp -R "/Volumes/My Shared Files/." ~/work/
 
 (Apple's Virtualization.framework distinguishes a single-directory share from a multiple-directory share; only the latter names each entry, and lume's single `--shared-dir` produces the former. Passing several shares would change this.)
 
-Poll for the filesystem rather than the directory, since the mount point exists before it is mounted:
+Poll for the filesystem rather than the directory, since the mount point exists before it is mounted. (Plain stop-then-delete on failure here, not `lume_teardown`: this snippet stands alone, and the VM is known to be running at this point, which is the one state where a bare `lume stop` is safe.)
 
 ```sh
 ok=""; for _ in $(seq 60); do   # bounded: ~5 min, then fail legibly
   lume ssh macos-run 'mount | grep -q AppleVirtIOFS' && { ok=1; break; }; sleep 5
 done
-[ -n "$ok" ] || { echo "share never mounted" >&2; lume_teardown macos-run; exit 1; }
+[ -n "$ok" ] || { echo "share never mounted" >&2; lume stop macos-run; lume delete macos-run --force; exit 1; }
 ```
 
 ### Baseline blocker: `sudo`, resolved

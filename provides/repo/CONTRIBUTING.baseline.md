@@ -34,7 +34,7 @@ Markdown files with YAML frontmatter (Architectural Decision Records, Claude Cod
 
 ## Testing workflows before you push
 
-The CI workflows in this repository can be exercised locally with [`act`](https://github.com/nektos/act) — a schema check needs nothing but `act` itself, and a real run of an `ubuntu-latest` job needs only Colima. The copy-paste forms, the flags that are hard to discover, and a VM-isolated flow for the macOS job are in `docs/testing-github-workflows-locally.md` (synced into this repository; canonical copy [in repo-foundation](https://github.com/toobuntu/repo-foundation/blob/main/docs/testing-github-workflows-locally.md)); start at its Quick reference.
+The CI workflows in this repository can be exercised locally with [`act`](https://github.com/nektos/act) — a schema check needs nothing but `act` itself, and a real run of an `ubuntu-latest` job needs Colima plus the Docker CLI it requires (`brew install act colima docker`). The copy-paste forms, the flags that are hard to discover, and a VM-isolated flow for the macOS job are in `docs/testing-github-workflows-locally.md` (synced into this repository; canonical copy [in repo-foundation](https://github.com/toobuntu/repo-foundation/blob/main/docs/testing-github-workflows-locally.md)); start at its Quick reference.
 
 ## Commits and pull requests
 
