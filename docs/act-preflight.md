@@ -74,9 +74,19 @@ act --job spec --platform macos-latest=-self-hosted \
 # Isolated in a lume VM — the host stays untouched. Needs a prepared,
 # STOPPED baseline; building that is the one-time part, in the lume section.
 # Plain `lume ssh` here, no options: the run phase needs no sudo and no key.
+lume_teardown() {   # defined inline so this block is self-contained
+  if [ "$(lume ls --format=json | jq -r ".[]|select(.name==\"$1\").status")" = running ]; then
+    lume stop "$1" || return 1   # a failed stop must not fall through to delete
+  fi
+  lume delete "$1" --force
+}
+
 lume clone macos-baseline macos-run                    # lume clone <name> <new-name>
 lume run --no-display --shared-dir "${PWD}:ro" macos-run &
-until lume ssh macos-run 'mount | grep -q AppleVirtIOFS'; do sleep 5; done
+ok=""; for _ in $(seq 60); do   # bounded: ~5 min, then fail legibly
+  lume ssh macos-run 'mount | grep -q AppleVirtIOFS' && { ok=1; break; }; sleep 5
+done
+[ -n "$ok" ] || { echo "share never mounted" >&2; lume_teardown macos-run; exit 1; }
 lume ssh macos-run 'mkdir -p ~/work && cp -R "/Volumes/My Shared Files/." ~/work/ && \
   cd ~/work && act --job spec --platform macos-latest=-self-hosted \
     --container-architecture darwin/arm64 --quiet'
@@ -218,11 +228,22 @@ EOF'
 **Then one ephemeral clone per run**, sharing the checkout **read-only**:
 
 ```sh
+lume_teardown() {   # defined inline so this block is self-contained
+  if [ "$(lume ls --format=json | jq -r ".[]|select(.name==\"$1\").status")" = running ]; then
+    lume stop "$1" || return 1   # a failed stop must not fall through to delete
+  fi
+  lume delete "$1" --force
+}
+
 lume clone macos-baseline macos-run                       # lume clone <name> <new-name>
 lume run --no-display --shared-dir "${PWD}:ro" macos-run &
 
 # Copy the read-only share to a writable path INSIDE the guest, then run there.
-until lume ssh macos-run 'mount | grep -q AppleVirtIOFS'; do sleep 5; done   # the share, not the mount point
+# Poll the FILESYSTEM, not the mount point, and bounded -- see below.
+ok=""; for _ in $(seq 60); do   # bounded: ~5 min, then fail legibly
+  lume ssh macos-run 'mount | grep -q AppleVirtIOFS' && { ok=1; break; }; sleep 5
+done
+[ -n "$ok" ] || { echo "share never mounted" >&2; lume_teardown macos-run; exit 1; }
 lume ssh macos-run 'mkdir -p ~/work && cp -R "/Volumes/My Shared Files/." ~/work/ && cd ~/work && act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet'
 
 lume_teardown macos-run                                   # stop-if-running, then delete
@@ -273,7 +294,10 @@ mkdir -p ~/work && cp -R "/Volumes/My Shared Files/." ~/work/
 Poll for the filesystem rather than the directory, since the mount point exists before it is mounted:
 
 ```sh
-until lume ssh macos-run 'mount | grep -q AppleVirtIOFS'; do sleep 5; done
+ok=""; for _ in $(seq 60); do   # bounded: ~5 min, then fail legibly
+  lume ssh macos-run 'mount | grep -q AppleVirtIOFS' && { ok=1; break; }; sleep 5
+done
+[ -n "$ok" ] || { echo "share never mounted" >&2; lume_teardown macos-run; exit 1; }
 ```
 
 ### Baseline blocker: `sudo`, resolved
@@ -355,12 +379,14 @@ Incidental findings from the same runs, each of which costs real time to redisco
 
   ```sh
   lume_teardown() {
-    [ "$(lume ls --format=json | jq -r ".[]|select(.name==\"$1\").status")" = running ] && lume stop "$1"
+    if [ "$(lume ls --format=json | jq -r ".[]|select(.name==\"$1\").status")" = running ]; then
+      lume stop "$1" || return 1   # a failed stop must not fall through to delete
+    fi
     lume delete "$1" --force
   }
   ```
 
-- **The resize error on a running VM is misdirection, and the guard dotfiles are inert.** `lume delete --force` and `lume clone` against a **running** VM fail with `A previous disk resize of <name> did not finish. Re-run the same command to roll it back…` — even when no resize was ever requested. The source explains the shape of it: `~/.lume/.<name>.resize.guard` is an **flock target**, not a state marker (`VMDirectory.swift`: `tryAcquireResizeGuard` creates the file if missing, then takes a non-blocking `flock()`); the lock dies with its holder, the file legitimately persists, and a separate transaction marker (`hasResizeMarker`/`clearResizeMarker`) tracks actual resize phases. Proven both ways on one VM with one guard file present throughout: delete while running → the resize error; stop, then delete, same file still on disk → success. So read that error as **"the VM is probably running"** — stop it and retry — and leave the dotfiles alone; removing them neither helps nor harms. The full chain is in the source: the message is `DiskResizeError.resizeInProgress` (`Errors.swift:259`), and `LumeController.swift`'s delete throws exactly that case the moment `tryAcquireResizeGuard(exclusive: true)` cannot take the flock — which a running VM guarantees. The genuinely interrupted resize is a *separate* check (`validateNoPendingResize()` / `hasResizeMarker()`), and the enum even has a `.vmRunning` case ("stop it first") that this path never uses. The wrong case gets narrated; your memory of what you ran is fine. The disk itself is a sparse image at the configured size — 100 GiB apparent, a fraction allocated — and lume's actual resize feature is increase-only and requires a stopped VM.
+- **The resize error on a running VM is misdirection, and the guard dotfiles are inert.** `lume delete --force` and `lume clone` against a **running** VM fail with `A previous disk resize of <name> did not finish. Re-run the same command to roll it back…` — even when no resize was ever requested. The source explains the shape of it: `~/.lume/.<name>.resize.guard` is an **flock target**, not a state marker (`VMDirectory.swift`: `tryAcquireResizeGuard` creates the file if missing, then takes a non-blocking `flock()`); the lock dies with its holder, the file legitimately persists, and a separate transaction marker (`hasResizeMarker`/`clearResizeMarker`) tracks actual resize phases. Proven both ways on one VM with one guard file present throughout: delete while running → the resize error; stop, then delete, same file still on disk → success. So read that error as **"the VM is probably running"** — stop it and retry — and leave the dotfiles alone. Removing one never helps, and while any lume process is live it can defeat the lock outright: `flock` binds to the open file, so after an unlink the next operation recreates the guard as a new inode and locks *that*, and two processes can then each hold "the" lock. Harmless only when nothing is running, pointless always. The full chain is in the source: the message is `DiskResizeError.resizeInProgress` (`Errors.swift:259`), and `LumeController.swift`'s delete throws exactly that case the moment `tryAcquireResizeGuard(exclusive: true)` cannot take the flock — which a running VM guarantees. The genuinely interrupted resize is a *separate* check (`validateNoPendingResize()` / `hasResizeMarker()`), and the enum even has a `.vmRunning` case ("stop it first") that this path never uses. The wrong case gets narrated; your memory of what you ran is fine. The disk itself is a sparse image at the configured size — 100 GiB apparent, a fraction allocated — and lume's actual resize feature is increase-only and requires a stopped VM.
 - **`$ip` goes stale.** A deleted and re-created VM comes up on a new address (`…64.3` → `…64.4` here), and the unattended setup **stops the VM when it finishes** — so an `ssh … Operation timed out` right after `lume create` usually means "not started, and your captured address is last VM's." `lume run` first, then re-capture `ip=` after every create, clone, or run.
 - **`ssh-copy-id` with no `-i` installs every key in the agent** — two landed here. Public halves only, so nothing secret reaches the guest; still, name one key explicitly, or keep a dedicated throwaway pair for VMs.
 - **TCC blocks sshd from `~/Downloads`, `~/Documents`, `~/Desktop`** — `ls` over ssh returns `Operation not permitted` even under sudo, because the privacy prompt that would grant Full Disk Access has no way to appear. Work in `~` or `~/work` over ssh.
