@@ -80,7 +80,7 @@ until lume ssh macos-run 'mount | grep -q AppleVirtIOFS'; do sleep 5; done
 lume ssh macos-run 'mkdir -p ~/work && cp -R "/Volumes/My Shared Files/." ~/work/ && \
   cd ~/work && act --job spec --platform macos-latest=-self-hosted \
     --container-architecture darwin/arm64 --quiet'
-lume delete macos-run --force                          # stops it too; no lume stop
+lume_teardown macos-run                                # stop-if-running, then delete
 ```
 
 **Leaving Colima up** between runs is fine and saves the boot; `colima stop` is for reclaiming the VM's memory. `--pull=false` after the first run skips the image check.
@@ -225,7 +225,7 @@ lume run --no-display --shared-dir "${PWD}:ro" macos-run &
 until lume ssh macos-run 'mount | grep -q AppleVirtIOFS'; do sleep 5; done   # the share, not the mount point
 lume ssh macos-run 'mkdir -p ~/work && cp -R "/Volumes/My Shared Files/." ~/work/ && cd ~/work && act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet'
 
-lume delete macos-run --force                             # stops it too; no lume stop
+lume_teardown macos-run                                   # stop-if-running, then delete
 ```
 
 <!-- rumdl-enable MD013 -->
@@ -351,11 +351,26 @@ The alternative shape — a `Defaults:lume timestamp_timeout=60` entry instead o
 
 Incidental findings from the same runs, each of which costs real time to rediscover:
 
-- **`lume stop` on a VM that is not running can hang.** It reports `Found process N holding lock on config file` and then blocks indefinitely, taking the rest of a `;`-chained command with it. `lume delete --force` stops a running VM by itself, so a teardown line needs no `lume stop` at all — drop it rather than guarding it.
+- **Teardown has to branch on state, because both halves fail in opposite directions.** `lume stop` on a VM that is *not* running can hang — it reports `Found process N holding lock on config file` and blocks indefinitely, taking the rest of a `;`-chained command with it. It is not idempotent either: repeated stops each "find" a fresh PID (its own probe) and hang again. And `lume delete --force` on a VM that *is* running fails — with a misleading error dissected in the next bullet. So check first:
+
+  ```sh
+  lume_teardown() {
+    [ "$(lume ls --format=json | jq -r ".[]|select(.name==\"$1\").status")" = running ] && lume stop "$1"
+    lume delete "$1" --force
+  }
+  ```
+
+- **The resize error on a running VM is misdirection, and the guard dotfiles are inert.** `lume delete --force` and `lume clone` against a **running** VM fail with `A previous disk resize of <name> did not finish. Re-run the same command to roll it back…` — even when no resize was ever requested. The source explains the shape of it: `~/.lume/.<name>.resize.guard` is an **flock target**, not a state marker (`VMDirectory.swift`: `tryAcquireResizeGuard` creates the file if missing, then takes a non-blocking `flock()`); the lock dies with its holder, the file legitimately persists, and a separate transaction marker (`hasResizeMarker`/`clearResizeMarker`) tracks actual resize phases. Proven both ways on one VM with one guard file present throughout: delete while running → the resize error; stop, then delete, same file still on disk → success. So read that error as **"the VM is probably running"** — stop it and retry — and leave the dotfiles alone; removing them neither helps nor harms. The full chain is in the source: the message is `DiskResizeError.resizeInProgress` (`Errors.swift:259`), and `LumeController.swift`'s delete throws exactly that case the moment `tryAcquireResizeGuard(exclusive: true)` cannot take the flock — which a running VM guarantees. The genuinely interrupted resize is a *separate* check (`validateNoPendingResize()` / `hasResizeMarker()`), and the enum even has a `.vmRunning` case ("stop it first") that this path never uses. The wrong case gets narrated; your memory of what you ran is fine. The disk itself is a sparse image at the configured size — 100 GiB apparent, a fraction allocated — and lume's actual resize feature is increase-only and requires a stopped VM.
 - **`$ip` goes stale.** A deleted and re-created VM comes up on a new address (`…64.3` → `…64.4` here), and the unattended setup **stops the VM when it finishes** — so an `ssh … Operation timed out` right after `lume create` usually means "not started, and your captured address is last VM's." `lume run` first, then re-capture `ip=` after every create, clone, or run.
 - **`ssh-copy-id` with no `-i` installs every key in the agent** — two landed here. Public halves only, so nothing secret reaches the guest; still, name one key explicitly, or keep a dedicated throwaway pair for VMs.
 - **TCC blocks sshd from `~/Downloads`, `~/Documents`, `~/Desktop`** — `ls` over ssh returns `Operation not permitted` even under sudo, because the privacy prompt that would grant Full Disk Access has no way to appear. Work in `~` or `~/work` over ssh.
 - **`--ipsw latest` downloads the restore image itself** (~18 GB), so the separate `curl` is optional: keep the local `.ipsw` when you expect to rebuild baselines, use `latest` when you do not.
+- **Telemetry defaults to ON — disable it once** (`lume config telemetry disable`; `lume config get` shows the current state). Same stance as `HOMEBREW_NO_ANALYTICS=1` in the org's `brew.env`: pseudonymous or not, analytics from dev tooling is opted out uniformly.
+- **Never `lume update` on a Homebrew install, and gate the update check.** Applying an update through lume itself would put a non-brew binary where brew expects its own; upgrades come from `brew upgrade lume`. `LUME_UPDATE_CHECK=false` in the shell profile disables the read-only GitHub Releases request behind `lume check-update`, `lume update`, *and* the MCP `check_for_update` tool — worth setting so no scripted or MCP path phones out either. Telemetry has both forms: `lume config telemetry disable|enable|status|reset-id` persists the preference, and `LUME_TELEMETRY_ENABLED` overrides it per process.
+- **`--cpu`/`--memory` exist on `create` (defaults 4 cores / 8 GB; clones inherit).** The defaults are right for the baseline build — the CLT install and Homebrew benefit — and fine for run clones too; trim a clone's memory only if the host is under pressure, not on principle.
+- **Do not hand-clone with `cp -c` instead of `lume clone`.** The clone is already copy-on-write — 27 GB of allocated image cloned in about two seconds — and, more importantly, `lume clone` regenerates the VM's identity: the cloned `config.json` carries a fresh `macAddress` *and* `machineIdentifier`. A `clonefile(2)` copy would duplicate both onto the same NAT segment, and fixing that by hand-editing `config.json` is just reimplementing `lume clone` badly.
+- **There is no quiet flag** (nothing matching quiet/verbose/log-level in 0.4.0's help); every command narrates at INFO. Filter with `grep -v '^\['` where it matters.
+- **Alternatives were weighed, and lume stays.** [Tart](https://github.com/cirruslabs/tart) is the automation-native comparison (COW clones, registry images, built for macOS CI), but it has no equivalent of lume's offline unattended setup: its answer to "where does a ready guest come from" is prebuilt images pulled from a registry, trading the provenance of building locally from an Apple restore image for trust in a third party's image — and its Fair Source license needs reading besides. VirtualBuddy is GUI-first, the wrong shape for a scripted flow. lume's IPSW-plus-offline-preset path is the differentiator that fits here.
 - **Pre-installing the CLT by hand** (replicating the installer's `softwareupdate` block) is possible but unnecessary once the grant removes the race — and the transcribed attempt is a caution: a multi-line quoted `softwareupdate` pipeline with an unbalanced `if` and a variable borrowed from the installer's internals is exactly the kind of command the quoting rules above exist to prevent.
 
 ### Networking: working, with one loose end
