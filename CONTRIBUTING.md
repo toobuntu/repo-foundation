@@ -49,5 +49,5 @@ repo-foundation is not an ordinary repository — a change here can rewrite a fi
   act --container-architecture=NOASSERTION pull_request --validate
   ```
 
-  Actually running a job needs a container backend and a few non-obvious flags. The copy-paste forms, the Colima lifecycle, and why each flag is there are in [`docs/act-preflight.md`](docs/act-preflight.md) — start at its Quick reference.
+  Actually running a job needs a container backend and a few non-obvious flags. The copy-paste forms, the Colima lifecycle, and why each flag is there are in [`docs/testing-github-workflows-locally.md`](docs/testing-github-workflows-locally.md) — start at its Quick reference.
 - **Run the gates locally** before pushing: `bundle exec rspec`, `reuse lint`, `scripts/lint-unicode.sh .`, `scripts/lint-perms.sh --tracked`, `adrs doctor`, `rumdl check .`, `git ls-files '*.md' | xargs vale` (vale has no `.gitignore` support, so a bare `vale .` also scans vendored docs), `actionlint`, and `zizmor .`. The agent commit-and-signing procedure for sandboxed work is in `docs/agent-principles.md`.

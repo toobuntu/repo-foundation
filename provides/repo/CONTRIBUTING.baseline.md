@@ -32,6 +32,10 @@ scripts/annotate.sh
 
 Markdown files with YAML frontmatter (Architectural Decision Records, Claude Code skills, MkDocs pages) need care: the SPDX block must not push the frontmatter off file position 1, or the tools that parse it (`adrs doctor`, Claude Code's skill loader) break. Let `scripts/annotate.sh` decide: it runs `reuse annotate --style=html` for `.md` files, which is frontmatter-aware and inserts the SPDX block as `#` comments *inside* the frontmatter, above the other keys — so the frontmatter still opens at line 1 and parses cleanly. Never hand-place the SPDX block above or after the frontmatter.
 
+## Testing workflows before you push
+
+The CI workflows in this repository can be exercised locally with [`act`](https://github.com/nektos/act) — a schema check needs nothing but `act` itself, and a real run of an `ubuntu-latest` job needs only Colima. The copy-paste forms, the flags that are hard to discover, and a VM-isolated flow for the macOS job are in `docs/testing-github-workflows-locally.md` (synced into this repository; canonical copy [in repo-foundation](https://github.com/toobuntu/repo-foundation/blob/main/docs/testing-github-workflows-locally.md)); start at its Quick reference.
+
 ## Commits and pull requests
 
 - Subject line ≤ 50 characters; body wraps at 72.

@@ -4,15 +4,15 @@ SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# Preflighting workflows with act
+# Testing GitHub workflows locally
 
-[`act`](https://github.com/nektos/act) runs GitHub Actions workflows locally, before a push, so a workflow edit can be checked without burning a CI round-trip. It is a **developer preflight tool**, never part of CI itself. This page records what works for repo-foundation's workflows on an Apple-silicon Mac with Colima, verified by running them, and what each flag is for — because the flags are hard to discover.
+[`act`](https://github.com/nektos/act) runs GitHub Actions workflows locally, before a push, so a workflow edit can be checked without burning a CI round-trip. It is a developer tool, never part of CI itself. This page records what works for this organization's workflows on an Apple-silicon Mac with Colima, verified by running them, and what each flag is for — because the flags are hard to discover. The page is canonical, synced from repo-foundation: the job names in the examples are the synced org workflows, present in every consumer unless marked otherwise, and the transcripts were recorded in repo-foundation, the hub.
 
 ## Quick reference
 
 Copy-paste forms for the common cases. Everything below is explained in the sections that follow.
 
-**Pick the event first.** `act` defaults to `push`, and a job whose workflow does not list `push` is then simply invisible — `scaffold-drift` (`schedule`) and `sync-from-upstreams` (`schedule`, `workflow_dispatch`) are the ones that catch people here. The event is a bare positional argument. List what an event actually reaches before running anything:
+**Pick the event first.** `act` defaults to `push`, and a job whose workflow does not list `push` is then simply invisible — `scaffold-drift` (`schedule`) is the one that catches people in every repo; repo-foundation's own `sync-from-upstreams` (`schedule`, `workflow_dispatch`) is another. The event is a bare positional argument. List what an event actually reaches before running anything:
 
 ```sh
 act --list                    # every job, with the events each responds to

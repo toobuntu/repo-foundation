@@ -264,6 +264,10 @@ component_sets:
     # Scheduled scaffold-staleness nudge (ADR 0015); pairs with the synced
     # scripts/foundation-doctor.sh it runs.
     - { source: .github/workflows/scaffold-drift.yml,    target: .github/workflows/scaffold-drift.yml,    mode: canonical }
+    # How to run the workflows above locally with act (validate, dryrun, real
+    # runs, the lume VM isolation flow). Rides ci_core because it documents
+    # exactly the workflows this set delivers.
+    - { source: docs/testing-github-workflows-locally.md, target: docs/testing-github-workflows-locally.md, mode: canonical }
     # Foundation guard: required PR check rejecting consumer edits to
     # repo-foundation-managed files (the engine's --guard mode; sync-App PRs
     # exempt; branch protection requiring the check by name is the tamper
