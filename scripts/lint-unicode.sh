@@ -21,20 +21,90 @@
 # heredoc state and rewrite an embedded Python body as if it were shell. That
 # is how this file was corrupted once already.
 #
+# SCOPE is the unit of policy here, not the entry point that happens to invoke
+# it. Three scopes exist; this script implements the second and third:
+#
+#   staged   No staged change introduces a finding. Owned by the
+#            .githooks/pre-commit.d/80-unicode plugin, NOT by this script, and
+#            deliberately not offered as a --scope value: the plugin reads
+#            staged BLOBS via `git cat-file`, which is not the same content as
+#            the working-tree file at a staged path, and it must stay
+#            dependency-free so a consumer can take the hooks without scripts/.
+#   tracked  The tracked repository is clean. The default, and what CI runs.
+#   tree     The whole working tree is clean, vendored and generated content
+#            included. Trojan Source deceives the human reading a diff rather
+#            than the compiler, so a dependency nothing here builds is still in
+#            scope; the remediation for a finding under vendor/ is an upstream
+#            report. See ADR 0006 for where this scope is exercised.
+#
 # Usage:
-#   scripts/lint-unicode.sh           # scan all tracked files (git ls-files)
-#   scripts/lint-unicode.sh PATH...   # scan given files; directories walked
+#   scripts/lint-unicode.sh                  # --scope=tracked (the default)
+#   scripts/lint-unicode.sh --scope=tracked  # same, said out loud
+#   scripts/lint-unicode.sh --scope=tree     # whole working tree
+#   scripts/lint-unicode.sh PATH...          # exactly these; directories walked
+#
+# A path list narrows whichever scope applies. Without --scope the default is
+# `tracked` when no path is given and `tree` when one is, which is what makes
+# `lint-unicode.sh some/dir` scan that directory rather than intersecting it
+# with the index.
 #
 # LINT_UNICODE_NO_PYTHON=1 forces the shell fallback (test seam).
 
 set -eu
 
-# Collect files to scan into a newline-delimited list. No args: tracked files.
-# Args: the given files; a directory argument is walked, pruning .git.
+scope=""
+
+die() {
+  printf '%s: %s\n' "${0##*/}" "$1" >&2
+  exit 2
+}
+
+usage() {
+  printf 'Usage: %s [--scope=tracked|tree] [PATH...]\n\n' "${0##*/}"
+  printf '  --scope=tracked  files git tracks (the default, and what CI runs)\n'
+  printf '  --scope=tree     the whole working tree, vendored content included\n'
+  printf '  PATH...          exactly these paths; directories are walked\n\n'
+  printf 'Scope "staged" is the pre-commit plugin: it reads staged blobs,\n'
+  printf 'which a path-based scan cannot reproduce. See ADR 0006.\n'
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+  --scope=*) scope="${1#--scope=}" ;;
+  --scope)
+    [ "$#" -ge 2 ] || die "--scope needs a value (tracked or tree)"
+    scope=$2
+    shift
+    ;;
+  --help | -h)
+    usage
+    exit 0
+    ;;
+  --)
+    shift
+    break
+    ;;
+  -*) die "unknown option: $1" ;;
+  *) break ;;
+  esac
+  shift
+done
+
+case "${scope:-}" in
+staged) die "scope 'staged' belongs to the pre-commit plugin, not this script" ;;
+tracked | tree) ;;
+"") if [ "$#" -eq 0 ]; then scope=tracked; else scope=tree; fi ;;
+*) die "unknown scope: $scope (expected tracked or tree)" ;;
+esac
+
+# Collect files to scan into a newline-delimited list.
 collect_files() {
-  if [ "$#" -eq 0 ]; then
-    git ls-files
-  else
+  case "$scope" in
+  tracked)
+    if [ "$#" -eq 0 ]; then git ls-files; else git ls-files -- "$@"; fi
+    ;;
+  tree)
+    [ "$#" -gt 0 ] || set -- .
     for _p in "$@"; do
       if [ -d "$_p" ]; then
         find "$_p" -name .git -prune -o -type f -print
@@ -42,7 +112,9 @@ collect_files() {
         printf '%s\n' "$_p"
       fi
     done
-  fi
+    ;;
+  *) die "unreachable scope: $scope" ;;
+  esac
 }
 
 _files_tmp=$(mktemp "${TMPDIR:-/tmp}/lint-unicode.XXXXXX")

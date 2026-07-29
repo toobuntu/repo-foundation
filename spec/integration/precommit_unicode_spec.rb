@@ -301,6 +301,43 @@ RSpec.describe "CI lint-unicode scanner" do
     end
   end
 
+  # ADR 0006, amended 2026-07-29: scope is a named argument, not an implication
+  # of which git event happened to invoke the script.
+  describe "explicit scope selection" do
+    it "rejects scope 'staged', which belongs to the pre-commit plugin" do
+      _out, err, status = Open3.capture3(LINT_UNICODE_PATH, "--scope=staged")
+      expect(status.exitstatus).to eq(2)
+      expect(err).to match(/pre-commit plugin/)
+    end
+
+    it "rejects an unknown scope rather than falling back to a default" do
+      _out, err, status = Open3.capture3(LINT_UNICODE_PATH, "--scope=everything")
+      expect(status.exitstatus).to eq(2)
+      expect(err).to match(/unknown scope/)
+    end
+
+    it "finds an untracked file under --scope=tree" do
+      Dir.mktmpdir("rf-scope-test-") do |dir|
+        Open3.capture3("git", "init", "--quiet", dir)
+        File.write(File.join(dir, "evil.c"), "int x;#{BIDI_OVERRIDE_RLO}\n")
+        _out, err, status = Open3.capture3(LINT_UNICODE_PATH, "--scope=tree", chdir: dir)
+        expect(status.success?).to eq(false), "stderr=#{err.inspect}"
+        expect(err).to include("evil.c")
+      end
+    end
+
+    # The complement, and the reason scope 3 needed its own automation: the
+    # default scope cannot see a file git does not track.
+    it "misses that same untracked file under the default scope" do
+      Dir.mktmpdir("rf-scope-test-") do |dir|
+        Open3.capture3("git", "init", "--quiet", dir)
+        File.write(File.join(dir, "evil.c"), "int x;#{BIDI_OVERRIDE_RLO}\n")
+        _out, err, status = Open3.capture3(LINT_UNICODE_PATH, chdir: dir)
+        expect(status.success?).to eq(true), "stderr=#{err.inspect}"
+      end
+    end
+  end
+
   # ADR 0006, amended 2026-07-29. The Cc extension reaches ordinary binary
   # content, because a fixture holding a NUL decodes as valid UTF-8 and so
   # looks like text to the encoding check. Each finding is confirmed against
