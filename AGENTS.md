@@ -28,9 +28,13 @@ repo-foundation is the org-wide canonical source for the toobuntu repositories (
 # example fails on a bundler it cannot load.
 RB="$(brew --repository)/Library/Homebrew/vendor/portable-ruby/current/bin"
 env -P"$RB:$PATH" PATH="$RB:$PATH" bundle exec rspec
-# Whole-tree gates (each also a CI job):
+# Whole-tree gates (each also a CI job). Every one of them is scoped to
+# TRACKED files, because `bundle install` populates a vendor/bundle/ that is
+# gitignored but still on disk: a bare directory walk there scans other
+# people's gems. lint-unicode.sh with no argument is the git ls-files form and
+# is exactly what CI runs; passing it `.` is not.
 reuse lint            # REUSE/SPDX compliance
-scripts/lint-unicode.sh .   # Trojan-Source / invisible-Unicode scan
+scripts/lint-unicode.sh     # Trojan-Source / invisible-Unicode scan
 scripts/lint-perms.sh --tracked   # executable-bit policy
 adrs doctor           # ADR sequence and structure
 rumdl check .         # Markdown structure + soft-wrap (ADR 0020)
