@@ -21,9 +21,13 @@ repo-foundation is the org-wide canonical source for the toobuntu repositories (
 ## Build, test, and lint
 
 ```sh
-# RSpec hook/engine suite under Homebrew's portable Ruby (ADR 0011):
-env -P"$(brew --repository)/Library/Homebrew/vendor/portable-ruby/current/bin:$PATH" \
-  bundle exec rspec
+# RSpec hook/engine suite under Homebrew's portable Ruby (ADR 0011). PATH is
+# passed twice on purpose: BSD `env -P` uses the alternate path only to locate
+# the utility it runs, so without the explicit assignment every process the
+# suite spawns falls back to the frozen system Ruby 2.6 and one integration
+# example fails on a bundler it cannot load.
+RB="$(brew --repository)/Library/Homebrew/vendor/portable-ruby/current/bin"
+env -P"$RB:$PATH" PATH="$RB:$PATH" bundle exec rspec
 # Whole-tree gates (each also a CI job):
 reuse lint            # REUSE/SPDX compliance
 scripts/lint-unicode.sh .   # Trojan-Source / invisible-Unicode scan
