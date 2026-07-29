@@ -8,9 +8,25 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 [`act`](https://github.com/nektos/act) runs GitHub Actions workflows locally, before a push, so a workflow edit can be checked without burning a CI round-trip. It is a developer tool, never part of CI itself. This page records what works for this organization's workflows on an Apple-silicon Mac with Colima, verified by running them, and what each flag is for — because the flags are hard to discover. The page is canonical, synced from repo-foundation: the job names in the examples are the synced org workflows, present in every consumer unless marked otherwise, and the transcripts were recorded in repo-foundation, the hub.
 
+## The wrapper
+
+`scripts/act-run.sh` carries the flag combinations below so you do not have to. It is a thin wrapper, not an abstraction — every flag it passes is documented on this page, and `--` hands the rest through to act:
+
+```sh
+scripts/act-run.sh list [<event>]     # jobs act can see, optionally for one event
+scripts/act-run.sh validate           # schema check; no daemon
+scripts/act-run.sh plan <job>         # every step planned, none executed; no daemon
+scripts/act-run.sh linux <job>        # one ubuntu-latest job, Colima lifecycle included
+scripts/act-run.sh macos <job>        # one macos-latest job, on this host, after a prompt
+```
+
+`--offline` adds `--pull=false --action-offline-mode`, `--keep-colima` leaves the VM up between runs, and `--yes` skips the host-run prompt. The `linux` subcommand starts Colima only if it is down and stops it from an `EXIT` trap, so an already-running daemon is never taken out from under something else and a failed job still cleans up.
+
+Read the rest of this page when a run surprises you. The wrapper encodes the answers; the sections below are why they are the answers.
+
 ## Quick reference
 
-Copy-paste forms for the common cases. Everything below is explained in the sections that follow.
+Copy-paste forms for the common cases, and what the wrapper is doing on your behalf. Everything below is explained in the sections that follow.
 
 **Pick the event first.** `act` defaults to `push`, and a job whose workflow does not list `push` is then simply invisible — `scaffold-drift` (`schedule`) is the one that catches people in every repo; repo-foundation's own `sync-from-upstreams` (`schedule`, `workflow_dispatch`) is another. The event is a bare positional argument. List what an event actually reaches before running anything:
 
