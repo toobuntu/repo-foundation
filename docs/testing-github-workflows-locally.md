@@ -153,9 +153,45 @@ macOS jobs need no backend at all.
 | `--container-daemon-socket=-` | Do **not** bind-mount the Docker socket into the container. | **Required with Colima** for container jobs — else `act` tries to mount `~/.colima/docker.sock` and Colima rejects it (`operation not supported`). The jobs here don't talk to Docker, so `-` is correct. |
 | `--dryrun` | Plan every step; execute nothing. | Quick structure check. |
 | `--validate` | Schema-check the workflow files. | Quick structure check. |
-| `--pull=false` | Reuse an already-pulled image. | After the first (slow) pull. |
+| `--pull=false` | Skip the registry check and use the local image. | Offline, or pinning behavior for a debugging session. Not needed for speed — see below. |
 
 A `~/.actrc` (or `~/Library/Application Support/act/actrc`) holds machine defaults; act ships one mapping `ubuntu-latest` to the medium `act-latest` image. This repo commits no `.actrc` — the useful flags describe your Colima and arch, not the project.
+
+`act --list-options` prints every flag with its default and description as JSON, which is the reliable way to check one rather than trusting a remembered default.
+
+## Image caching: you do not need to manage it
+
+The runner image is large enough that "am I re-downloading this every run?" is the natural worry. You are not, and the four flags that look like they control it mostly control something else.
+
+**`--pull` defaults to true and that is fine.** It does not re-download; it asks the registry whether the local digest is still current. Under `--verbose` a warm run shows the whole exchange:
+
+```text
+docker pull image=catthehacker/ubuntu:full-latest platform=linux/arm64 forcePull=true
+Status: Image is up to date for catthehacker/ubuntu:full-latest
+```
+
+That is one manifest request, and layers transfer only when the digest actually moved. So the recurring cost of the default is a round trip, not gigabytes, and the freshness comes free. Reach for `--pull=false` when you are offline or when you deliberately want the image held still while you debug something else — not as a routine optimization.
+
+**`--rebuild` is about local actions, not the runner image.** It rebuilds Docker images for `Dockerfile`-based actions in the repository. The org's workflows use none, so it is inert here.
+
+**`--reuse` keeps the container between runs**, which trades reproducibility for speed: a reused container carries the previous run's installed packages and caches, so a failure then has two candidate causes. This is the same argument this page makes for building lume clones from a baseline rather than reusing a guest. Fine for tight iteration on one step, wrong whenever the result matters.
+
+**`--rm` is failure-path hygiene.** A successful run already tears down its container and volumes on its own; `--rm` extends that to failures, which is what stops dead containers accumulating across a debugging session.
+
+**`--action-offline-mode` is the single "use what is on disk" switch.** It skips re-fetching action contents that are already cached and turns off force pull in one flag, which is the right shape for an air-gapped or repeat run.
+
+To check whether the published image has moved without pulling anything, inspect the remote manifest. With Homebrew's `docker` formula the plugin is not wired into the `docker` CLI, so the binary is hyphenated:
+
+```sh
+brew install docker-buildx
+docker-buildx imagetools inspect catthehacker/ubuntu:full-latest \
+  --format '{{json (index .Image "linux/arm64")}}' |
+  jq '{created, version: .config.Labels["org.opencontainers.image.version"]}'
+```
+
+Worth doing once, because the answer is not what you would guess: the arm64 `full-latest` lags GitHub's hosted runner image by months (`ubuntu24-runner-large-…-arm64`, built well before the Ubuntu 26 images the hosted runners moved to). Local arm64 runs therefore exercise an *older* userspace than CI does. That is an argument for leaving `--pull` at its default rather than pinning with `--pull=false`, and a reason to treat a green local run as evidence rather than proof.
+
+**The Colima VM ages separately from the images inside it.** `colima update` updates the container runtime in place. A newer base image, and so a newer kernel and userspace, comes only from recreating the VM (`colima delete` then `colima start`), which discards every image, container and volume it held — so the next act run re-pulls the runner image in full. `colima prune` clears cached downloaded assets without touching the VM. None of this is on a schedule; recreate when you have a reason.
 
 ## The `macos-latest` job (`spec.yml`)
 
