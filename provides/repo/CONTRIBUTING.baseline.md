@@ -39,6 +39,7 @@ The CI workflows in this repository can be exercised locally with [`act`](https:
 ## Commits and pull requests
 
 - Subject line ≤ 50 characters; body wraps at 72.
+- [Conventional Commits](https://www.conventionalcommits.org/) for the subject — `type(scope): summary`, with `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `build`, `ci` as the types. Homebrew-aligned repositories are the exception: Homebrew prohibits Conventional Commits, so its taps and external commands follow Homebrew's own commit style and enforce it with a `Commit Style` check.
 - Reference issues with `Closes #N` in the commit body.
 - No verbose AI commentary in commit messages or PR descriptions; note AI assistance and what manual verification was performed.
 - PRs are merged with **merge commits** (not squash, not rebase), preserving PR identity in `git log --graph` and keeping the original commit authorship and dates. See repo-foundation [ADR 0010](https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0010-merge-strategy.md).
