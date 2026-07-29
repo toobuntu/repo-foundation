@@ -225,10 +225,6 @@ component_sets:
     - { source: scripts/lint-unicode.py,               target: scripts/lint-unicode.py,               mode: canonical }
     - { source: scripts/annotate.sh,                   target: scripts/annotate.sh,                   mode: canonical }
     - { source: scripts/rewrite-pr-as-merge-commit.sh, target: scripts/rewrite-pr-as-merge-commit.sh, mode: canonical }
-    # Wraps act with the flags that fail obscurely when omitted. Pairs with
-    # docs/testing-github-workflows-locally.md in ci_core, which explains each
-    # one; a consumer subscribed to the workflows wants both.
-    - { source: scripts/act-run.sh,                    target: scripts/act-run.sh,                    mode: canonical }
     - { source: scripts/sign-push.sh,           target: scripts/sign-push.sh,           mode: canonical }
     # foundation-doctor runs in each consumer (the scaffold-drift workflow calls
     # it). foundation-init is RF-only — a consumer does not bootstrap others — so
@@ -272,6 +268,12 @@ component_sets:
     # runs, the lume VM isolation flow). Rides ci_core because it documents
     # exactly the workflows this set delivers.
     - { source: docs/testing-github-workflows-locally.md, target: docs/testing-github-workflows-locally.md, mode: canonical }
+    # The wrapper that page documents. It rides ci_core rather than
+    # scripts_core for the same reason the page does: it exists to run these
+    # workflows, so the two must arrive together or the doc names a script the
+    # consumer does not have. scripts_core reaches toobuntu/.github, which
+    # subscribes to no workflows at all and would get a wrapper for nothing.
+    - { source: scripts/act-run.sh,                      target: scripts/act-run.sh,                      mode: canonical }
     # Foundation guard: required PR check rejecting consumer edits to
     # repo-foundation-managed files (the engine's --guard mode; sync-App PRs
     # exempt; branch protection requiring the check by name is the tamper

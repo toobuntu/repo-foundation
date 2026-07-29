@@ -10,7 +10,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 ## The wrapper
 
-`scripts/act-run.sh` carries the flag combinations below so you do not have to. It is a thin wrapper, not an abstraction — every flag it passes is documented on this page, and `--` hands the rest through to act:
+`scripts/act-run.sh` carries the flag combinations below so you do not have to. It is synced alongside this page and the workflows it runs, so it is present wherever this page is. A thin wrapper, not an abstraction — every flag it passes is documented here, and `--` hands the rest through to act:
 
 ```sh
 scripts/act-run.sh list [<event>]     # jobs act can see, optionally for one event
