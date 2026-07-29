@@ -20,6 +20,12 @@
 # as the runner's python3 updates. Per-file opt-out via a
 # `bidi-allow: U+XXXX,U+YYYY` annotation anywhere in the file.
 #
+# A finding is confirmed against file(1)'s MIME type before it is reported,
+# because the Cc extension reaches ordinary binary content: a fixture holding
+# a NUL decodes as valid UTF-8, so the encoding check alone calls it text.
+# Red Hat scopes its own scanner to text/* for the same reason. See
+# `looks_binary` for why the check runs per finding rather than per file.
+#
 # Rationale, codepoint coverage, and alternatives considered (org-wide ADR):
 # https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0006-trojan-source-detection-strategy.md
 
@@ -27,11 +33,37 @@ import codecs
 import contextlib
 import pathlib
 import re
+import subprocess
 import sys
 import unicodedata
 
 ALLOWED = {0x09, 0x0A, 0x0D}  # TAB, LF, CR
 ALLOW_RE = re.compile(r'bidi-allow:\s*([U+0-9A-Fa-f,]+)')
+
+# Separator for `file --mime-type`, so the type can be taken as the field after
+# the LAST occurrence rather than by splitting on ':' (paths contain colons).
+MIME_SEP = '<<lint-unicode-mime>>'
+
+# MIME types whose bytes are not reviewable text, so a control character in one
+# carries no Trojan Source meaning: the attack works by deceiving a human
+# reading source, and nobody reads a JPEG. A DENYLIST, deliberately -- an
+# unrecognized type is scanned, so a format missing from this set costs a false
+# report rather than a silent blind spot. `image/svg+xml` is absent because SVG
+# is XML, and so is exactly the reviewable text this must keep scanning.
+BINARY_MIME_PREFIXES = ('audio/', 'video/', 'font/')
+BINARY_MIME = frozenset({
+    'application/epub+zip', 'application/gzip', 'application/java-archive',
+    'application/octet-stream', 'application/pdf', 'application/postscript',
+    'application/vnd.ms-opentype', 'application/vnd.tcpdump.pcap',
+    'application/x-7z-compressed', 'application/x-archive',
+    'application/x-bzip2', 'application/x-dosexec', 'application/x-executable',
+    'application/x-lzh-compressed', 'application/x-lzip', 'application/x-lzma',
+    'application/x-mach-binary', 'application/x-numpy-data',
+    'application/x-object', 'application/x-pie-executable',
+    'application/x-rar', 'application/x-sharedlib', 'application/x-stuffit',
+    'application/x-tar', 'application/x-xar', 'application/x-xz',
+    'application/zip', 'application/zlib', 'application/zstd',
+})
 
 
 def parse_allow(text):
@@ -100,6 +132,49 @@ def read_utf8(path):
     return (None, None) if b'\x00' in raw else (None, str(path))
 
 
+def is_binary_mime(mime):
+    if mime.startswith(BINARY_MIME_PREFIXES):
+        return True
+    if mime.startswith('image/') and mime != 'image/svg+xml':
+        return True
+    return mime in BINARY_MIME
+
+
+def looks_binary(path):
+    """Ask file(1) whether path holds non-reviewable bytes.
+
+    Consulted ONLY for a file that already produced a finding, never as a
+    pre-filter over the scan list. Two reasons, and the second is the one that
+    matters. Cost: a clean tree spawns no subprocess at all. Correctness: a
+    universal Mach-O binary makes file(1) print one line PER ARCHITECTURE, all
+    but the first prefixed with the filename and ignoring --separator, so any
+    batched run that matched output lines to input paths by position would
+    desync at the first fat binary and misclassify everything after it. Asking
+    one path at a time, only when it matters, cannot desync.
+
+    Every failure returns False, so an absent or confused file(1) reports the
+    finding rather than swallowing it.
+    """
+    try:
+        proc = subprocess.run(
+            ['file', '--mime-type', '--separator', MIME_SEP, '--', str(path)],
+            capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if proc.returncode != 0:
+        return False
+    types = []
+    for line in proc.stdout.decode('utf-8', 'replace').splitlines():
+        # The first line carries --separator; the per-architecture lines that
+        # follow a fat binary carry a tab instead.
+        field = line.rpartition(MIME_SEP)[2] if MIME_SEP in line \
+            else line.rpartition('\t')[2]
+        field = field.strip()
+        if field:
+            types.append(field)
+    return bool(types) and all(is_binary_mime(t) for t in types)
+
+
 def main():
     # The list is written by lint-unicode.sh from git output, which is
     # UTF-8; decoding it in the locale's encoding instead would raise on a
@@ -120,7 +195,7 @@ def main():
         if text is None:
             continue
         allow = parse_allow(text)
-        if any(is_suspicious(c, allow) for c in text):
+        if any(is_suspicious(c, allow) for c in text) and not looks_binary(path):
             bidi_failures.append(str(path))
 
     ok = True

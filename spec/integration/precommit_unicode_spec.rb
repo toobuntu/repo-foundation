@@ -301,6 +301,55 @@ RSpec.describe "CI lint-unicode scanner" do
     end
   end
 
+  # ADR 0006, amended 2026-07-29. The Cc extension reaches ordinary binary
+  # content, because a fixture holding a NUL decodes as valid UTF-8 and so
+  # looks like text to the encoding check. Each finding is confirmed against
+  # file(1) before it is reported.
+  describe "binary content is confirmed against file(1) before reporting" do
+    it "passes a binary fixture whose only control character is a NUL" do
+      Dir.mktmpdir("rf-ci-test-") do |dir|
+        File.binwrite(File.join(dir, "fixture.bin"), "hello\x00".b)
+        _out, err, status = run_scanner_in(dir)
+        expect(status.success?).to eq(true), "stderr=#{err.inspect}"
+      end
+    end
+
+    it "passes a binary holding bidi bytes, which no reviewer reads as source" do
+      Dir.mktmpdir("rf-ci-test-") do |dir|
+        File.binwrite(File.join(dir, "blob.bin"),
+                      "#{BIDI_OVERRIDE_RLO}\x00\x00\x00junk\x00".b)
+        _out, err, status = run_scanner_in(dir)
+        expect(status.success?).to eq(true), "stderr=#{err.inspect}"
+      end
+    end
+
+    # The guard against re-opening the hole the encoding check closed: a NUL
+    # embedded in real source must still be reported. file(1) identifies a
+    # script by its shebang even with a NUL in it, so the type stays text/*.
+    it "still rejects a NUL embedded in real source" do
+      Dir.mktmpdir("rf-ci-test-") do |dir|
+        File.binwrite(File.join(dir, "script.sh"),
+                      "#!/bin/sh\necho hi\n\x00\nmore code\n".b)
+        _out, err, status = run_scanner_in(dir)
+        expect(status.success?).to eq(false), "stderr=#{err.inspect}"
+        expect(err).to include("script.sh")
+      end
+    end
+
+    # A denylist, not an allowlist: file(1) reports application/json for JSON,
+    # which a literal text/* allowlist would have stopped scanning. Seven
+    # tracked files in this repository alone are that type.
+    it "still rejects a bidi override in JSON, which file(1) calls application/json" do
+      Dir.mktmpdir("rf-ci-test-") do |dir|
+        File.write(File.join(dir, "config.json"),
+                   %({\n  "name": "x#{BIDI_OVERRIDE_RLO}"\n}\n))
+        _out, err, status = run_scanner_in(dir)
+        expect(status.success?).to eq(false), "stderr=#{err.inspect}"
+        expect(err).to include("config.json")
+      end
+    end
+  end
+
   describe "POSIX-sh fallback (LINT_UNICODE_NO_PYTHON=1)" do
     # The shell path covers the fixed bidi/zero-width/BOM set only — the
     # accepted floor when python3 is unavailable (repo-foundation ADR 0006).

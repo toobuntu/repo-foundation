@@ -86,6 +86,20 @@ Extending the scanner to **Cc (Control)** raises a fair question: does it reject
 
 The upshot: normal colorized-output code is never affected; only a raw, invisible byte physically in the file is — and even then there is a file-local escape hatch.
 
+#### Amendment (2026-07-29) — a finding is confirmed against `file(1)` before it is reported
+
+The Cc extension above has a consequence the original decision did not follow through: it reaches ordinary **binary** content. A fixture whose whole contents are `hello\0` decodes as perfectly valid UTF-8 — U+0000 is a legal codepoint — so the encoding check classifies it as text and the Cc sweep reports the NUL. Observed on two `diff-lcs` fixtures under `vendor/bundle/` during a whole-tree scan. Red Hat's own scanner never hits this: `should_read()` shells out to `file --mime-type` and scans only `text/*`, and its broadest mode (`-p all`) is `category.startswith('C') and category != 'Cc'`, whose comment says the ASCII control characters are omitted deliberately. Upstream therefore excludes Cc in *both* modes, so the extension is this project's alone to make safe.
+
+The scanner now confirms each finding against `file(1)`'s MIME type and drops it when the type names a format whose bytes are not reviewable text. Three properties are load-bearing:
+
+- **Per finding, not per file.** A clean tree spawns no subprocess at all. More important, `file(1)` prints one line *per architecture* for a universal Mach-O binary, all but the first prefixed with the filename and ignoring `--separator` — so a batched run correlating output lines to input paths by position desyncs at the first fat binary and misclassifies everything after it. Asking one path at a time, only when a finding already exists, cannot desync.
+- **A denylist, not an allowlist.** The failure modes are asymmetric: a file wrongly called binary is a *missed scan*, a file wrongly called text is *noise*, and only the first is a security failure. A MIME census across the maintainer's whole tree found `application/json` (7 tracked files in this repository alone), `application/x-setupscript`, and `image/svg+xml` — all reviewable source that a literal `text/*` allowlist would have stopped scanning. An unrecognized type is therefore scanned.
+- **Every error path reports.** An absent, failing, or unparseable `file(1)` yields no suppression.
+
+This does not reopen the hole the encoding check closed: `file(1)` identifies a shell script by its shebang even with an embedded NUL, so real source carrying a stray control byte is still `text/x-shellscript` and still reported. Verified against five cases — U+202E in source, a NUL inside a real script, a binary fixture, bidi bytes inside a binary, and an annotated opt-out.
+
+The `bidi-allow:` annotation is unaffected and remains the only exemption mechanism. A central exceptions registry keyed by path (with justifications and expiry dates) was considered and declined: it is the repo-root config file already rejected below under a new name, MIME confirmation removes the case that motivated it, expiry dates make a gate go red on a date a fixture did not change, and a path-keyed file cannot sync byte-identically to consumers.
+
 ### Per-file opt-out
 
 A `bidi-allow: U+XXXX,U+YYYY` annotation **anywhere in the file** declares which codepoints from the blocked set the file is allowed to contain. Both layers honor it:
