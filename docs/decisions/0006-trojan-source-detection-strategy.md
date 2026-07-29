@@ -98,6 +98,18 @@ The scanner now confirms each finding against `file(1)`'s MIME type and drops it
 
 This does not reopen the hole the encoding check closed: `file(1)` identifies a shell script by its shebang even with an embedded NUL, so real source carrying a stray control byte is still `text/x-shellscript` and still reported. Verified against five cases — U+202E in source, a NUL inside a real script, a binary fixture, bidi bytes inside a binary, and an annotated opt-out.
 
+#### Amendment (2026-07-29) — scope is named, and the widest one is automated
+
+The three checks above had been described by the git event that ran them — hook, CI job, ad-hoc — which made the entry point look like the policy and left the widest check reachable only by someone who remembered to type it. Naming the scopes instead:
+
+1. **staged** — no staged change introduces a finding. The `80-unicode` plugin, and only it: the plugin reads staged *blobs*, which is not the same content as the working-tree file at a staged path, and it must stay dependency-free (a consumer may take the hooks without `scripts/`). `scripts/lint-unicode.sh --scope=staged` is therefore an error rather than a second implementation.
+2. **tracked** — the tracked repository is clean. `--scope=tracked`, the default, run by the `lint-unicode` CI job.
+3. **tree** — the whole working tree is clean, vendored and generated content included. `--scope=tree`.
+
+Scope 3 was the hole: nothing but a human or an agent exercised it, which is not automation. The fix rests on a fact that looked like an obstacle. A CI runner has no untracked files *at checkout*, but it does after installing dependencies — `spec.yml` runs `bundler-cache: true` and `.bundle/config` sets `BUNDLE_PATH: vendor/bundle`, so by the end of that job the runner holds exactly the vendored source in question. Scope 3 therefore runs as the last step of the `spec` job. A *scheduled* job on a bare checkout would have seen nothing, which is why one was considered and rejected.
+
+Two limits, stated rather than papered over. The scan covers what CI installs, so an ecosystem whose dependencies the workflows do not fetch is not covered by that job; and it does not see a developer's local untracked files, which is correct — those belong to scope 1 once staged. Release automation is the natural second home for scope 3 when this organization has one; that is a follow-up, not a gap this amendment leaves open.
+
 The `bidi-allow:` annotation is unaffected and remains the only exemption mechanism. A central exceptions registry keyed by path (with justifications and expiry dates) was considered and declined: it is the repo-root config file already rejected below under a new name, MIME confirmation removes the case that motivated it, expiry dates make a gate go red on a date a fixture did not change, and a path-keyed file cannot sync byte-identically to consumers.
 
 ### Per-file opt-out

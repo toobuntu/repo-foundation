@@ -30,7 +30,7 @@ RB="$(brew --repository)/Library/Homebrew/vendor/portable-ruby/current/bin"
 env -P"$RB:$PATH" PATH="$RB:$PATH" bundle exec rspec
 # Whole-tree gates (each also a CI job):
 reuse lint            # REUSE/SPDX compliance
-scripts/lint-unicode.sh .   # Trojan-Source / invisible-Unicode scan
+scripts/lint-unicode.sh --scope=tree   # Trojan-Source / invisible-Unicode scan
 scripts/lint-perms.sh --tracked   # executable-bit policy
 adrs doctor           # ADR sequence and structure
 rumdl check .         # Markdown structure + soft-wrap (ADR 0020)
@@ -39,7 +39,7 @@ actionlint && zizmor .      # workflow syntax and security
 act --container-architecture=NOASSERTION --validate   # runner's own workflow parser
 ```
 
-**`lint-unicode.sh` has three scopes, and the argument selects one.** The `80-unicode` pre-commit plugin scans **staged blobs**; CI runs the script with **no argument**, which is the `git ls-files` form and covers tracked files; `scripts/lint-unicode.sh .` walks the **whole tree**, vendored dependencies included, and is the audit form shown above. The widest scope is deliberate rather than sloppy: Trojan Source attacks the human reading a diff, not the compiler, so a reviewer skimming a dependency is deceivable even though nothing in the repository builds that code. A finding under `vendor/` is a real result whose remediation is an upstream report, not noise to be scoped away. Findings are confirmed against `file(1)` before they are reported, so binary fixtures do not surface (ADR 0006, amended 2026-07-29).
+**The invisible-Unicode gate has three scopes, and each is named rather than implied** (ADR 0006, amended 2026-07-29). *staged* — no staged change introduces a finding — belongs to the `80-unicode` pre-commit plugin, which reads staged blobs and is not reachable from the script. *tracked* (`--scope=tracked`, the default) is what the `lint-unicode` CI job runs. *tree* (`--scope=tree`) covers the whole working tree, vendored and generated content included; it is the form above, and it also runs in CI as the last step of the `spec` job, which is the one place a runner has `vendor/bundle/` populated. The widest scope is deliberate: Trojan Source attacks the human reading a diff, not the compiler, so a reviewer skimming a dependency is deceivable even though nothing here builds that code. A finding under `vendor/` is a real result whose remediation is an upstream report, not noise to scope away. Findings are confirmed against `file(1)` first, so binary fixtures do not surface.
 
 `act --validate` is parse-only — no container, no Docker daemon — and is the one form that also runs inside the agent sandbox. `--dryrun` plans without executing and never pulls, but for a container job it still reaches the daemon, binds a cache-server port, and writes `~/.cache/act`; in-sandbox it needs `--no-cache-server --action-cache-path "$TMPDIR/actcache"` and a `-self-hosted` platform. Executing a job locally needs a backend, and a Colima whose compatibility socket `~/.colima/docker.sock` exists needs no `DOCKER_HOST`: act ignores Docker *contexts* but probes that path. Copy-paste forms, events, and the cases that do need `DOCKER_HOST` are in `docs/testing-github-workflows-locally.md` § Quick reference.
 
