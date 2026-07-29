@@ -191,7 +191,7 @@ docker-buildx imagetools inspect catthehacker/ubuntu:full-latest \
 
 Worth doing once, because the answer is not what you would guess: the arm64 `full-latest` lags GitHub's hosted runner image by months (`ubuntu24-runner-large-…-arm64`, built well before the Ubuntu 26 images the hosted runners moved to). Local arm64 runs therefore exercise an *older* userspace than CI does. That is an argument for leaving `--pull` at its default rather than pinning with `--pull=false`, and a reason to treat a green local run as evidence rather than proof.
 
-**The Colima VM ages separately from the images inside it.** `colima update` updates the container runtime in place. A newer base image, and so a newer kernel and userspace, comes only from recreating the VM (`colima delete` then `colima start`), which discards every image, container and volume it held — so the next act run re-pulls the runner image in full. `colima prune` clears cached downloaded assets without touching the VM. None of this is on a schedule; recreate when you have a reason.
+**The Colima VM ages separately from the images inside it.** `colima update` updates the container runtime in place — note that this is the docker or containerd binary *inside* the Lima VM, per profile, and has nothing to do with `brew upgrade colima`, which updates the colima CLI on the host. Similar word, different layer. A newer base image, and so a newer kernel and userspace, comes only from recreating the VM (`colima delete` then `colima start`), which discards every image, container and volume it held — so the next act run re-pulls the runner image in full. `colima prune` clears cached downloaded assets without touching the VM. None of this is on a schedule; recreate when you have a reason.
 
 ## The `macos-latest` job (`spec.yml`)
 
@@ -363,7 +363,9 @@ Apple requires every call against a `VZVirtualMachine` to run on the queue passe
 
 So the blast radius is exactly the install path. Running, stopping, cloning, sharing, and deleting an already-built VM are unaffected, because those were converted. Until it is fixed upstream, the options are to stay on lume 0.4.0, to build lume from source with the installer wrapped in `handle.queue.async`, or to `lume pull` a prebuilt image from the registry — which works, but trades the provenance of building locally from an Apple restore image for trust in a third party's image, the same trade this page declines when it weighs Tart.
 
-Two practical notes from the failed runs. `--ipsw latest` re-downloads all ~18 GB every time and leaves it in `$TMPDIR` (`/var/folders/…/T/latest.ipsw`), where macOS's tmp reaper will eventually take it: move that file somewhere durable and pass it by path, which is what the create block already recommends. And a trapped create leaves its scratch VM directory behind under `~/.lume/<UUID>/` — sparse, about 20 KB allocated, but it accumulates and `lume ls` reports each one as a VM.
+**Passing a local `--ipsw` does not avoid it.** The trap is in the installer, long after the image is resolved, so a downloaded restore image only saves the download. It is still worth doing: `--ipsw latest` re-fetches all ~18 GB every attempt and leaves it in `$TMPDIR` (`/var/folders/…/T/latest.ipsw`), where macOS's tmp reaper eventually takes it. Move it somewhere durable and pass it by path, as the create block recommends.
+
+Each trapped create also leaves its scratch VM directory behind under `~/.lume/<UUID>/` — sparse, about 20 KB allocated — and `lume ls` reports every one as a stopped VM, because listing enumerates directories under the storage root. Clearing them is safe with `lume delete <UUID> --force` when nothing is running; there is no separate index to fall out of step. The named VM is left too, holding a `.provisioning` marker and a `config.json`, and deletes the same way.
 
 ### Baseline blocker: `sudo`, resolved
 
