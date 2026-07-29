@@ -21,12 +21,20 @@ repo-foundation is the org-wide canonical source for the toobuntu repositories (
 ## Build, test, and lint
 
 ```sh
-# RSpec hook/engine suite under Homebrew's portable Ruby (ADR 0011):
-env -P"$(brew --repository)/Library/Homebrew/vendor/portable-ruby/current/bin:$PATH" \
-  bundle exec rspec
-# Whole-tree gates (each also a CI job):
+# RSpec hook/engine suite under Homebrew's portable Ruby (ADR 0011). PATH is
+# passed twice on purpose: BSD `env -P` uses the alternate path only to locate
+# the utility it runs, so without the explicit assignment every process the
+# suite spawns falls back to the frozen system Ruby 2.6 and one integration
+# example fails on a bundler it cannot load.
+RB="$(brew --repository)/Library/Homebrew/vendor/portable-ruby/current/bin"
+env -P"$RB:$PATH" PATH="$RB:$PATH" bundle exec rspec
+# Whole-tree gates (each also a CI job). Every one of them is scoped to
+# TRACKED files, because `bundle install` populates a vendor/bundle/ that is
+# gitignored but still on disk: a bare directory walk there scans other
+# people's gems. lint-unicode.sh with no argument is the git ls-files form and
+# is exactly what CI runs; passing it `.` is not.
 reuse lint            # REUSE/SPDX compliance
-scripts/lint-unicode.sh .   # Trojan-Source / invisible-Unicode scan
+scripts/lint-unicode.sh     # Trojan-Source / invisible-Unicode scan
 scripts/lint-perms.sh --tracked   # executable-bit policy
 adrs doctor           # ADR sequence and structure
 rumdl check .         # Markdown structure + soft-wrap (ADR 0020)
@@ -35,7 +43,7 @@ actionlint && zizmor .      # workflow syntax and security
 act --container-architecture=NOASSERTION --validate   # runner's own workflow parser
 ```
 
-`act --validate` is parse-only — no container, no Docker daemon — and is the one form that also runs inside the agent sandbox. `--dryrun` plans without executing and never pulls, but for a container job it still reaches the daemon, binds a cache-server port, and writes `~/.cache/act`; in-sandbox it needs `--no-cache-server --action-cache-path "$TMPDIR/actcache"` and a `-self-hosted` platform. Executing a job locally needs a backend, and a Colima whose compatibility socket `~/.colima/docker.sock` exists needs no `DOCKER_HOST`: act ignores Docker *contexts* but probes that path. Copy-paste forms, events, and the cases that do need `DOCKER_HOST` are in `docs/act-preflight.md` § Quick reference.
+`act --validate` is parse-only — no container, no Docker daemon — and is the one form that also runs inside the agent sandbox. `--dryrun` plans without executing and never pulls, but for a container job it still reaches the daemon, binds a cache-server port, and writes `~/.cache/act`; in-sandbox it needs `--no-cache-server --action-cache-path "$TMPDIR/actcache"` and a `-self-hosted` platform. Executing a job locally needs a backend, and a Colima whose compatibility socket `~/.colima/docker.sock` exists needs no `DOCKER_HOST`: act ignores Docker *contexts* but probes that path. Copy-paste forms, events, and the cases that do need `DOCKER_HOST` are in `docs/testing-github-workflows-locally.md` § Quick reference.
 
 Vale has no `.gitignore` support (upstream, by design), so a bare `vale .` also scans vendored gem docs under `vendor/bundle/`. Run it over the tracked files instead — `git ls-files` lists only tracked files (so untracked vendored docs are excluded), which is the primary form. Because `git ls-files` reports a tracked path even when it has been deleted on disk without staging the deletion, filter to readable paths before the single vale run (`read -d ''` is not dash-portable, so use `xargs`+`sh`):
 

@@ -4,15 +4,31 @@ SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# Preflighting workflows with act
+# Testing GitHub workflows locally
 
-[`act`](https://github.com/nektos/act) runs GitHub Actions workflows locally, before a push, so a workflow edit can be checked without burning a CI round-trip. It is a **developer preflight tool**, never part of CI itself. This page records what works for repo-foundation's workflows on an Apple-silicon Mac with Colima, verified by running them, and what each flag is for — because the flags are hard to discover.
+[`act`](https://github.com/nektos/act) runs GitHub Actions workflows locally, before a push, so a workflow edit can be checked without burning a CI round-trip. It is a developer tool, never part of CI itself. This page records what works for this organization's workflows on an Apple-silicon Mac with Colima, verified by running them, and what each flag is for — because the flags are hard to discover. The page is canonical, synced from repo-foundation: the job names in the examples are the synced org workflows, present in every consumer unless marked otherwise, and the transcripts were recorded in repo-foundation, the hub.
+
+## The wrapper
+
+`scripts/act-run.sh` carries the flag combinations below so you do not have to. It is synced alongside this page and the workflows it runs, so it is present wherever this page is. A thin wrapper, not an abstraction — every flag it passes is documented here, and `--` hands the rest through to act:
+
+```sh
+scripts/act-run.sh list [<event>]     # jobs act can see, optionally for one event
+scripts/act-run.sh validate           # schema check; no daemon
+scripts/act-run.sh plan <job>         # every step planned, none executed; no daemon
+scripts/act-run.sh linux <job>        # one ubuntu-latest job, Colima lifecycle included
+scripts/act-run.sh macos <job>        # one macos-latest job, on this host, after a prompt
+```
+
+`--offline` adds `--pull=false --action-offline-mode`, `--keep-colima` leaves the VM up between runs, and `--yes` skips the host-run prompt. The `linux` subcommand starts Colima only if it is down and stops it from an `EXIT` trap, so an already-running daemon is never taken out from under something else and a failed job still cleans up.
+
+Read the rest of this page when a run surprises you. The wrapper encodes the answers; the sections below are why they are the answers.
 
 ## Quick reference
 
-Copy-paste forms for the common cases. Everything below is explained in the sections that follow.
+Copy-paste forms for the common cases, and what the wrapper is doing on your behalf. Everything below is explained in the sections that follow.
 
-**Pick the event first.** `act` defaults to `push`, and a job whose workflow does not list `push` is then simply invisible — `scaffold-drift` (`schedule`) and `sync-from-upstreams` (`schedule`, `workflow_dispatch`) are the ones that catch people here. The event is a bare positional argument. List what an event actually reaches before running anything:
+**Pick the event first.** `act` defaults to `push`, and a job whose workflow does not list `push` is then simply invisible — `scaffold-drift` (`schedule`) is the one that catches people in every repo; repo-foundation's own `sync-from-upstreams` (`schedule`, `workflow_dispatch`) is another. The event is a bare positional argument. List what an event actually reaches before running anything:
 
 ```sh
 act --list                    # every job, with the events each responds to
@@ -74,12 +90,25 @@ act --job spec --platform macos-latest=-self-hosted \
 # Isolated in a lume VM — the host stays untouched. Needs a prepared,
 # STOPPED baseline; building that is the one-time part, in the lume section.
 # Plain `lume ssh` here, no options: the run phase needs no sudo and no key.
+# The last command is DOUBLE-quoted so ${PWD##*/} expands on the host: lume
+# names the share's mount point after the shared directory. See below.
+lume_teardown() {   # defined inline so this block is self-contained
+  if [ "$(lume ls --format=json | jq -r ".[]|select(.name==\"$1\").status")" = running ]; then
+    lume stop "$1" || return 1   # a failed stop must not fall through to delete
+  fi
+  lume delete "$1" --force
+}
+
 lume clone macos-baseline macos-run                    # lume clone <name> <new-name>
-lume run --no-display --shared-dir "${PWD}:ro" macos-run &
-lume ssh macos-run 'cp -R "/Volumes/My Shared Files/repo-foundation" ~/work && \
+lume run macos-run --display=none --detach --shared-dir "${PWD}:ro"
+ok=""; for _ in $(seq 60); do   # bounded: ~5 min, then fail legibly
+  lume ssh macos-run 'mount | grep -q AppleVirtIOFS' && { ok=1; break; }; sleep 5
+done
+[ -n "$ok" ] || { echo "share never mounted" >&2; lume_teardown macos-run; exit 1; }
+lume ssh macos-run "mkdir -p ~/work && cp -R '/Volumes/My Shared Files/${PWD##*/}/.' ~/work/ && \
   cd ~/work && act --job spec --platform macos-latest=-self-hosted \
-    --container-architecture darwin/arm64 --quiet'
-lume stop macos-run && lume delete macos-run           # discard everything
+    --container-architecture darwin/arm64 --quiet"
+lume_teardown macos-run                                # stop-if-running, then delete
 ```
 
 **Leaving Colima up** between runs is fine and saves the boot; `colima stop` is for reclaiming the VM's memory. `--pull=false` after the first run skips the image check.
@@ -140,9 +169,45 @@ macOS jobs need no backend at all.
 | `--container-daemon-socket=-` | Do **not** bind-mount the Docker socket into the container. | **Required with Colima** for container jobs — else `act` tries to mount `~/.colima/docker.sock` and Colima rejects it (`operation not supported`). The jobs here don't talk to Docker, so `-` is correct. |
 | `--dryrun` | Plan every step; execute nothing. | Quick structure check. |
 | `--validate` | Schema-check the workflow files. | Quick structure check. |
-| `--pull=false` | Reuse an already-pulled image. | After the first (slow) pull. |
+| `--pull=false` | Skip the registry check and use the local image. | Offline, or pinning behavior for a debugging session. Not needed for speed — see below. |
 
 A `~/.actrc` (or `~/Library/Application Support/act/actrc`) holds machine defaults; act ships one mapping `ubuntu-latest` to the medium `act-latest` image. This repo commits no `.actrc` — the useful flags describe your Colima and arch, not the project.
+
+`act --list-options` prints every flag with its default and description as JSON, which is the reliable way to check one rather than trusting a remembered default.
+
+## Image caching: you do not need to manage it
+
+The runner image is large enough that "am I re-downloading this every run?" is the natural worry. You are not, and the four flags that look like they control it mostly control something else.
+
+**`--pull` defaults to true and that is fine.** It does not re-download; it asks the registry whether the local digest is still current. Under `--verbose` a warm run shows the whole exchange:
+
+```text
+docker pull image=catthehacker/ubuntu:full-latest platform=linux/arm64 forcePull=true
+Status: Image is up to date for catthehacker/ubuntu:full-latest
+```
+
+That is one manifest request, and layers transfer only when the digest actually moved. So the recurring cost of the default is a round trip, not gigabytes, and the freshness comes free. Reach for `--pull=false` when you are offline or when you deliberately want the image held still while you debug something else — not as a routine optimization.
+
+**`--rebuild` is about local actions, not the runner image.** It rebuilds Docker images for `Dockerfile`-based actions in the repository. The org's workflows use none, so it is inert here.
+
+**`--reuse` keeps the container between runs**, which trades reproducibility for speed: a reused container carries the previous run's installed packages and caches, so a failure then has two candidate causes. This is the same argument this page makes for building lume clones from a baseline rather than reusing a guest. Fine for tight iteration on one step, wrong whenever the result matters.
+
+**`--rm` is failure-path hygiene.** A successful run already tears down its container and volumes on its own; `--rm` extends that to failures, which is what stops dead containers accumulating across a debugging session.
+
+**`--action-offline-mode` is the single "use what is on disk" switch.** It skips re-fetching action contents that are already cached and turns off force pull in one flag, which is the right shape for an air-gapped or repeat run.
+
+To check whether the published image has moved without pulling anything, inspect the remote manifest. With Homebrew's `docker` formula the plugin is not wired into the `docker` CLI, so the binary is hyphenated:
+
+```sh
+brew install docker-buildx
+docker-buildx imagetools inspect catthehacker/ubuntu:full-latest \
+  --format '{{json (index .Image "linux/arm64")}}' |
+  jq '{created, version: .config.Labels["org.opencontainers.image.version"]}'
+```
+
+Worth doing once, because the answer is not what you would guess: the arm64 `full-latest` lags GitHub's hosted runner image by months (`ubuntu24-runner-large-…-arm64`, built well before the Ubuntu 26 images the hosted runners moved to). Local arm64 runs therefore exercise an *older* userspace than CI does. That is an argument for leaving `--pull` at its default rather than pinning with `--pull=false`, and a reason to treat a green local run as evidence rather than proof.
+
+**The Colima VM ages separately from the images inside it.** `colima update` updates the container runtime in place — note that this is the docker or containerd binary *inside* the Lima VM, per profile, and has nothing to do with `brew upgrade colima`, which updates the colima CLI on the host. Similar word, different layer. A newer base image, and so a newer kernel and userspace, comes only from recreating the VM (`colima delete` then `colima start`), which discards every image, container and volume it held — so the next act run re-pulls the runner image in full. `colima prune` clears cached downloaded assets without touching the VM. None of this is on a schedule; recreate when you have a reason.
 
 ## The `macos-latest` job (`spec.yml`)
 
@@ -162,7 +227,9 @@ act --job spec --platform macos-latest=-self-hosted --container-architecture dar
 
 `-self-hosted` runs the job on your real Mac, so its `brew install` and Ruby setup touch the host. To isolate it, run the job inside a throwaway macOS VM with [lume](https://github.com/trycua/lume) (Apple's Virtualization.framework). lume's telemetry is on by default (pseudonymous install/usage metadata only — no names, paths, or VM contents); turn it off once with `lume config telemetry disable`.
 
-> **Status: E2E-verified 2026-07-27 (maintainer-run).** The full sequence — create, run, key install, build-time sudo grant, Homebrew install, revoke, `brew install act` — has been executed top to bottom. Two refinements came out of that run and are folded in below: the grant is revoked **immediately after `install.sh`** (nothing later needs sudo — pouring bottles is root-free), and `brew` must be `shellenv`-evaluated inline because ssh command execution never reads `.zprofile`.
+> **Status: `lume create` is broken in lume 0.5.0 — you cannot build a baseline on it today.** Every macOS create from an IPSW traps in Apple's `VZMacOSInstaller`; the diagnosis is under *Baseline blocker: `lume create` traps on 0.5.0* below, along with what still works. The rest of this section is written for 0.5.0's syntax and is correct for an existing VM.
+>
+> The **baseline build** was verified end to end on 2026-07-27 (maintainer-run, lume 0.4.0): create, run, key install, build-time sudo grant, Homebrew install, revoke, `brew install act` executed top to bottom. The commands below are 0.5.0's, which renamed one flag, added another, and **changed where a shared directory lands in the guest**; the share path and the two flags are read from the 0.5.0 source and CLI metadata, so the first run that gets that far should check the guest layout before trusting the `cp`. Every non-lume section on this page is unaffected.
 
 **Build the baseline once.** A vanilla image has no Homebrew, so the toolchain install is the slow part; do it once and keep the result as a template you never run jobs in.
 
@@ -183,10 +250,12 @@ act --job spec --platform macos-latest=-self-hosted --container-architecture dar
 # autologin, and no-sleep/no-lock.
 lume create macos-baseline --ipsw latest --unattended tahoe
 
-# Options come BEFORE the name: `lume run [<options>] <name>`. -n/--no-display
-# suppresses the VNC client, not the VM. The unattended setup STOPS the VM
-# when it finishes, so run it before trying to reach it.
-lume run --no-display macos-baseline &
+# `--display=none` suppresses the viewer, not the VM: lume 0.5.0 opens a native
+# window by default, and VNC stays available in every display mode. `--detach`
+# returns immediately with a PID and logs to ~/Library/Logs/lume/<name>.log.
+# The unattended setup STOPS the VM when it finishes, so run it before trying
+# to reach it. (Options may go on either side of the name.)
+lume run macos-baseline --display=none --detach
 ```
 
 <!-- rumdl-enable MD013 -->
@@ -217,13 +286,25 @@ EOF'
 **Then one ephemeral clone per run**, sharing the checkout **read-only**:
 
 ```sh
+lume_teardown() {   # defined inline so this block is self-contained
+  if [ "$(lume ls --format=json | jq -r ".[]|select(.name==\"$1\").status")" = running ]; then
+    lume stop "$1" || return 1   # a failed stop must not fall through to delete
+  fi
+  lume delete "$1" --force
+}
+
 lume clone macos-baseline macos-run                       # lume clone <name> <new-name>
-lume run --no-display --shared-dir "${PWD}:ro" macos-run &
+lume run macos-run --display=none --detach --shared-dir "${PWD}:ro"
 
 # Copy the read-only share to a writable path INSIDE the guest, then run there.
-lume ssh macos-run 'cp -R "/Volumes/My Shared Files/repo-foundation" ~/work && cd ~/work && act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet'
+# Poll the FILESYSTEM, not the mount point, and bounded -- see below.
+ok=""; for _ in $(seq 60); do   # bounded: ~5 min, then fail legibly
+  lume ssh macos-run 'mount | grep -q AppleVirtIOFS' && { ok=1; break; }; sleep 5
+done
+[ -n "$ok" ] || { echo "share never mounted" >&2; lume_teardown macos-run; exit 1; }
+lume ssh macos-run "mkdir -p ~/work && cp -R '/Volumes/My Shared Files/${PWD##*/}/.' ~/work/ && cd ~/work && act --job spec --platform macos-latest=-self-hosted --container-architecture darwin/arm64 --quiet"
 
-lume stop macos-run && lume delete macos-run              # discard everything
+lume_teardown macos-run                                   # stop-if-running, then delete
 ```
 
 <!-- rumdl-enable MD013 -->
@@ -246,7 +327,61 @@ On updating the toolchain: do `brew update && brew upgrade` **in the baseline, d
 
 For fast iteration a `git reset --hard` in the guest and a re-run is fine; prefer the delete-and-reclone cycle whenever the result matters, since a re-used guest carries the previous run's Homebrew state and caches.
 
-The VM is the isolation boundary — the `brew install` and Ruby setup happen inside it, and your real Mac is untouched. (The share's mount name under `/Volumes/My Shared Files/` follows the shared directory's basename; adjust the `cp` if yours differs.)
+The VM is the isolation boundary — the `brew install` and Ruby setup happen inside it, and your real Mac is untouched. (The share mounts one level down, under a directory named for the source — see below.)
+
+### The share mounts under a directory named for the source
+
+`--shared-dir "${PWD}:ro"` surfaces the directory at **`/Volumes/My Shared Files/<basename of the source>`**, not at the volume root. lume derives that name from the shared path's last component, so a checkout at `~/src/widget` mounts at `/Volumes/My Shared Files/widget`:
+
+```sh
+mkdir -p ~/work && cp -R "/Volumes/My Shared Files/${PWD##*/}/." ~/work/
+```
+
+That is why the guest command in the run block is double-quoted: `${PWD##*/}` has to expand on the *host*, which knows the source path, before `lume ssh` hands the rest to the guest.
+
+Two guest-visible details follow from how lume builds the share, and both are easier to recognize than to rediscover. Every share is a `VZMultipleDirectoryShare` keyed by name (`createDirectoryShare` in `VMVirtualizationService.swift`), even when you pass one directory — that is where the subdirectory comes from, and passing a second `--shared-dir` simply adds a sibling. And the volume also carries a hidden read-only `.lume-live-share` entry pointing at the host's `/var/empty`: it keeps the automount device populated so the native viewer's **Share Folder** action can replace the share while the guest runs. It is inert for this flow, but it means the volume root is never empty and is never only your files — so copy from the named subdirectory, not from `/Volumes/My Shared Files/.`.
+
+Poll for the filesystem rather than the directory, since the mount point exists before it is mounted. (Plain stop-then-delete on failure here, not `lume_teardown`: this snippet stands alone, and the VM is known to be running at this point, which is the one state where a bare `lume stop` is safe.)
+
+```sh
+ok=""; for _ in $(seq 60); do   # bounded: ~5 min, then fail legibly
+  lume ssh macos-run 'mount | grep -q AppleVirtIOFS' && { ok=1; break; }; sleep 5
+done
+[ -n "$ok" ] || { echo "share never mounted" >&2; lume stop macos-run; lume delete macos-run --force; exit 1; }
+```
+
+The mount itself is recognizable by filesystem type, which is what the poll keys on:
+
+```console
+$ mount | grep -i virtio
+/dev/disk0 on /Volumes/My Shared Files (AppleVirtIOFS, local, nodev, nosuid, automounted)
+```
+
+### Baseline blocker: `lume create` traps on 0.5.0
+
+Reproduced twice on 2026-07-28, lume 0.5.0 (Homebrew), macOS 26.5.2 (25F84). `lume create … --ipsw latest --unattended tahoe` downloads the restore image, then dies:
+
+```console
+[…] INFO: Pre-VZMacHardwareModel: hardwareModel=132 bytes
+zsh: trace trap  lume create macos-baseline --ipsw latest --unattended tahoe
+```
+
+**That last log line is a red herring.** Both `VZMacHardwareModel(dataRepresentation:)` call sites use `guard let … else { throw }`, so a bad hardware model would surface as a clean error. The crash report names the real frame — `EXC_BREAKPOINT`, in `~/Library/Logs/DiagnosticReports/lume-*.ips`:
+
+```text
+_dispatch_assert_queue_fail
+dispatch_assert_queue
+-[VZMacOSInstaller initWithVirtualMachine:restoreImageURL:]
+closure #1 in closure #1 in DarwinVirtualizationService.installMacOS(imagePath:progressHandler:)
+```
+
+Apple requires every call against a `VZVirtualMachine` to run on the queue passed at construction. The 0.5.0 native-display work moved the Darwin VM off the main queue onto a private serial queue and added a `VirtualMachineHandle` so that `start`, `stop`, and the state reads all go through `handle.queue`. `installMacOS` is the one call site that was not converted: it still builds `VZMacOSInstaller` inside a bare `Task`, which inherits the service's `@MainActor` and therefore runs on the main queue. The installer's initializer asserts otherwise, and a failed dispatch assertion is a trap, not a catchable error. Before that change the VM was created with `VZVirtualMachine(configuration:)`, whose queue *defaults* to the main queue — which is why the identical code worked on 0.4.0.
+
+So the blast radius is exactly the install path. Running, stopping, cloning, sharing, and deleting an already-built VM are unaffected, because those were converted. Until it is fixed upstream, the options are to stay on lume 0.4.0, to build lume from source with the installer wrapped in `handle.queue.async`, or to `lume pull` a prebuilt image from the registry — which works, but trades the provenance of building locally from an Apple restore image for trust in a third party's image, the same trade this page declines when it weighs Tart.
+
+**Passing a local `--ipsw` does not avoid it.** The trap is in the installer, long after the image is resolved, so a downloaded restore image only saves the download. It is still worth doing: `--ipsw latest` re-fetches all ~18 GB every attempt and leaves it in `$TMPDIR` (`/var/folders/…/T/latest.ipsw`), where macOS's tmp reaper eventually takes it. Move it somewhere durable and pass it by path, as the create block recommends.
+
+Each trapped create also leaves its scratch VM directory behind under `~/.lume/<UUID>/` — sparse, about 20 KB allocated — and `lume ls` reports every one as a stopped VM, because listing enumerates directories under the storage root. Clearing them is safe with `lume delete <UUID> --force` when nothing is running; there is no separate index to fall out of step. The named VM is left too, holding a `.provisioning` marker and a `config.json`, and deletes the same way.
 
 ### Baseline blocker: `sudo`, resolved
 
@@ -308,7 +443,12 @@ sshvm 'sudo rm -f /etc/sudoers.d/baseline-build; ! test -e /etc/sudoers.d/baseli
 
 sshvm 'echo "eval \"\$(/opt/homebrew/bin/brew shellenv)\"" >> ~/.zprofile'
 sshvm 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install act'
-lume stop macos-baseline
+
+# `shutdown`, not `stop`: this is the copy that gets kept and cloned, and it
+# has just written a Homebrew tree. `shutdown` powers the guest down over SSH;
+# `stop` is the immediate process-level stop, which is right for the throwaway
+# run clones and wrong here.
+lume shutdown macos-baseline
 ```
 
 <!-- rumdl-enable MD013 -->
@@ -323,10 +463,28 @@ The alternative shape — a `Defaults:lume timestamp_timeout=60` entry instead o
 
 Incidental findings from the same runs, each of which costs real time to rediscover:
 
+- **Teardown has to branch on state, because both halves fail in opposite directions.** `lume stop` on a VM that is *not* running can hang — it reports `Found process N holding lock on config file` and blocks indefinitely, taking the rest of a `;`-chained command with it. It is not idempotent either: repeated stops each "find" a fresh PID (its own probe) and hang again. `stopVM` has no running-state guard in 0.5.0, so this is current, not historical. And `lume delete --force` on a VM that *is* running fails — see the guard bullet below. So check first:
+
+  ```sh
+  lume_teardown() {
+    if [ "$(lume ls --format=json | jq -r ".[]|select(.name==\"$1\").status")" = running ]; then
+      lume stop "$1" || return 1   # a failed stop must not fall through to delete
+    fi
+    lume delete "$1" --force
+  }
+  ```
+
+- **The `.resize.guard` dotfiles are inert; leave them alone.** `~/.lume/.<name>.resize.guard` is an **flock target**, not a state marker (`VMDirectory.swift`: `tryAcquireResizeGuard` creates the file if missing, then takes a non-blocking `flock()`), and a running VM holds that lock for its lifetime. The lock dies with its holder, so the file legitimately persists between runs; a separate transaction marker (`hasResizeMarker`) is what records a real resize. Deleting a guard never helps, and while any lume process is live it defeats the lock outright: `flock` binds to the open file, so after an unlink the next operation recreates the guard as a new inode and locks *that*, and two processes can then each hold "the" lock. Through 0.4.0 this surfaced as a genuinely misleading error — `lume delete --force` against a running VM reported `A previous disk resize … did not finish. Re-run the same command to roll it back…` even when no resize was ever requested, because guard contention raised `DiskResizeError.resizeInProgress` rather than the `.vmRunning` case that already existed. [trycua/cua#2491](https://github.com/trycua/cua/issues/2491), fixed in 0.5.0: contention is now classified by the transaction marker, so a running VM reads `Cannot modify <name>: the VM is running. Stop it first.` The operation still fails either way, which is why `lume_teardown` branches on state. The disk itself is a sparse image at the configured size — 100 GiB apparent, a fraction allocated — and lume's resize is increase-only and requires a stopped VM.
 - **`$ip` goes stale.** A deleted and re-created VM comes up on a new address (`…64.3` → `…64.4` here), and the unattended setup **stops the VM when it finishes** — so an `ssh … Operation timed out` right after `lume create` usually means "not started, and your captured address is last VM's." `lume run` first, then re-capture `ip=` after every create, clone, or run.
 - **`ssh-copy-id` with no `-i` installs every key in the agent** — two landed here. Public halves only, so nothing secret reaches the guest; still, name one key explicitly, or keep a dedicated throwaway pair for VMs.
 - **TCC blocks sshd from `~/Downloads`, `~/Documents`, `~/Desktop`** — `ls` over ssh returns `Operation not permitted` even under sudo, because the privacy prompt that would grant Full Disk Access has no way to appear. Work in `~` or `~/work` over ssh.
 - **`--ipsw latest` downloads the restore image itself** (~18 GB), so the separate `curl` is optional: keep the local `.ipsw` when you expect to rebuild baselines, use `latest` when you do not.
+- **Telemetry defaults to ON — disable it once** (`lume config telemetry disable`; `lume config get` shows the current state). Same stance as `HOMEBREW_NO_ANALYTICS=1` in the org's `brew.env`: pseudonymous or not, analytics from dev tooling is opted out uniformly.
+- **Never `lume update` on a Homebrew install, and gate the update check.** Applying an update through lume itself would put a non-brew binary where brew expects its own; upgrades come from `brew upgrade lume`. `LUME_UPDATE_CHECK=false` in the shell profile disables the read-only GitHub Releases request behind `lume check-update`, `lume update`, *and* the MCP `check_for_update` tool — worth setting so no scripted or MCP path phones out either. Telemetry has both forms: `lume config telemetry disable|enable|status|reset-id` persists the preference, and `LUME_TELEMETRY_ENABLED` overrides it per process.
+- **`--cpu`/`--memory` exist on `create` (defaults 4 cores / 8 GB; clones inherit).** The defaults are right for the baseline build — the CLT install and Homebrew benefit — and fine for run clones too; trim a clone's memory only if the host is under pressure, not on principle.
+- **Do not hand-clone with `cp -c` instead of `lume clone`.** The clone is already copy-on-write — 27 GB of allocated image cloned in about two seconds — and, more importantly, `lume clone` regenerates the VM's identity: the cloned `config.json` carries a fresh `macAddress` *and* `machineIdentifier`. A `clonefile(2)` copy would duplicate both onto the same NAT segment, and fixing that by hand-editing `config.json` is just reimplementing `lume clone` badly.
+- **There is no quiet flag**; every command narrates at INFO. Filter with `grep -v '^\['` where it matters. `lume dump-docs --type=cli` emits every command, option, flag, default, and help string as JSON, which beats reading `--help` when you want to confirm a flag exists — `jq` over it is how the 0.5.0 spellings on this page were checked. Commands that touch the native display also print a couple of `Connection invalid` / `com.apple.hiservices-xpcservice` lines on stderr, including under `--display=none` and including when the command then fails for an unrelated reason; they are noise.
+- **Alternatives were weighed, and lume stays.** [Tart](https://github.com/cirruslabs/tart) is the automation-native comparison (COW clones, registry images, built for macOS CI), but it has no equivalent of lume's offline unattended setup: its answer to "where does a ready guest come from" is prebuilt images pulled from a registry, trading the provenance of building locally from an Apple restore image for trust in a third party's image — and its Fair Source license needs reading besides. VirtualBuddy is GUI-first, the wrong shape for a scripted flow. lume's IPSW-plus-offline-preset path is the differentiator that fits here.
 - **Pre-installing the CLT by hand** (replicating the installer's `softwareupdate` block) is possible but unnecessary once the grant removes the race — and the transcribed attempt is a caution: a multi-line quoted `softwareupdate` pipeline with an unbalanced `if` and a variable borrowed from the installer's internals is exactly the kind of command the quoting rules above exist to prevent.
 
 ### Networking: working, with one loose end
@@ -346,16 +504,31 @@ So IPv4 DNS, TCP, and TLS all work under the default NAT. Two corrections to how
 **Bridged networking is still unavailable on the Homebrew build**, which matters because it would sidestep the NAT stack entirely. [homebrew-core#269744](https://github.com/Homebrew/homebrew-core/pull/269744) (merged 2026-02-27) did add a signed bundle to the formula, but not this capability — checked on the installed binary:
 
 ```console
-$ codesign -d --entitlements - "$(brew --cellar lume)/0.4.0/libexec/lume"
-[Key] com.apple.security.virtualization
-[Value] [Bool] true
+$ codesign -d --entitlements - "$(brew --cellar lume)/0.5.0/libexec/lume"
+[Dict]
+	[Key] com.apple.security.virtualization
+	[Value]
+		[Bool] true
 ```
 
 That is the only entitlement present; `com.apple.vm.networking` is absent. The formula's own comment says why — it signs with `resources/lume.local.entitlements` to "Avoid SIGKILL with ad-hoc signing." `com.apple.vm.networking` is a **restricted** entitlement that Apple honors only under a provisioning profile, which an ad-hoc signature of a source build cannot carry. So this is structural to Homebrew builds rather than an oversight a formula patch can close, which is consistent with [trycua/cua#1133](https://github.com/trycua/cua/issues/1133) remaining open. Reinstalling lume from the official installer stays the prerequisite for `--network bridged`.
 
 ([trycua/cua#483](https://github.com/trycua/cua/issues/483) — NAT DNS at `192.168.64.1` not resolving, workaround an external resolver — did not reproduce here; this guest resolves through a link-local IPv6 server without intervention.)
 
-## The `ubuntu-latest` jobs
+### Display, detach, and the two ways to stop
+
+Three 0.5.0 behaviors that a headless flow has to get right, gathered here because each is easy to get wrong in a way that looks like something else.
+
+**`lume run` opens a viewer by default**, and the default is the native window (`--display=native`). Automation must suppress it explicitly with `--display=none`. `--no-display` survives as a compatibility alias — the CLI metadata labels it exactly that — so old scripts keep working, but `--display=none` is the spelling to write. The VNC server stays available in every display mode, and `lume attach <name>` opens a viewer against an already-running guest, which is the civilized way to look inside a VM that a script started headless.
+
+**`--detach` replaces the trailing `&`.** It returns immediately, prints the child PID, and appends output to `~/Library/Logs/lume/<name>.log` (`--log-file` overrides). A background job with a PID and a log file beats a shell job whose output interleaves with everything else. One thing to know: it re-executes lume under `nohup` with the original arguments *minus* the detach options, so it does not imply a display mode — pass `--display=none` alongside it.
+
+**`stop` and `shutdown` are different tools**, and which one is right here is not the obvious answer:
+
+- **Run clones keep `stop`.** The disk is deleted seconds later, so a graceful guest unmount buys nothing and costs an SSH round trip. That is what `lume_teardown` calls.
+- **The baseline gets `shutdown`.** It is the copy that gets kept and cloned, and the last thing it did was write a Homebrew tree — the one place a clean power-down is worth its cost. `shutdown` reaches the guest over SSH (`--user`/`--password` default to `lume`/`lume`, `--timeout` to 30 seconds), so it needs a guest that is actually up.
+
+Neither replaces the state check: `lume delete --force` still fails against a running VM, and `lume stop` still hangs against a stopped one.
 
 Structure validation always works, for any job:
 

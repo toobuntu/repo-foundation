@@ -25,5 +25,12 @@ What is expected of every toobuntu repository, each standard with the check that
 | Registers | `docs/technical-debt.md` is a register of open, never-renumbered items; resolved entries move to `docs/technical-debt-resolved.md` with date and PR link | convention; the resolving PR moves the entry |
 | Makefile vocabulary | Where a repo carries a Makefile front door, the target names are `help` / `check` / `lint` / `test` / `build`, each a thin call into `scripts/` | `checkmake` (synced config); convention for the names |
 | Cross-repo references | Committed docs name other repos by `<org>/<repo>` slug, own-repo paths by `<repo-root>` placeholder | convention; review |
+| Doc distribution | Decision records are referenced by pointer; operational how-tos a contributor needs *inside* a consumer sync as canonical; hub-internal docs stay in repo-foundation | `sync-manifest.yaml` membership; review |
+
+**Which docs travel, and why they differ from ADRs.** ADR 0004 keeps org-wide decision records in repo-foundation and has consumers point at them, and the reason is specific rather than general: an ADR's identity is a *number in one sequence*, so copies would fork the numbering contract that `adrs doctor` enforces. Ordinary documentation has no such contract, and the other half of 0004's rationale — drift between copies — is exactly what the sync and the foundation guard already prevent. So three genres, decided 2026-07-28:
+
+- **Decision records** — pointer, per ADR 0004. Unchanged.
+- **Operational how-tos** — `mode: canonical`. The test is one question: *does someone working in the consumer repository need this during routine work?* `docs/testing-github-workflows-locally.md` is the worked example — it explains the very workflows `ci_core` delivers, so it rides that set. Anything the synced CONTRIBUTING baseline links to belongs here almost by definition: a CONTRIBUTING that sends a contributor to another repository for its own instructions fails offline and reads as an afterthought.
+- **Hub-internal docs** — repo-foundation only. `architecture.md`, `adding-a-repo.md`, this page: they describe the hub, not the consumer's daily work.
 
 Where the enforcing column says "convention," the standard is real but the automated check does not exist yet; `foundation-doctor` is the intended home for those probes.
