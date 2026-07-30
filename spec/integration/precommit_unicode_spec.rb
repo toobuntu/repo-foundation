@@ -69,6 +69,12 @@ module HookSpecHelpers
         File.chmod(0o755, ".githooks/pre-commit.d/80-unicode")
         run!("git", "config", "core.hooksPath", ".githooks")
         FileUtils.mkdir_p("scripts")
+        # The plugin delegates to the scanner (ADR 0006, amended 2026-07-29),
+        # so the fixture needs the script pair the sync would deliver.
+        FileUtils.cp(LINT_UNICODE_PATH, "scripts/lint-unicode.sh")
+        File.chmod(0o755, "scripts/lint-unicode.sh")
+        FileUtils.cp(File.join(REPO_ROOT, "scripts", "lint-unicode.py"),
+                     "scripts/lint-unicode.py")
         FileUtils.cp(LINT_PERMS_PATH, "scripts/lint-perms.sh")
         File.chmod(0o755, "scripts/lint-perms.sh")
         run!("git", "add", "scripts/lint-perms.sh")
@@ -167,13 +173,33 @@ RSpec.describe "pre-commit hook: invisible Unicode detection" do
 
   it "skips binary blobs (NUL bytes present)" do
     # A blob with NUL bytes that also happens to contain the byte sequence
-    # for U+202E. grep --binary-files=without-match must skip it.
+    # for U+202E. The file(1) confirmation must classify it binary and skip.
     binary = "PNG\0\0\0".dup.force_encoding(Encoding::ASCII_8BIT)
     binary << "\xE2\x80\xAE".dup.force_encoding(Encoding::ASCII_8BIT)
     binary << "\0trailing".dup.force_encoding(Encoding::ASCII_8BIT)
     with_git_repo("blob.bin" => binary) do
       _stdout, stderr, status = run_hook
       expect(status.success?).to eq(true), "stderr=#{stderr.inspect}"
+    end
+  end
+
+  # The unification promoted the commit-time gate from the sixteen-codepoint
+  # grep table to the script's python3 path: full Cf/Cc plus encoding
+  # enforcement. These two commits passed the old plugin and must not pass
+  # now (ADR 0006, amended 2026-07-29).
+  it "rejects a NUL embedded in staged text (Cc, beyond the old grep table)" do
+    with_git_repo("script.sh" => "#!/bin/sh\necho hi\n\0\nmore\n") do
+      _stdout, stderr, status = run_hook
+      expect(status.success?).to eq(false), "stderr=#{stderr.inspect}"
+      expect(stderr).to include("script.sh")
+    end
+  end
+
+  it "rejects staged non-UTF-8 text (encoding gate now at commit time)" do
+    with_git_repo("latin1.txt" => "caf\xE9\n".dup.force_encoding(Encoding::ASCII_8BIT)) do
+      _stdout, stderr, status = run_hook
+      expect(status.success?).to eq(false), "stderr=#{stderr.inspect}"
+      expect(stderr).to include("latin1.txt")
     end
   end
 
@@ -243,6 +269,7 @@ RSpec.describe "pre-commit hook: invisible Unicode detection" do
 end
 
 RSpec.describe "CI lint-unicode scanner" do
+  include HookSpecHelpers # run! for the staged-scope fixture repos
   # Exercise the shared scanner directly — the same scripts/lint-unicode.sh
   # that the CI lint-unicode job and `make lint` invoke. Passing "." makes
   # the script walk the planted directory tree (no git repo required), so
@@ -304,10 +331,58 @@ RSpec.describe "CI lint-unicode scanner" do
   # ADR 0006, amended 2026-07-29: scope is a named argument, not an implication
   # of which git event happened to invoke the script.
   describe "explicit scope selection" do
-    it "rejects scope 'staged', which belongs to the pre-commit plugin" do
-      _out, err, status = Open3.capture3(LINT_UNICODE_PATH, "--scope=staged")
+    # The staged scope scans INDEX content -- what a commit records -- via
+    # `git checkout-index`, not the working-tree copy at the same path. The
+    # two cases below are the semantic, in both directions.
+    def in_fixture_repo
+      Dir.mktmpdir("rf-staged-test-") do |dir|
+        Dir.chdir(dir) do
+          run!("git", "init", "--quiet", "--initial-branch=feature/test")
+          run!("git", "config", "user.email", "test@example.invalid")
+          run!("git", "config", "user.name",  "Test")
+          yield dir
+        end
+      end
+    end
+
+    it "catches a staged bidi blob even when the worktree copy is clean" do
+      in_fixture_repo do
+        File.write("f.txt", "evil #{BIDI_OVERRIDE_RLO} staged\n")
+        run!("git", "add", "f.txt")
+        File.write("f.txt", "clean now\n")
+        _out, err, status = Open3.capture3(LINT_UNICODE_PATH, "--scope=staged")
+        expect(status.success?).to eq(false), "stderr=#{err.inspect}"
+        expect(err).to include("f.txt")
+      end
+    end
+
+    it "passes a clean index even when the worktree copy is dirty" do
+      in_fixture_repo do
+        File.write("f.txt", "clean staged\n")
+        run!("git", "add", "f.txt")
+        File.write("f.txt", "evil #{BIDI_OVERRIDE_RLO} dirty\n")
+        _out, err, status = Open3.capture3(LINT_UNICODE_PATH, "--scope=staged")
+        expect(status.success?).to eq(true), "stderr=#{err.inspect}"
+      end
+    end
+
+    it "reads the bidi-allow annotation from the blob, not the worktree" do
+      in_fixture_repo do
+        # Blob has the codepoint and no annotation; the worktree adds the
+        # annotation AFTER staging. Exempting from the worktree copy would
+        # let an unstaged edit waive a staged finding.
+        File.write("f.txt", "mark #{LRM} here\n")
+        run!("git", "add", "f.txt")
+        File.write("f.txt", "// bidi-allow: U+200E\nmark #{LRM} here\n")
+        _out, err, status = Open3.capture3(LINT_UNICODE_PATH, "--scope=staged")
+        expect(status.success?).to eq(false), "stderr=#{err.inspect}"
+      end
+    end
+
+    it "rejects paths combined with --scope=staged" do
+      _out, err, status = Open3.capture3(LINT_UNICODE_PATH, "--scope=staged", "x")
       expect(status.exitstatus).to eq(2)
-      expect(err).to match(/pre-commit plugin/)
+      expect(err).to match(/takes no paths/)
     end
 
     it "rejects an unknown scope rather than falling back to a default" do
@@ -387,6 +462,35 @@ RSpec.describe "CI lint-unicode scanner" do
     end
   end
 
+  # The audit diagnostic (--classify-report): every candidate file gets a
+  # sorted `path<TAB>mime<TAB>scan|skip` row, the artifact the unicode-audit
+  # workflow compares across runner OSes.
+  describe "--classify-report" do
+    it "records the MIME type and decision for every candidate" do
+      Dir.mktmpdir("rf-ci-test-") do |dir|
+        File.write(File.join(dir, "a.txt"), "hello\n")
+        File.binwrite(File.join(dir, "b.bin"), "hello\x00junk\x00\x01\x02".b)
+        report = File.join(dir, "report.tsv")
+        _out, err, status = Open3.capture3(
+          LINT_UNICODE_PATH, "--scope=tree", "--classify-report=#{report}", ".",
+          chdir: dir)
+        expect(status.success?).to eq(true), "stderr=#{err.inspect}"
+        rows = File.readlines(report, chomp: true).map { |l| l.split("\t") }
+        decisions = rows.to_h { |path, _mime, decision| [File.basename(path), decision] }
+        expect(decisions).to include("a.txt" => "scan", "b.bin" => "skip")
+        expect(rows.map(&:first)).to eq(rows.map(&:first).sort)
+      end
+    end
+
+    it "refuses the flag on the sh fallback rather than writing an empty report" do
+      _out, err, status = Open3.capture3(
+        { "LINT_UNICODE_NO_PYTHON" => "1" },
+        LINT_UNICODE_PATH, "--classify-report=x.tsv")
+      expect(status.exitstatus).to eq(2)
+      expect(err).to match(/python3/)
+    end
+  end
+
   describe "POSIX-sh fallback (LINT_UNICODE_NO_PYTHON=1)" do
     # The shell path covers the fixed bidi/zero-width/BOM set only — the
     # accepted floor when python3 is unavailable (repo-foundation ADR 0006).
@@ -458,7 +562,7 @@ RSpec.describe "CI lint-unicode scanner" do
   # structural stops the two from drifting, and a codepoint added to only one
   # would leave a gate that passes what its twin rejects. These examples are
   # that guard: they compare the two copies directly and fail on divergence.
-  describe "the duplicated detector stays in sync" do
+  describe "the detector exists once, in the script" do
     PLUGIN = ".githooks/pre-commit.d/80-unicode"
     SCRIPT = "scripts/lint-unicode.sh"
 
@@ -469,16 +573,18 @@ RSpec.describe "CI lint-unicode scanner" do
       body.lines.map(&:strip).reject(&:empty?).sort
     end
 
-    it "carries an identical codepoint table in both copies" do
-      expect(bidi_table(PLUGIN)).to eq(bidi_table(SCRIPT))
+    it "keeps a single codepoint table: the plugin delegates, only the script carries one" do
+      # The unification (ADR 0006, amended 2026-07-29) removed the plugin's
+      # duplicate detector. A table reappearing there is the drift this spec
+      # existed to catch, coming back by the front door.
+      expect(File.read(PLUGIN)).not_to include("_bidi_table")
+      expect(File.read(PLUGIN)).to include("--scope=staged")
     end
 
     it "covers every codepoint RHSB-2021-007 names, plus the project's own" do
-      # Guards against a codepoint being dropped from BOTH copies at once,
-      # which the comparison above would not catch.
       required = %w[U+061C U+200B U+200C U+200D U+200E U+200F U+202A U+202B
                     U+202C U+202D U+202E U+2066 U+2067 U+2068 U+2069 U+FEFF]
-      present = bidi_table(PLUGIN).map { |row| row.split(":").first }
+      present = bidi_table(SCRIPT).map { |row| row.split(":").first }
       expect(present).to match_array(required)
     end
 
@@ -487,12 +593,10 @@ RSpec.describe "CI lint-unicode scanner" do
       # without one it degrades to a set of BYTES and matches the E2 lead byte
       # shared by every U+2xxx character, so an em dash trips the gate. Fixed
       # strings under LC_ALL=C compare exact bytes and need no locale.
-      [PLUGIN, SCRIPT].each do |path|
-        body = File.read(path)
-        expect(body).to include("--fixed-strings"), "#{path} lost --fixed-strings"
-        expect(body).not_to match(/LC_ALL=\S*UTF-8\s+\S*grep/),
-                            "#{path} reintroduced a locale-dependent grep"
-      end
+      body = File.read(SCRIPT)
+      expect(body).to include("--fixed-strings"), "#{SCRIPT} lost --fixed-strings"
+      expect(body).not_to match(/LC_ALL=\S*UTF-8\s+\S*grep/),
+                          "#{SCRIPT} reintroduced a locale-dependent grep"
     end
   end
 end
