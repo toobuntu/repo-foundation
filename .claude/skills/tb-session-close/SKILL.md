@@ -30,7 +30,7 @@ This skill exists because the prose version of it in `docs/agent-principles.md` 
 
 State these explicitly rather than leaving them implied:
 
-- **`scripts/annotate.sh`** whenever a file was created that the session could not annotate. Writes under `<repo-root>/.claude/skills/` are denied to every Bash tool while the Write tool reaches them, so a session that adds a skill cannot annotate or format it. Put `annotate.sh` in the recipe; it is a no-op on already-compliant files, which doubles as the verification.
+- **`scripts/annotate.sh`** whenever a file was created that the session could not annotate. Writes under `<repo-root>/.claude/skills/` are historically denied to Bash tools while the Write tool reaches them, so a session that adds a skill may be unable to annotate or format it. Put `annotate.sh` in the recipe — but do **not** claim its silence verifies a hand-placed SPDX block. `annotate.sh` acts only on files `reuse lint` reports as non-compliant, and `reuse lint` passes wherever in a file the SPDX strings sit, so a no-op says nothing about placement. The test that does: copy the file, strip its SPDX block, run `reuse annotate` on the copy with the same arguments `annotate.sh` uses (including `--copyright-prefix=spdx-string`), and diff against the original.
 - **Any `rumdl fmt` or formatter run** the same denial swallowed. `rumdl fmt` reports success while changing nothing there, so never treat its exit status as proof.
 - **Anything unverified**, named as such: an untested CI path, a claim read from source rather than run. Say which run would prove it.
 - **Leftover drafts** under `.ai/scratchpad/`. A spent draft is deleted; a surviving one is the signal of an unfinished commit.

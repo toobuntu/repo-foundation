@@ -61,3 +61,18 @@ name: skill-name
 So repo-foundation's `annotate.sh` comment is correct and blackoutd's is wrong on both of its claims: `reuse-tool 4+` does not insert the block *after* the frontmatter, and skills do not *require* after-frontmatter placement. blackoutd's `CONTRIBUTING.md` § "YAML frontmatter and SPDX placement" documents the after-frontmatter form as "required for Claude Code skills" on the strength of an assumption P16 itself flagged as unverified ("The on-disk files were created or normalized by hand"). Its four hand-normalized `.claude/skills/*/SKILL.md` files are consistent with a convention that is not needed; the synced CONTRIBUTING baseline, which already documents the inside-frontmatter form, corrects that prose at the first sync.
 
 **Standing rule, unchanged but now evidenced:** never hand-place an SPDX block in a frontmatter-bearing file — run `scripts/annotate.sh` and let `reuse` decide. One exception worth knowing: the agent sandbox denies writes under `<repo-root>/.claude/skills/`, so `annotate.sh` cannot annotate a skill from inside a session. A session that creates one reproduces the measured placement above and the maintainer confirms with `scripts/annotate.sh`, which is a no-op on an already-compliant file.
+
+## 2026-07-30 — Correction: a clean `annotate.sh` run does not verify SPDX placement
+
+Supersedes the final paragraph of the 2026-07-30 entry above, which said a session that hand-places an SPDX block can have "the maintainer confirm with `scripts/annotate.sh`, which is a no-op on an already-compliant file." That conclusion does not follow, and the maintainer caught it: `annotate.sh` acts only on files `reuse lint` reports as non-compliant, and `reuse lint` is satisfied by the SPDX strings appearing anywhere in the file. So a silent run confirms compliance and says nothing whatever about placement.
+
+The measurement in that entry stands — it came from fresh repros with no SPDX at all, which is the case that does exercise placement. Only the verification advice was wrong.
+
+**The test that actually verifies a hand-placed block:** copy the file, strip its SPDX block, re-annotate the copy with the same arguments `annotate.sh` passes, and diff. `--copyright-prefix=spdx-string` is load-bearing in that invocation — without it `reuse` prepends its own year and the diff shows a spurious difference in the copyright text rather than in the placement:
+
+```sh
+reuse annotate --copyright="<name>" --merge-copyrights --license=<spdx-id> \
+  --copyright-prefix=spdx-string --style=html <copy>
+```
+
+Run that way against the three skills added the same day, all three came out byte-identical to their hand-written form.
