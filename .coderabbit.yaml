@@ -15,6 +15,22 @@
 
 language: en-US
 
+# CodeRabbit already scans **/AGENTS.md and **/CLAUDE.md by default — but
+# AGENTS.md is mostly a pointer, and the operating principles reach it through
+# `@docs/agent-principles.md`, a Claude Code IMPORT directive that CodeRabbit
+# does not resolve. So it was reading the signpost and not the sign. Naming the
+# imported file explicitly is what closes that gap, and it is why several
+# org-wide rules had to be hand-transcribed into path_instructions below.
+# Setting this key replaces the built-in list, so the defaults worth keeping are
+# repeated here.
+knowledge_base:
+  code_guidelines:
+    filePatterns:
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "docs/agent-principles.md"
+      - "CONTRIBUTING.md"
+
 reviews:
   # assertive surfaces more; matches the maintainer's web-UI setting.
   profile: assertive
