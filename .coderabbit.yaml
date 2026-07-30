@@ -80,13 +80,26 @@ reviews:
         skips empty input) and the system grep supports `-z`/`--null-data`.
     - path: "{.githooks/pre-commit.d/80-unicode,scripts/lint-unicode.*}"
       instructions: |
-        The invisible-Unicode detector exists TWICE on purpose: the plugin scans
-        staged blobs and must stay dependency-free (a consumer can receive the hook
-        without scripts/), while lint-unicode.sh scans the working tree for CI and
-        `make lint`. Neither can source the other without losing one of those
-        properties. Do not propose consolidating them; the drift risk is covered by
-        executable guards in spec/integration/precommit_unicode_spec.rb, which
-        compare the two codepoint tables and fail on divergence.
+        ONE detector, three scopes (ADR 0006, amended 2026-07-29).
+        scripts/lint-unicode.sh implements --scope=staged|tracked|tree; the
+        80-unicode plugin is a thin caller of --scope=staged and owns no
+        codepoint table, no annotation parsing, and no grep of its own. An
+        earlier design duplicated the detector in the plugin on the grounds that
+        it had to stay dependency-free; that was false (10-shell and 80-perms
+        already call into scripts/) and the duplication is gone. Do NOT propose
+        restoring a detector to the plugin, and do NOT describe the two files as
+        copies to keep in sync — the spec now asserts the plugin carries NO
+        table. The plugin hard-errors when the script is missing, deliberately:
+        a security gate fails closed, and the manifest spec enforces that every
+        git_hooks consumer also takes scripts_core.
+        The staged scope materializes INDEX content with `git checkout-index`
+        rather than reading working-tree files, so a file staged clean and then
+        dirtied cannot smuggle content past the gate; do not propose scanning
+        the working-tree path instead. Suppression of a finding requires BOTH
+        halves of `file --mime` to say binary (the format AND the charset),
+        because either alone is wrong in a measured case: a shell script with an
+        embedded NUL is `charset=binary`, and a PostScript file is a denylisted
+        `application/postscript` while being reviewable `utf-8` text.
         Both match with `grep --fixed-strings` under `LC_ALL=C`, deliberately. Do
         NOT suggest a UTF-8 locale (C.UTF-8, en_US.UTF-8, LC_CTYPE=UTF-8) or a
         bracket expression. A bracket expression is a set of CHARACTERS and needs a

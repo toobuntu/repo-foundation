@@ -393,7 +393,7 @@ RSpec.describe "CI lint-unicode scanner" do
 
     it "finds an untracked file under --scope=tree" do
       Dir.mktmpdir("rf-scope-test-") do |dir|
-        Open3.capture3("git", "init", "--quiet", dir)
+        run!("git", "init", "--quiet", dir)
         File.write(File.join(dir, "evil.c"), "int x;#{BIDI_OVERRIDE_RLO}\n")
         _out, err, status = Open3.capture3(LINT_UNICODE_PATH, "--scope=tree", chdir: dir)
         expect(status.success?).to eq(false), "stderr=#{err.inspect}"
@@ -405,7 +405,7 @@ RSpec.describe "CI lint-unicode scanner" do
     # default scope cannot see a file git does not track.
     it "misses that same untracked file under the default scope" do
       Dir.mktmpdir("rf-scope-test-") do |dir|
-        Open3.capture3("git", "init", "--quiet", dir)
+        run!("git", "init", "--quiet", dir)
         File.write(File.join(dir, "evil.c"), "int x;#{BIDI_OVERRIDE_RLO}\n")
         _out, err, status = Open3.capture3(LINT_UNICODE_PATH, chdir: dir)
         expect(status.success?).to eq(true), "stderr=#{err.inspect}"
@@ -478,8 +478,8 @@ RSpec.describe "CI lint-unicode scanner" do
   end
 
   # The audit diagnostic (--classify-report): every candidate file gets a
-  # sorted `path<TAB>mime<TAB>scan|skip` row, the artifact the unicode-audit
-  # workflow compares across runner OSes.
+  # sorted `path<TAB>mime<TAB>encoding<TAB>scan|skip` row -- both halves of the
+  # decision, so a cross-OS comparison shows WHICH axis a runner disagrees on.
   describe "--classify-report" do
     it "records the MIME type, encoding, and decision for every candidate" do
       Dir.mktmpdir("rf-ci-test-") do |dir|
@@ -487,7 +487,7 @@ RSpec.describe "CI lint-unicode scanner" do
         File.binwrite(File.join(dir, "b.bin"), "hello\x00junk\x00\x01\x02".b)
         report = File.join(dir, "report.tsv")
         _out, err, status = Open3.capture3(
-          LINT_UNICODE_PATH, "--scope=tree", "--classify-report=#{report}", ".",
+          LINT_UNICODE_PATH, "--scope=tree", "--classify-report=#{report}",
           chdir: dir)
         expect(status.success?).to eq(true), "stderr=#{err.inspect}"
         rows = File.readlines(report, chomp: true).map { |l| l.split("\t") }
@@ -502,18 +502,33 @@ RSpec.describe "CI lint-unicode scanner" do
     # so a path whose charset comes back empty gets one targeted
     # --mime-encoding query. Without it a fat binary would classify `scan`.
     it "fills a missing charset so a universal binary still classifies as binary" do
-      fat = File.join(REPO_ROOT, "..", "..", "fork", "Homebrew", "brew",
-                      "Library", "Homebrew", "test", "support", "fixtures",
-                      "mach", "fat.dylib")
-      skip "no universal binary available on this machine" unless File.exist?(fat)
+      # Built here with lipo rather than borrowed from a path on the machine:
+      # this spec is canonical and runs in consumers, so it may not assume any
+      # layout outside the repository. /bin/sh is universal on macOS, so two
+      # thinned slices recombine into a fat Mach-O with no compiler involved.
+      skip "lipo is macOS-only" unless RUBY_PLATFORM.include?("darwin")
+      skip "lipo not available" if Open3.capture3("lipo", "-archs", "/bin/sh").last.exitstatus != 0
+      arches = Open3.capture3("lipo", "-archs", "/bin/sh").first.split
+      skip "/bin/sh is not universal here" if arches.length < 2
+
       Dir.mktmpdir("rf-ci-test-") do |dir|
+        slices = arches.first(2).map do |arch|
+          slice = File.join(dir, "slice-#{arch}")
+          run!("lipo", "/bin/sh", "-thin", arch, "-output", slice)
+          slice
+        end
+        fat = File.join(dir, "fat.bin")
+        run!("lipo", "-create", "-output", fat, *slices)
         report = File.join(dir, "report.tsv")
         _out, err, status = Open3.capture3(
           LINT_UNICODE_PATH, "--scope=tree", "--classify-report=#{report}", fat)
         expect(status.success?).to eq(true), "stderr=#{err.inspect}"
-        _path, mime, encoding, decision = File.readlines(report, chomp: true).first.split("\t")
+        row = File.readlines(report, chomp: true).map { |l| l.split("\t") }
+                  .find { |r| r.first == fat }
+        expect(row).not_to be_nil, "no row for the fat binary in #{File.read(report)}"
+        _path, mime, encoding, decision = row
         expect(mime).to eq("application/x-mach-binary")
-        expect(encoding).to eq("binary")
+        expect(encoding).to eq("binary"), "the charset fallback did not fill in"
         expect(decision).to eq("skip")
       end
     end

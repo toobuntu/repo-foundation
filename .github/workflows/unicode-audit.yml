@@ -53,9 +53,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # `setup-homebrew: true` is required HERE and not in spec.yml: the macOS
+      # runners ship Homebrew, the ubuntu runners do not, and setup-ruby aborts
+      # with "Homebrew is required" without it. Same toolchain as spec.yml
+      # otherwise, so the two jobs' scans differ only in the OS and its file(1).
       - name: Set up Homebrew portable Ruby (populates vendor/bundle)
         uses: Homebrew/actions/setup-ruby@main
         with:
+          setup-homebrew: true
           portable-ruby: true
           bundler-cache: true
 

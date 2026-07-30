@@ -37,6 +37,19 @@ RSpec.describe "sync-manifest.yaml contract" do
                                ".githooks/pre-commit.d/10-markdown")
   end
 
+  # The 80-unicode plugin runs scripts/lint-unicode.sh --scope=staged and fails
+  # the commit when it is absent (ADR 0006, amended 2026-07-29), exactly as
+  # 80-perms relies on scripts/lint-perms.sh. A consumer taking the hooks
+  # without the scripts would receive a gate that refuses every commit.
+  it "gives every git_hooks consumer scripts_core too" do
+    missing = consumers.select do |c|
+      c["sets"].include?("git_hooks") && !c["sets"].include?("scripts_core")
+    end.map { |c| c["repo"] }
+    expect(missing).to be_empty,
+                       "git_hooks without scripts_core (80-unicode and 80-perms would fail closed):\n" \
+                       "  #{missing.join("\n  ")}"
+  end
+
   it "maps the homebrew_sandbox class fragment only to Homebrew-aligned consumers" do
     with_fragment = consumers.select { |c| c["sets"].include?("homebrew_sandbox") }.map { |c| c["repo"] }
     expect(with_fragment).to contain_exactly("toobuntu/homebrew-cask-tools", "toobuntu/homebrew-babble")

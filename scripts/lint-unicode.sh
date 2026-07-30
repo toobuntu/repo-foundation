@@ -121,8 +121,10 @@ esac
 
 _files_tmp=$(mktemp "${TMPDIR:-/tmp}/lint-unicode.XXXXXX")
 _stage_dir=""
+_paths_tmp=""
 cleanup() {
   rm -f "$_files_tmp"
+  [ -z "$_paths_tmp" ] || rm -f "$_paths_tmp"
   if [ -n "$_stage_dir" ]; then rm -rf "$_stage_dir"; fi
 }
 trap cleanup EXIT INT TERM
@@ -137,16 +139,45 @@ trap cleanup EXIT INT TERM
 # target string is not scannable content. checkout-index applies checkout-time
 # conversions; the only one configured in these repositories is line-ending
 # normalization, and CR is on the detector's allowlist, so the scan outcome is
-# unaffected. A checkout-index failure aborts under `set -e`: fail closed, the
-# same stance the plugin took when a blob could not be read.
+# unaffected. Every step fails CLOSED: this is a security gate, so a path list
+# that cannot be built or materialized must refuse the commit, never scan an
+# empty tree and report success.
+#
+# The path list is therefore written to a file and its status checked, NOT piped
+# into checkout-index. A pipeline's status is its LAST command's, and an empty
+# stdin is a perfectly successful checkout-index -- so `git diff | git
+# checkout-index` reports success when the diff failed, materializes nothing,
+# and the empty-list early exit below then returns 0. That is the whole gate
+# silently passing.
 if [ "$scope" = staged ]; then
   _stage_dir=$(mktemp -d "${TMPDIR:-/tmp}/lint-unicode-staged.XXXXXX")
+  # _paths_file is what we READ; _paths_tmp is only what we OWN and clean up.
+  # The runner's list belongs to the runner -- every other plugin reads it too,
+  # so removing it here would sabotage the rest of the commit.
   if [ -n "${PRE_COMMIT_STAGED_LIST:-}" ] && [ -r "${PRE_COMMIT_STAGED_LIST}" ]; then
-    git checkout-index --prefix="$_stage_dir/" --stdin -z < "$PRE_COMMIT_STAGED_LIST"
+    _paths_file="$PRE_COMMIT_STAGED_LIST"
   else
-    git diff --cached --name-only --diff-filter=ACMRT -z |
-      git checkout-index --prefix="$_stage_dir/" --stdin -z
+    _paths_tmp=$(mktemp "${TMPDIR:-/tmp}/lint-unicode-paths.XXXXXX")
+    _paths_file="$_paths_tmp"
+    git diff --cached --name-only --diff-filter=ACMRT -z > "$_paths_file" ||
+      die "could not enumerate the staged paths"
   fi
+
+  # The list is NUL-delimited, so a newline inside it means a path contains
+  # one. Everything downstream is newline-delimited (the detector reads the
+  # file list a line at a time, and the POSIX fallback cannot use `read -d ''`),
+  # so such a path would be split into two entries that do not exist and
+  # silently go unscanned. Refuse instead: loud beats bypassed.
+  # Count the newlines rather than grepping for one: the extracted text is
+  # newlines only, so every "line" in it is empty and `grep '.'` matches
+  # nothing -- a guard that silently never fires, which is how this was first
+  # written and how the test caught it.
+  if [ "$(LC_ALL=C tr -dc '\n' < "$_paths_file" | wc -c | tr -d ' ')" -ne 0 ]; then
+    die "a staged path contains a newline; refusing to scan it unsafely"
+  fi
+
+  git checkout-index --prefix="$_stage_dir/" --stdin -z < "$_paths_file" ||
+    die "could not materialize the staged blobs"
   cd "$_stage_dir" || die "cannot enter the staged materialization"
 fi
 
