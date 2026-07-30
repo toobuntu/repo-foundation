@@ -39,11 +39,13 @@ State these explicitly rather than leaving them implied:
 
 Every applicable command, in order, each in its own fenced `bash` block so it is one click to run. No prose stand-ins.
 
+**Validate the recipe before printing it.** Every path it names must exist *now*: `ls` the draft files, check the branch name against `git branch --show-current`, confirm the PR number. This is not pedantry — a recipe that chains `rm -f` on success consumes its own inputs, so repeating a previous turn's recipe verbatim hands the maintainer a command whose file was deleted by the last one. That has happened. Re-derive the recipe each time from current state rather than copying the last one forward, and if a draft is genuinely gone, write a fresh one rather than naming the missing path.
+
 - `scripts/sign-push.sh` — and check `git log @{u}..HEAD` first. Unsigned commits sitting on a parked branch after its PR merged is a real failure that has happened; "sign-push, then merge" is ordered.
 - The `gh pr create --body-file …` invocation, with the body already written to `.ai/scratchpad/pr-body-<slug>.md`, chained to `rm -f` on success. For a PR that already exists and has grown, `gh pr edit <N> --body-file …` instead — a stale description is what review bots read, and they will report findings against it.
 - `cp -p` for any file mirrored under `.ai/scratchpad/workspace/`, plus the `git -C … commit` that lands it.
 - `git branch --move <branch> merged/pr<N>/<branch>` — park, never delete; remote deletion is separate.
-- Realigning local `main` after a re-signed branch lands: `git switch main && git fetch origin && git reset --hard origin/main`, since the re-signed SHAs and the local copies diverge by construction.
+- Realigning local `main` after a branch lands: **`git switch main && git pull --ff-only`**. That is the routine case and the only one to put in a recipe. `git reset --hard origin/main` belongs *solely* to the documented divergence in `docs/agent-principles.md` — where commits were made on local `main`, re-signed onto a branch, and the same trees now exist at two SHAs so no fast-forward is possible. Do not reach for it merely because `--ff-only` might fail; find out why it failed first. It is in the org's own `permissions.deny`, which is the standing signal that it is never a routine step, and agent-principles gates it on `git status` clean plus `git log origin/main..main` showing only the superseded copies.
 - Any expected-red CI, named as expected: a manifest or engine change re-stales the foundation guard pin, and that run prints the exact replacement `ref:`.
 - **The next session's opening prompt, by path, with the model to run it under.** This is the step whose absence makes a session incomplete no matter how good the work was.
 

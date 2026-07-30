@@ -397,6 +397,19 @@ RSpec.describe "CI lint-unicode scanner" do
           expect(err).to match(/Invisible Unicode/)
         end
       end
+
+      # The same bypass one layer up: Python's universal-newline translation
+      # rewrites a CR inside the FILENAME while reading the NUL-delimited list,
+      # yielding a path that does not exist. Before `newline=''` this exited 0.
+      it "scans a staged path containing a carriage return (#{label})" do
+        in_fixture_repo do |dir|
+          File.write(File.join(dir, "we\rird.txt"), "evil #{BIDI_OVERRIDE_RLO} here\n")
+          run!("git", "add", "-A")
+          _out, err, status = Open3.capture3(env, LINT_UNICODE_PATH, "--scope=staged")
+          expect(status.success?).to eq(false), "stderr=#{err.inspect}"
+          expect(err).to match(/Invisible Unicode/)
+        end
+      end
     end
 
     it "rejects paths combined with --scope=staged" do

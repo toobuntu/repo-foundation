@@ -272,10 +272,15 @@ def looks_binary(path):
 def main():
     # NUL-delimited, so a path containing a newline survives intact rather than
     # splitting into two nonexistent entries that silently go unscanned.
-    # Decoded as UTF-8 explicitly: the list comes from git and find, and reading
-    # it in the locale's encoding would raise on a non-ASCII path under a C
-    # locale.
-    with open(sys.argv[1], encoding='utf-8') as fh:
+    #
+    # newline='' disables universal-newline translation, and is load-bearing for
+    # the same reason: without it Python rewrites a CR inside a FILENAME to LF
+    # while reading, so a staged `we\rird.txt` becomes a path that does not
+    # exist, drops out at the is_file() check, and its contents are never
+    # scanned. Text mode is still wanted for the UTF-8 decode -- the list comes
+    # from git and find, and reading it in the locale's encoding would raise on
+    # a non-ASCII path under a C locale.
+    with open(sys.argv[1], encoding='utf-8', newline='') as fh:
         paths = [p for p in fh.read().split('\0') if p]
     report_path = sys.argv[2] if len(sys.argv) > 2 else None
 
