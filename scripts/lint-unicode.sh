@@ -22,14 +22,15 @@
 # is how this file was corrupted once already.
 #
 # SCOPE is the unit of policy here, not the entry point that happens to invoke
-# it. Three scopes exist; this script implements the second and third:
+# it. Three scopes, all implemented here (ADR 0006, amended 2026-07-29):
 #
-#   staged   No staged change introduces a finding. Owned by the
-#            .githooks/pre-commit.d/80-unicode plugin, NOT by this script, and
-#            deliberately not offered as a --scope value: the plugin reads
-#            staged BLOBS via `git cat-file`, which is not the same content as
-#            the working-tree file at a staged path, and it must stay
-#            dependency-free so a consumer can take the hooks without scripts/.
+#   staged   No staged change introduces a finding. Run by the
+#            .githooks/pre-commit.d/80-unicode plugin. Scans the INDEX content
+#            -- what will actually be committed -- not the possibly-dirty
+#            working-tree copy at the same path: the staged blobs are
+#            materialized with `git checkout-index` into a throwaway tree and
+#            scanned there, so the bidi-allow annotation is read from the blob
+#            and an annotation edited but not staged exempts nothing.
 #   tracked  The tracked repository is clean. The default, and what CI runs.
 #   tree     The whole working tree is clean, vendored and generated content
 #            included. Trojan Source deceives the human reading a diff rather
@@ -40,19 +41,30 @@
 # Usage:
 #   scripts/lint-unicode.sh                  # --scope=tracked (the default)
 #   scripts/lint-unicode.sh --scope=tracked  # same, said out loud
+#   scripts/lint-unicode.sh --scope=staged   # index content (the hook's form)
 #   scripts/lint-unicode.sh --scope=tree     # whole working tree
 #   scripts/lint-unicode.sh PATH...          # exactly these; directories walked
 #
-# A path list narrows whichever scope applies. Without --scope the default is
-# `tracked` when no path is given and `tree` when one is, which is what makes
-# `lint-unicode.sh some/dir` scan that directory rather than intersecting it
-# with the index.
+# A path list narrows the tracked and tree scopes (staged takes none). Without
+# --scope the default is `tracked` when no path is given and `tree` when one
+# is, which is what makes `lint-unicode.sh some/dir` scan that directory
+# rather than intersecting it with the index.
+#
+# --classify-report=FILE additionally records, for EVERY candidate file, the
+# file(1) MIME type(s) and the binary/text decision as TAB-separated rows --
+# the diagnostic the unicode-audit workflow compares across runner OSes.
+# python3 path only.
 #
 # LINT_UNICODE_NO_PYTHON=1 forces the shell fallback (test seam).
 
 set -eu
 
 scope=""
+classify_report=""
+
+# Resolved before any chdir: $0 may be relative, and the staged scope moves
+# the working directory into the materialized tree.
+_script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
 die() {
   printf '%s: %s\n' "${0##*/}" "$1" >&2
@@ -60,22 +72,23 @@ die() {
 }
 
 usage() {
-  printf 'Usage: %s [--scope=tracked|tree] [PATH...]\n\n' "${0##*/}"
-  printf '  --scope=tracked  files git tracks (the default, and what CI runs)\n'
-  printf '  --scope=tree     the whole working tree, vendored content included\n'
-  printf '  PATH...          exactly these paths; directories are walked\n\n'
-  printf 'Scope "staged" is the pre-commit plugin: it reads staged blobs,\n'
-  printf 'which a path-based scan cannot reproduce. See ADR 0006.\n'
+  printf 'Usage: %s [--scope=staged|tracked|tree] [--classify-report=FILE] [PATH...]\n\n' "${0##*/}"
+  printf '  --scope=staged    the index content (what the pre-commit hook runs)\n'
+  printf '  --scope=tracked   files git tracks (the default, and what CI runs)\n'
+  printf '  --scope=tree      the whole working tree, vendored content included\n'
+  printf '  --classify-report=FILE  record MIME type and scan/skip per file\n'
+  printf '  PATH...           exactly these paths; directories are walked\n'
 }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
   --scope=*) scope="${1#--scope=}" ;;
   --scope)
-    [ "$#" -ge 2 ] || die "--scope needs a value (tracked or tree)"
+    [ "$#" -ge 2 ] || die "--scope needs a value (staged, tracked, or tree)"
     scope=$2
     shift
     ;;
+  --classify-report=*) classify_report="${1#--classify-report=}" ;;
   --help | -h)
     usage
     exit 0
@@ -91,15 +104,58 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "${scope:-}" in
-staged) die "scope 'staged' belongs to the pre-commit plugin, not this script" ;;
+staged)
+  [ "$#" -eq 0 ] || die "scope 'staged' takes no paths; the index is the list"
+  ;;
 tracked | tree) ;;
 "") if [ "$#" -eq 0 ]; then scope=tracked; else scope=tree; fi ;;
-*) die "unknown scope: $scope (expected tracked or tree)" ;;
+*) die "unknown scope: $scope (expected staged, tracked, or tree)" ;;
 esac
+
+# The report lands where the CALLER said, not relative to a directory this
+# script may chdir into.
+case "$classify_report" in
+"" | /*) ;;
+*) classify_report="$PWD/$classify_report" ;;
+esac
+
+_files_tmp=$(mktemp "${TMPDIR:-/tmp}/lint-unicode.XXXXXX")
+_stage_dir=""
+cleanup() {
+  rm -f "$_files_tmp"
+  if [ -n "$_stage_dir" ]; then rm -rf "$_stage_dir"; fi
+}
+trap cleanup EXIT INT TERM
+
+# The staged scope scans INDEX content. `git checkout-index` materializes the
+# staged blobs into a throwaway tree preserving relative paths, so findings
+# report the logical path and the bidi-allow annotation is read from the blob
+# a commit would actually record. The runner's PRE_COMMIT_STAGED_LIST (a
+# NUL-delimited file of ACMRT paths, computed once per commit) is honored when
+# present; standalone runs derive the same list. Non-regular entries (a staged
+# symlink) are recreated as symlinks and skipped by `find -type f` -- a link's
+# target string is not scannable content. checkout-index applies checkout-time
+# conversions; the only one configured in these repositories is line-ending
+# normalization, and CR is on the detector's allowlist, so the scan outcome is
+# unaffected. A checkout-index failure aborts under `set -e`: fail closed, the
+# same stance the plugin took when a blob could not be read.
+if [ "$scope" = staged ]; then
+  _stage_dir=$(mktemp -d "${TMPDIR:-/tmp}/lint-unicode-staged.XXXXXX")
+  if [ -n "${PRE_COMMIT_STAGED_LIST:-}" ] && [ -r "${PRE_COMMIT_STAGED_LIST}" ]; then
+    git checkout-index --prefix="$_stage_dir/" --stdin -z < "$PRE_COMMIT_STAGED_LIST"
+  else
+    git diff --cached --name-only --diff-filter=ACMRT -z |
+      git checkout-index --prefix="$_stage_dir/" --stdin -z
+  fi
+  cd "$_stage_dir" || die "cannot enter the staged materialization"
+fi
 
 # Collect files to scan into a newline-delimited list.
 collect_files() {
   case "$scope" in
+  staged)
+    find . -type f -print | sed 's|^\./||'
+    ;;
   tracked)
     if [ "$#" -eq 0 ]; then git ls-files; else git ls-files -- "$@"; fi
     ;;
@@ -117,15 +173,19 @@ collect_files() {
   esac
 }
 
-_files_tmp=$(mktemp "${TMPDIR:-/tmp}/lint-unicode.XXXXXX")
-trap 'rm -f "$_files_tmp"' EXIT INT TERM
 collect_files "$@" > "$_files_tmp"
 [ -s "$_files_tmp" ] || exit 0
 
 if [ -z "${LINT_UNICODE_NO_PYTHON:-}" ] && command -v python3 > /dev/null 2>&1; then
-  python3 "$(dirname "$0")/lint-unicode.py" "$_files_tmp"
+  if [ -n "$classify_report" ]; then
+    python3 "$_script_dir/lint-unicode.py" "$_files_tmp" "$classify_report"
+  else
+    python3 "$_script_dir/lint-unicode.py" "$_files_tmp"
+  fi
   exit 0
 fi
+
+[ -z "$classify_report" ] || die "--classify-report needs the python3 detector"
 
 # --- POSIX-sh fallback (no python3) -------------------------------------
 # Fixed codepoint table "U+XXXX:\OOO\OOO\OOO" (UTF-8 octal bytes), kept in

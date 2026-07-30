@@ -140,29 +140,24 @@ def is_binary_mime(mime):
     return mime in BINARY_MIME
 
 
-def looks_binary(path):
-    """Ask file(1) whether path holds non-reviewable bytes.
+def mime_types(path):
+    """Ask file(1) for path's MIME type(s); empty list on any failure.
 
-    Consulted ONLY for a file that already produced a finding, never as a
-    pre-filter over the scan list. Two reasons, and the second is the one that
-    matters. Cost: a clean tree spawns no subprocess at all. Correctness: a
-    universal Mach-O binary makes file(1) print one line PER ARCHITECTURE, all
-    but the first prefixed with the filename and ignoring --separator, so any
-    batched run that matched output lines to input paths by position would
-    desync at the first fat binary and misclassify everything after it. Asking
-    one path at a time, only when it matters, cannot desync.
-
-    Every failure returns False, so an absent or confused file(1) reports the
-    finding rather than swallowing it.
+    One path per invocation, never a batch. A universal Mach-O binary makes
+    file(1) print one line PER ARCHITECTURE, all but the first prefixed with
+    the filename and ignoring --separator, so any batched run that matched
+    output lines to input paths by position would desync at the first fat
+    binary and misclassify everything after it. Asking one path at a time
+    cannot desync.
     """
     try:
         proc = subprocess.run(
             ['file', '--mime-type', '--separator', MIME_SEP, '--', str(path)],
             capture_output=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
-        return False
+        return []
     if proc.returncode != 0:
-        return False
+        return []
     types = []
     for line in proc.stdout.decode('utf-8', 'replace').splitlines():
         # The first line carries --separator; the per-architecture lines that
@@ -172,7 +167,24 @@ def looks_binary(path):
         field = field.strip()
         if field:
             types.append(field)
+    return types
+
+
+def is_binary_decision(types):
+    """True only when every reported type is a known-binary format.
+
+    An empty list (file(1) absent, failing, or unparseable) is False, so
+    every error path reports the finding rather than swallowing it.
+    """
     return bool(types) and all(is_binary_mime(t) for t in types)
+
+
+def looks_binary(path):
+    """The gate-path check: consulted ONLY for a file that already produced
+    a finding, never as a pre-filter over the scan list, so a clean tree
+    spawns no subprocess at all. --classify-report mode classifies every
+    file instead; that cost is deliberate and confined to the audit."""
+    return is_binary_decision(mime_types(path))
 
 
 def main():
@@ -181,13 +193,24 @@ def main():
     # non-ASCII path under a C locale.
     with open(sys.argv[1], encoding='utf-8') as fh:
         paths = [line.rstrip('\n') for line in fh if line.strip()]
+    report_path = sys.argv[2] if len(sys.argv) > 2 else None
 
     bidi_failures = []
     utf8_failures = []
+    report_rows = []
     for p in paths:
         path = pathlib.Path(p)
         if not path.is_file():
             continue
+        # Audit mode classifies EVERY candidate up front and reuses the
+        # decision for suppression, so the report and the gate cannot
+        # disagree within one run. Gate mode stays lazy (see looks_binary).
+        binary = None
+        if report_path is not None:
+            types = mime_types(path)
+            binary = is_binary_decision(types)
+            report_rows.append(
+                f"{p}\t{','.join(types) or '?'}\t{'skip' if binary else 'scan'}")
         text, issue = read_utf8(path)
         if issue is not None:
             utf8_failures.append(issue)
@@ -195,8 +218,18 @@ def main():
         if text is None:
             continue
         allow = parse_allow(text)
-        if any(is_suspicious(c, allow) for c in text) and not looks_binary(path):
-            bidi_failures.append(str(path))
+        if any(is_suspicious(c, allow) for c in text):
+            if binary is None:
+                binary = looks_binary(path)
+            if not binary:
+                bidi_failures.append(str(path))
+
+    if report_path is not None:
+        # Sorted, so reports from runners whose find(1) walks in a different
+        # order diff cleanly against each other.
+        with open(report_path, 'w', encoding='utf-8') as fh:
+            for row in sorted(report_rows):
+                fh.write(row + '\n')
 
     ok = True
     if utf8_failures:
