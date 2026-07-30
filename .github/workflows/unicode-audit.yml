@@ -10,20 +10,28 @@
 # human reading a diff, so a dependency nothing here builds is still in scope;
 # a finding under vendor/ is an upstream report, not a local fix.
 #
-# TRIAL (started 2026-07-29): a two-OS matrix. The binary/text confirmation
-# shells out to file(1), whose MIME vocabulary differs between BSD (macOS,
-# what the denylist was censused against) and GNU (ubuntu). The denylist
-# direction makes a vocabulary gap fail toward noise, never toward a silent
-# skip, so the cheaper runner is the candidate: macos gates, ubuntu runs
-# continue-on-error, and each leg uploads a classification report
-# (path / MIME / scan-or-skip, sorted) that the compare job diffs into the
-# step summary. SUNSET: after ~20 runs or a month of agreement on the
-# DECISION column (MIME spellings may differ harmlessly), drop the macos leg
-# and the continue-on-error, promote this workflow to the ci_core sync set
-# with a per-ecosystem dependency step, and remove the interim tree-scan step
-# from spec.yml in the same change. Repo-foundation-only until then.
+# ONE runner, ubuntu, deliberately. The binary/text confirmation shells out to
+# file(1), whose MIME vocabulary differs between BSD (macOS) and GNU (ubuntu),
+# and an earlier draft ran both as a matrix to compare them. That was the wrong
+# instrument. Developers and the pre-commit hook already exercise the macOS
+# vocabulary on every commit; CI exercising the GNU one is a SECOND angle on
+# the same tree, so a disagreement is extra evidence rather than lost coverage
+# -- and the direction that would matter (CI skipping what a local run scans)
+# is already covered by the staged-scope hook. Measuring the divergence is a
+# local `act` run against this job, not a permanent second runner:
 #
-# This file is repo-foundation-only: NOT in sync-manifest.yaml.
+#   colima start && act --job tree-scan \
+#     --platform ubuntu-latest=catthehacker/ubuntu:full-latest \
+#     --container-architecture linux/arm64 --container-daemon-socket=- \
+#     ; colima stop
+#
+# The classification report is written to the step summary for exactly that
+# comparison: `--classify-report` records path, MIME type, and the scan/skip
+# decision for every candidate, batched into one file(1) pass.
+#
+# This file is repo-foundation-only: NOT in sync-manifest.yaml. Promotion into
+# ci_core wants a per-ecosystem dependency step first, at which point the
+# interim tree-scan step in spec.yml is removed in the same change.
 
 name: Unicode audit
 
@@ -37,16 +45,7 @@ permissions: {}
 
 jobs:
   tree-scan:
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-    runs-on: ${{ matrix.os }}
-    # The candidate leg must not block merges while its file(1) vocabulary is
-    # still being compared against the gating leg's.
-    continue-on-error: ${{ matrix.os == 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
@@ -54,8 +53,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # Same toolchain on both legs, deliberately, so the only variable the
-      # comparison measures is the OS and its file(1).
       - name: Set up Homebrew portable Ruby (populates vendor/bundle)
         uses: Homebrew/actions/setup-ruby@main
         with:
@@ -65,49 +62,23 @@ jobs:
       - name: Scan the whole tree
         run: scripts/lint-unicode.sh --scope=tree --classify-report=classify.tsv
 
-      - name: Upload the classification report
-        # Upload on failure too -- a failed scan's report is the evidence.
+      - name: Summarize the classification
+        # Always: a failed scan's report is the evidence for why it failed.
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: unicode-audit-${{ matrix.os }}
-          path: classify.tsv
-
-  compare:
-    # Instrumentation, not policy: diff the two legs' decisions into the step
-    # summary and always succeed. The gate is the macos leg's scan above.
-    needs: tree-scan
-    if: always()
-    runs-on: ubuntu-latest
-    permissions: {}
-    steps:
-      - name: Download both reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          path: reports
-
-      - name: Compare decisions
         run: |
-          a=reports/unicode-audit-macos-latest/classify.tsv
-          b=reports/unicode-audit-ubuntu-latest/classify.tsv
           {
-            printf '## Unicode audit: macos vs ubuntu\n\n'
-            if [ ! -f "$a" ] || [ ! -f "$b" ]; then
-              printf 'One or both reports missing (a leg failed before upload); nothing to compare.\n'
-            else
-              # Compare the DECISION column; MIME spelling differences alone
-              # are expected and harmless.
-              cut -f1,3 "$a" > a.dec
-              cut -f1,3 "$b" > b.dec
-              if diff -u a.dec b.dec > dec.diff; then
-                printf 'Decisions agree on all %s files.\n' "$(wc -l < a.dec | tr -d ' ')"
-              else
-                printf 'Decision differences:\n\n```diff\n'
-                cat dec.diff
-                printf '```\n'
-              fi
-              printf '\nMIME vocabulary differences (informational):\n\n```diff\n'
-              diff -u "$a" "$b" | head -100 || true
-              printf '```\n'
+            printf '## Unicode audit\n\n'
+            if [ ! -f classify.tsv ]; then
+              printf 'No classification report (the scan failed before writing it).\n'
+              exit 0
             fi
+            printf 'Scanned %s, skipped %s, of %s files.\n\n' \
+              "$(cut -f3 classify.tsv | grep -c scan || true)" \
+              "$(cut -f3 classify.tsv | grep -c skip || true)" \
+              "$(wc -l < classify.tsv | tr -d ' ')"
+            printf 'Types this runner classified as binary (compare against a\n'
+            printf 'local macOS run to see where the two file(1) builds differ):\n\n'
+            printf '```text\n'
+            awk -F'\t' '$3 == "skip" { print $2 }' classify.tsv | sort | uniq -c | sort -rn
+            printf '```\n'
           } >> "$GITHUB_STEP_SUMMARY"

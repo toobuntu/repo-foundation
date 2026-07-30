@@ -52,8 +52,8 @@
 #
 # --classify-report=FILE additionally records, for EVERY candidate file, the
 # file(1) MIME type(s) and the binary/text decision as TAB-separated rows --
-# the diagnostic the unicode-audit workflow compares across runner OSes.
-# python3 path only.
+# the diagnostic for comparing how a runner's file(1) classifies this tree
+# against how the local one does. One batched file(1) pass. python3 path only.
 #
 # LINT_UNICODE_NO_PYTHON=1 forces the shell fallback (test seam).
 
