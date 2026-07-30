@@ -448,6 +448,21 @@ RSpec.describe "CI lint-unicode scanner" do
       end
     end
 
+    # Suppression needs BOTH file(1) queries to say binary. PostScript is the
+    # case that proves the AND is load-bearing: application/postscript is on
+    # the binary denylist, but a .ps file is plain reviewable text, so
+    # type alone would swallow this finding.
+    it "rejects a bidi override in PostScript, whose type is denylisted but whose bytes are text" do
+      Dir.mktmpdir("rf-ci-test-") do |dir|
+        File.write(File.join(dir, "doc.ps"),
+                   "%!PS-Adobe-3.0\n/Helvetica findfont 12 scalefont setfont\n" \
+                   "100 100 moveto (evil #{BIDI_OVERRIDE_RLO} here) show\nshowpage\n")
+        _out, err, status = run_scanner_in(dir)
+        expect(status.success?).to eq(false), "stderr=#{err.inspect}"
+        expect(err).to include("doc.ps")
+      end
+    end
+
     # A denylist, not an allowlist: file(1) reports application/json for JSON,
     # which a literal text/* allowlist would have stopped scanning. Seven
     # tracked files in this repository alone are that type.
@@ -466,7 +481,7 @@ RSpec.describe "CI lint-unicode scanner" do
   # sorted `path<TAB>mime<TAB>scan|skip` row, the artifact the unicode-audit
   # workflow compares across runner OSes.
   describe "--classify-report" do
-    it "records the MIME type and decision for every candidate" do
+    it "records the MIME type, encoding, and decision for every candidate" do
       Dir.mktmpdir("rf-ci-test-") do |dir|
         File.write(File.join(dir, "a.txt"), "hello\n")
         File.binwrite(File.join(dir, "b.bin"), "hello\x00junk\x00\x01\x02".b)
@@ -476,7 +491,8 @@ RSpec.describe "CI lint-unicode scanner" do
           chdir: dir)
         expect(status.success?).to eq(true), "stderr=#{err.inspect}"
         rows = File.readlines(report, chomp: true).map { |l| l.split("\t") }
-        decisions = rows.to_h { |path, _mime, decision| [File.basename(path), decision] }
+        expect(rows.first.length).to eq(4), "expected path/type/encoding/decision"
+        decisions = rows.to_h { |path, _t, _e, decision| [File.basename(path), decision] }
         expect(decisions).to include("a.txt" => "scan", "b.bin" => "skip")
         expect(rows.map(&:first)).to eq(rows.map(&:first).sort)
       end

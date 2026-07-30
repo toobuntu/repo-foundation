@@ -20,10 +20,12 @@
 # as the runner's python3 updates. Per-file opt-out via a
 # `bidi-allow: U+XXXX,U+YYYY` annotation anywhere in the file.
 #
-# A finding is confirmed against file(1)'s MIME type before it is reported,
-# because the Cc extension reaches ordinary binary content: a fixture holding
-# a NUL decodes as valid UTF-8, so the encoding check alone calls it text.
-# Red Hat scopes its own scanner to text/* for the same reason. See
+# A finding is confirmed against file(1) before it is reported, because the Cc
+# extension reaches ordinary binary content: a fixture holding a NUL decodes as
+# valid UTF-8, so the decode alone calls it text. Red Hat scopes its own
+# scanner to text/* for the same reason. Both `--mime-type` and
+# `--mime-encoding` must agree that a file is binary before a finding is
+# dropped -- see `is_binary_decision` for why neither suffices alone, and
 # `looks_binary` for why the check runs per finding rather than per file.
 #
 # Rationale, codepoint coverage, and alternatives considered (org-wide ADR):
@@ -162,11 +164,18 @@ def parse_mime_lines(stdout):
     return out
 
 
-def run_file(paths):
-    """file(1) over one or more paths; parsed output, or {} on any failure."""
+def run_file(flag, paths):
+    """file(1) with one query flag over one or more paths.
+
+    Returns {path: [value, ...]}, or {} on any failure. The same
+    separator-keyed parse serves both queries, so neither depends on output
+    position -- `--mime-encoding` happens to emit one line per file even for a
+    universal binary, but relying on that would reintroduce the very
+    assumption `--mime-type` disproves.
+    """
     try:
         proc = subprocess.run(
-            ['file', '--mime-type', '--separator', MIME_SEP, '--', *paths],
+            ['file', flag, '--separator', MIME_SEP, '--', *paths],
             capture_output=True, timeout=300)
     except (OSError, subprocess.SubprocessError):
         return {}
@@ -175,35 +184,57 @@ def run_file(paths):
     return parse_mime_lines(proc.stdout.decode('utf-8', 'replace'))
 
 
-def mime_types(path):
-    """The one-path form, for the gate's lazy per-finding check. Reads the
-    sole parsed entry rather than looking up by key, so no assumption is made
-    about how file(1) echoed the path back."""
-    for types in run_file([str(path)]).values():
-        return types
-    return []
+def classify(path):
+    """(types, encoding) for one path -- the gate's lazy per-finding check.
+
+    Reads the sole parsed entry rather than looking up by key, so it makes no
+    assumption about how file(1) echoed the path back.
+    """
+    def sole(flag):
+        for values in run_file(flag, [str(path)]).values():
+            return values
+        return []
+    return sole('--mime-type'), (sole('--mime-encoding') or [''])[0]
 
 
 def classify_all(paths, chunk=400):
-    """{path: [mime, ...]} for every path, batched.
+    """{path: (types, encoding)} for every path, in batched file(1) passes.
 
-    file(1) startup dominates the per-file cost, so batching is ~15x faster
-    over a whole tree (measured: 1.4s versus 18-25s). Chunked well below
-    ARG_MAX. Used only by --classify-report; the gate stays lazy.
+    file(1) startup dominates the per-file cost, so batching is far cheaper
+    over a whole tree: two batched passes in ~2.6s against roughly 25s
+    per-file. Chunked well below ARG_MAX. Used only by --classify-report; the
+    gate stays lazy.
     """
-    classified = {}
+    types, encodings = {}, {}
     for i in range(0, len(paths), chunk):
-        classified.update(run_file(paths[i:i + chunk]))
-    return classified
+        batch = paths[i:i + chunk]
+        types.update(run_file('--mime-type', batch))
+        encodings.update(run_file('--mime-encoding', batch))
+    return {p: (types.get(p, []), (encodings.get(p) or [''])[0]) for p in paths}
 
 
-def is_binary_decision(types):
-    """True only when every reported type is a known-binary format.
+def is_binary_decision(types, encoding):
+    """Suppress a finding only when BOTH file(1) queries say so.
 
-    An empty list (file(1) absent, failing, or unparseable) is False, so
-    every error path reports the finding rather than swallowing it.
+    Two independent axes, and requiring both narrows the suppression:
+
+    - `--mime-encoding` describes the BYTES: `binary`, or a character
+      encoding. It cannot decide alone, because it answers `binary` for a
+      shell script carrying an embedded NUL -- which is exactly a file that
+      must be reported.
+    - `--mime-type` describes the FORMAT, which is the closer proxy for "does
+      a human review this as source." It cannot decide alone either, because
+      a format on the denylist may still hold plain text: PostScript is
+      `application/postscript` and `utf-8`, and suppressing on type alone
+      would swallow a bidi override inside a reviewable `.ps` file.
+
+    So: skip only where the bytes are binary AND every reported format is a
+    known-binary one. Either query failing (file(1) absent, erroring, or
+    unparseable) yields a report, never a silent skip.
     """
-    return bool(types) and all(is_binary_mime(t) for t in types)
+    return (encoding == 'binary'
+            and bool(types)
+            and all(is_binary_mime(t) for t in types))
 
 
 def looks_binary(path):
@@ -211,7 +242,7 @@ def looks_binary(path):
     a finding, never as a pre-filter over the scan list, so a clean tree
     spawns no subprocess at all. --classify-report mode classifies every
     file instead; that cost is deliberate and confined to the audit."""
-    return is_binary_decision(mime_types(path))
+    return is_binary_decision(*classify(path))
 
 
 def main():
@@ -237,10 +268,10 @@ def main():
         path = pathlib.Path(p)
         binary = None
         if report_path is not None:
-            types = classified.get(p, [])
-            binary = is_binary_decision(types)
-            report_rows.append(
-                f"{p}\t{','.join(types) or '?'}\t{'skip' if binary else 'scan'}")
+            types, encoding = classified.get(p, ([], ''))
+            binary = is_binary_decision(types, encoding)
+            report_rows.append(f"{p}\t{','.join(types) or '?'}"
+                               f"\t{encoding or '?'}\t{'skip' if binary else 'scan'}")
         text, issue = read_utf8(path)
         if issue is not None:
             utf8_failures.append(issue)

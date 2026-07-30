@@ -73,12 +73,15 @@ jobs:
               exit 0
             fi
             printf 'Scanned %s, skipped %s, of %s files.\n\n' \
-              "$(cut -f3 classify.tsv | grep -c scan || true)" \
-              "$(cut -f3 classify.tsv | grep -c skip || true)" \
+              "$(cut -f4 classify.tsv | grep -c scan || true)" \
+              "$(cut -f4 classify.tsv | grep -c skip || true)" \
               "$(wc -l < classify.tsv | tr -d ' ')"
-            printf 'Types this runner classified as binary (compare against a\n'
-            printf 'local macOS run to see where the two file(1) builds differ):\n\n'
+            printf 'Report columns: path, MIME type, MIME encoding, decision.\n'
+            printf 'A file is skipped only when BOTH say binary. Type/encoding\n'
+            printf 'pairs this runner suppressed (compare against a local macOS\n'
+            printf 'run to see where the two file(1) builds differ):\n\n'
             printf '```text\n'
-            awk -F'\t' '$3 == "skip" { print $2 }' classify.tsv | sort | uniq -c | sort -rn
+            awk -F'\t' '$4 == "skip" { print $2 "\t" $3 }' classify.tsv |
+              sort | uniq -c | sort -rn
             printf '```\n'
           } >> "$GITHUB_STEP_SUMMARY"
