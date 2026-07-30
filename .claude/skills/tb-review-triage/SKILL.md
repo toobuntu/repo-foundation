@@ -11,18 +11,25 @@ description: >-
   assessment", asks to address a PR review, or asks whether a specific finding is valid. Also
   use when a bot's suggestion conflicts with a project convention. Produces a per-finding
   disposition (fixed / declined with reason), applies only the valid fixes, and records
-  settled rulings so the same finding does not return on the next pull request. For fetching
-  the review state in the first place, use tb-review-status.
+  settled rulings so the same finding does not return on the next pull request. Also use when
+  asked what the state of a pull request is, or whether the bots have finished — step 0 fetches
+  the review state read-only.
 ---
 
 # Review triage
 
 Review-bot output is a set of claims to verify, not a task list to execute. Bots optimize for plausible-looking gating; they do not know this organization's policies, and they are frequently right about a symptom while wrong about its cause. Both failure directions are real, so neither blanket acceptance nor blanket dismissal is acceptable.
 
-`tb-review-status` fetches; this skill decides and acts.
-
 ## Procedure
 
+0. **Fetch the findings, if they were not handed to you.** Skip this when the maintainer pasted them. The trap here is worth knowing: `gh pr view --json reviews,comments` returns review summaries and issue-style comments but **not** the inline review-thread comments carrying `file:line` references, which come from a separate REST endpoint — so a picture built from `gh pr view` alone silently omits most of what a bot said.
+
+   ```sh
+   gh pr view <N> --json number,state,mergeable,reviews,comments,statusCheckRollup
+   gh api "/repos/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/pulls/<N>/comments" --paginate
+   ```
+
+   Where a check is failing, read the log rather than the check name (`gh run view <id> --log-failed`); a check name rarely says what broke. Treat a comment whose `in_reply_to_id` is set as possibly already answered, and report "the bots have not posted yet" rather than presenting an empty list as a clean review. Stopping after this step is a legitimate outcome when the maintainer only asked for the state.
 1. **Enumerate** every finding with its source (which bot, or which reviewer) and the file and line it names. Include findings the maintainer forwarded without comment.
 2. **Verify each against the current code.** Read the file at that line. Do not trust the quoted snippet: bots review a commit that may already have moved, and a finding can be stale rather than wrong. A claim about behavior gets tested, not reasoned about — if the finding says a guard fires, make it fire.
 3. **Classify** each as valid, invalid, or valid-with-a-different-cause. That third category is the one worth slowing down for; see the traps below.

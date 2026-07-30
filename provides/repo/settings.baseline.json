@@ -29,7 +29,6 @@
       "Bash(git fetch)",
       "Bash(git fetch:*)",
       "Bash(git worktree list)",
-
       "Bash(gh pr view:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr checks:*)",
@@ -45,7 +44,6 @@
       "Bash(gh api /users/:*)",
       "Bash(gh api -X GET:*)",
       "Bash(gh auth status)",
-
       "Bash(reuse lint)",
       "Bash(reuse lint:*)",
       "Bash(reuse download:*)",
@@ -83,7 +81,6 @@
       "Bash(git worktree add:*)",
       "Bash(git worktree remove:*)",
       "Bash(git worktree prune)",
-
       "Bash(gh pr comment:*)",
       "Bash(gh pr edit:*)",
       "Bash(gh pr create:*)",
@@ -93,7 +90,6 @@
       "Bash(gh issue create:*)",
       "Bash(gh issue edit:*)",
       "Bash(gh release create:*)",
-
       "Bash(reuse annotate:*)",
       "Bash(bundle install)",
       "Bash(curl:*)"
@@ -129,7 +125,6 @@
       "Bash(git config --unset-all:*)",
       "Bash(git config --remove-section:*)",
       "Bash(git config --global:*)",
-
       "Bash(gh pr merge:*)",
       "Bash(gh pr close:*)",
       "Bash(gh pr delete:*)",
@@ -152,7 +147,6 @@
       "Bash(gh auth login:*)",
       "Bash(gh auth logout:*)",
       "Bash(gh auth refresh:*)",
-
       "Bash(rm -rf:*)",
       "Bash(rm -fr:*)",
       "Bash(rm -Rf:*)",
@@ -164,7 +158,6 @@
       "Bash(sudo rm:*)",
       "Bash(sudo make:*)",
       "Bash(sudo:*)",
-
       "Bash(log erase:*)",
       "Bash(pmset -a:*)",
       "Bash(pmset -b:*)",
@@ -193,7 +186,6 @@
       "Bash(reboot:*)",
       "Bash(halt:*)",
       "Bash(killall -9:*)",
-
       "Bash(brew install:*)",
       "Bash(brew uninstall:*)",
       "Bash(brew remove:*)",
@@ -217,7 +209,6 @@
       "Bash(curl:* | bash)",
       "Bash(curl:* | zsh)",
       "Bash(wget:*)",
-
       "Read(./.env)",
       "Read(./.env.*)",
       "Read(~/.ssh/**)",
@@ -254,7 +245,10 @@
       "reuse annotate *",
       "reuse download *",
       "zizmor *",
-      "bundle install"
+      "bundle install",
+      "scripts/annotate.sh",
+      "scripts/annotate.sh *",
+      "rumdl fmt *"
     ],
     "filesystem": {
       "denyRead": [
@@ -297,6 +291,16 @@
           {
             "type": "command",
             "command": "if command -v jq >/dev/null 2>&1; then fp=$(jq -r '.tool_input.file_path // empty' 2>/dev/null || true); fi; if [ -z \"$fp\" ]; then fp=\"${CLAUDE_PROJECT_DIR:-$PWD}/\"; fi; case \"$fp\" in /*) ;; *) fp=\"${CLAUDE_PROJECT_DIR:-$PWD}/$fp\" ;; esac; case \"$fp\" in \"${CLAUDE_PROJECT_DIR:-$PWD}\"/*) if [ \"$(git -C \"${CLAUDE_PROJECT_DIR:-.}\" branch --show-current)\" = \"main\" ]; then echo 'Direct edits to main are not allowed. Create a feature branch (git switch -c feature/<topic>) before editing.' >&2; exit 2; fi ;; esac",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v jq >/dev/null 2>&1; then cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null || true); fi; case \"$cmd\" in *scripts/annotate.sh*) d=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; if ! git -C \"$d\" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then echo 'scripts/annotate.sh runs OUTSIDE the sandbox. Refusing: there is no origin/main to verify it against. Run it yourself.' >&2; exit 2; fi; if ! git -C \"$d\" diff --quiet origin/main -- scripts/annotate.sh; then echo 'scripts/annotate.sh differs from origin/main and runs OUTSIDE the sandbox. Review the diff, then run it yourself.' >&2; exit 2; fi ;; esac",
             "timeout": 5
           }
         ]

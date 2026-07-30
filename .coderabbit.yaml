@@ -146,13 +146,21 @@ reviews:
         `org/relay.md` is how another repository forwards a candidate entry
         here. `progress.md` is gitignored volatile state and is not reviewable.
         Canonical-file neutrality does NOT apply to these entries the way it
-        applies to code. An org-memory entry NAMES the repositories, files, and
-        versions its finding was measured against, on purpose: an entry that
-        says "a consumer repository" cannot be acted on, and the specifics are
-        what let a later reader check whether the finding still holds. Do not
-        suggest generalizing a repository name, a path, or a version out of a
-        memory entry — that removes the evidence the entry exists to carry.
-        (Ruled 2026-07-30, on a finding that proposed exactly this.)
+        applies to code, but one half of it does. Draw the line at what the
+        detail identifies:
+        KEEP repository names, repo-relative paths, symbol names, tool versions,
+        and issue numbers. An org-memory entry names what its finding was
+        measured against on purpose — an entry that says "a consumer
+        repository" cannot be acted on, and those specifics are what let a
+        later reader check whether the finding still holds. Do not suggest
+        generalizing them away; that removes the evidence the entry exists to
+        carry. (Ruled 2026-07-30.)
+        DO flag machine-specific absolute paths (`/Users/<name>/…`,
+        `/home/<name>/…`), personal usernames, and hostnames. Those identify a
+        person or a machine rather than a fact, they are wrong for every other
+        reader, and `.ai/org/memory.md` syncs to every consumer while ADR text
+        is published. The repo-relative path or the `<repo-root>` placeholder
+        carries the same information without the leak.
     - path: "spec/**"
       instructions: |
         `REUSE_LINT_SKIP=1` in the hook specs is load-bearing, not leftover: the
