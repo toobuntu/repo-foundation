@@ -56,7 +56,7 @@ jobs:
           persist-credentials: false
 
       - name: Check for invisible Unicode characters and validate UTF-8 encoding
-        run: scripts/lint-unicode.sh
+        run: scripts/lint-unicode.sh --scope=tracked
 
   lint-perms:
     # Single source of truth for the scope and check logic is

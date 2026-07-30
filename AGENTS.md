@@ -28,13 +28,9 @@ repo-foundation is the org-wide canonical source for the toobuntu repositories (
 # example fails on a bundler it cannot load.
 RB="$(brew --repository)/Library/Homebrew/vendor/portable-ruby/current/bin"
 env -P"$RB:$PATH" PATH="$RB:$PATH" bundle exec rspec
-# Whole-tree gates (each also a CI job). Every one of them is scoped to
-# TRACKED files, because `bundle install` populates a vendor/bundle/ that is
-# gitignored but still on disk: a bare directory walk there scans other
-# people's gems. lint-unicode.sh with no argument is the git ls-files form and
-# is exactly what CI runs; passing it `.` is not.
+# Whole-tree gates (each also a CI job):
 reuse lint            # REUSE/SPDX compliance
-scripts/lint-unicode.sh     # Trojan-Source / invisible-Unicode scan
+scripts/lint-unicode.sh --scope=tree   # Trojan-Source / invisible-Unicode scan
 scripts/lint-perms.sh --tracked   # executable-bit policy
 adrs doctor           # ADR sequence and structure
 rumdl check .         # Markdown structure + soft-wrap (ADR 0020)
@@ -42,6 +38,8 @@ git ls-files -z '*.md' | xargs -0 vale   # prose; robust (skip-absent) form belo
 actionlint && zizmor .      # workflow syntax and security
 act --container-architecture=NOASSERTION --validate   # runner's own workflow parser
 ```
+
+**The invisible-Unicode gate has three scopes, and each is a `--scope=` value of one script** (ADR 0006, amended 2026-07-29). *staged* — no staged change introduces a finding — is what the `80-unicode` pre-commit plugin runs; it scans the index content via `git checkout-index`, not the possibly-dirty working-tree copies. *tracked* (the default) is what the `lint-unicode` CI job runs. *tree* covers the whole working tree, vendored and generated content included; it is the form above, and in CI it runs both as the last step of the `spec` job and in the dedicated `unicode-audit` workflow. That workflow runs on ubuntu alone, so its GNU `file` is a second angle on the same tree rather than a duplicate of the BSD `file` every local run and pre-commit already exercises; its step summary carries the classification report for comparing the two whenever that is wanted. The widest scope is deliberate: Trojan Source attacks the human reading a diff, not the compiler, so a reviewer skimming a dependency is deceivable even though nothing here builds that code. A finding under `vendor/` is a real result whose remediation is an upstream report, not noise to scope away. Findings are confirmed against `file(1)` first, so binary fixtures do not surface.
 
 `act --validate` is parse-only — no container, no Docker daemon — and is the one form that also runs inside the agent sandbox. `--dryrun` plans without executing and never pulls, but for a container job it still reaches the daemon, binds a cache-server port, and writes `~/.cache/act`; in-sandbox it needs `--no-cache-server --action-cache-path "$TMPDIR/actcache"` and a `-self-hosted` platform. Executing a job locally needs a backend, and a Colima whose compatibility socket `~/.colima/docker.sock` exists needs no `DOCKER_HOST`: act ignores Docker *contexts* but probes that path. Copy-paste forms, events, and the cases that do need `DOCKER_HOST` are in `docs/testing-github-workflows-locally.md` § Quick reference.
 

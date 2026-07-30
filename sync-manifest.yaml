@@ -130,6 +130,10 @@ component_sets:
   # path (.githooks/pre-commit.d/) rather than under provides/ because
   # repo-foundation runs them on its own commits, the ADR 0001 rule that also
   # governs 10-shell, 15-prose, and 50-adrs.
+  # git_hooks relies on scripts_core: 80-unicode delegates to
+  # scripts/lint-unicode.sh (--scope=staged) and fails the commit when it is
+  # absent, the same way 80-perms relies on scripts/lint-perms.sh. Every
+  # consumer that takes git_hooks takes scripts_core too; keep it that way.
   git_hooks:
     - { source: .githooks/pre-commit, target: .githooks/pre-commit, mode: canonical }
     - { source: .githooks/pre-push,   target: .githooks/pre-push,   mode: canonical }

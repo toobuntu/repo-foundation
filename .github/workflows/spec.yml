@@ -43,3 +43,19 @@ jobs:
 
       - name: Run RSpec
         run: bundle exec rspec
+
+      # Scope 3 (ADR 0006): the whole working tree, vendored content included.
+      # This is the one job where that scope is reachable in CI -- the setup
+      # step above ran `bundle install`, and .bundle/config puts gems in
+      # vendor/bundle/, so the runner now holds the dependency source a bare
+      # checkout never has. Trojan Source deceives a human reading a diff, so
+      # a dependency nothing here builds is still in scope; a finding under
+      # vendor/ is an upstream report, not a local fix.
+      #
+      # `!cancelled()` so a failing suite cannot skip a security gate: this
+      # step's whole reason for existing here is that scope 3 needs the
+      # vendor/bundle the setup step created, and being downstream of RSpec is
+      # incidental, not a dependency.
+      - name: Scan the whole tree for invisible Unicode
+        if: ${{ !cancelled() }}
+        run: scripts/lint-unicode.sh --scope=tree

@@ -39,3 +39,32 @@ env -P"$(brew --repository)/Library/Homebrew/vendor/portable-ruby/current/bin:$P
     PATH="$(brew --repository)/Library/Homebrew/vendor/portable-ruby/current/bin:$PATH" \
     bundle exec rspec
 ```
+
+## 2026-07-30 — SPDX goes INSIDE YAML frontmatter, including for Claude Code skills
+
+Settles a direct conflict between two repositories' `scripts/annotate.sh` comments, and closes blackoutd's technical-debt item P16, whose acceptance criteria were "construct minimal repros, run `reuse annotate --style=html` on each, capture the output."
+
+**Measured, reuse 6.2.0, both repros:** a Markdown file with skill-style frontmatter (`name:`/`description:`) and one with ADR-style frontmatter (`number:`/`title:`) both receive the SPDX block as `#` comments **inside** the frontmatter, above the other keys:
+
+```markdown
+---
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: skill-name
+---
+```
+
+**And the Claude Code skill loader accepts that**, which was the open half of P16. Proof rather than argument: `toobuntu/bob-book`'s `bob-book-transcription` skill carries its SPDX inside the frontmatter and loads — it was present, with its folded multi-line `description:` intact, in the available-skills list of the session that ran this test. YAML `#` comments are comments; a real YAML parser consumes them as nothing.
+
+So repo-foundation's `annotate.sh` comment is correct and blackoutd's is wrong on both of its claims: `reuse-tool 4+` does not insert the block *after* the frontmatter, and skills do not *require* after-frontmatter placement. blackoutd's `CONTRIBUTING.md` § "YAML frontmatter and SPDX placement" documents the after-frontmatter form as "required for Claude Code skills" on the strength of an assumption P16 itself flagged as unverified ("The on-disk files were created or normalized by hand"). Its four hand-normalized `.claude/skills/*/SKILL.md` files are consistent with a convention that is not needed; the synced CONTRIBUTING baseline, which already documents the inside-frontmatter form, corrects that prose at the first sync.
+
+**Standing rule, unchanged but now evidenced:** never hand-place an SPDX block in a frontmatter-bearing file — run `scripts/annotate.sh` and let `reuse` decide. Where that is impossible (the agent sandbox has denied writes under `<repo-root>/.claude/skills/`, so a session could create a skill it could not annotate), reproduce the measured placement above and then **verify it properly**, because a clean `annotate.sh` run proves nothing about placement: it acts only on files `reuse lint` reports as non-compliant, and `reuse lint` is satisfied by the SPDX strings appearing *anywhere* in the file. The test that does verify — copy the file, strip its SPDX block, re-annotate the copy with the arguments `annotate.sh` passes, and diff:
+
+```sh
+reuse annotate --copyright="<name>" --merge-copyrights --license=<spdx-id> \
+  --copyright-prefix=spdx-string --style=html <copy>
+```
+
+`--copyright-prefix=spdx-string` is load-bearing there. Without it `reuse` prepends its own year, and the diff shows a copyright-text difference that reads like a placement difference. Run that way against the three skills added the same day, all three came out byte-identical to their hand-written form.

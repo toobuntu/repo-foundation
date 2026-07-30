@@ -4,202 +4,44 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Invisible-Unicode pre-commit plugin (CVE-2021-42574 — Trojan Source). Run
-# by .githooks/pre-commit through the run-parts-style runner. Scans each
-# staged BLOB, which is what makes it a hook rather than a call into
-# scripts/lint-unicode.sh: that script scans the working tree, and the two
-# differ for a file staged clean but dirty on disk. Same policy, two
-# triggers — the CI lint-unicode job runs the script over the whole tree.
+# Invisible-Unicode pre-commit plugin (CVE-2021-42574 -- Trojan Source):
+# scripts/lint-unicode.sh --scope=staged. Run by .githooks/pre-commit through
+# the run-parts-style runner. Policy and implementation live in the script,
+# which materializes the staged BLOBS with `git checkout-index` and scans
+# those -- the index content a commit actually records, not the possibly
+# dirty working-tree copy at the same path. The same script serves the other
+# scopes: the lint-unicode CI job runs --scope=tracked, the audit runs
+# --scope=tree.
 #
-# Per Red Hat Security Bulletin RHSB-2021-007:
-#   grep -r $'[\u061C\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069]' .
-# That list is extended here with U+200B/200C/200D (zero-width chars) and
-# U+FEFF (project policy: no BOM). The bracket expression is built with POSIX
-# `printf '\NNN'` octal byte escapes, so the hook does not depend on bash
-# 4.2 or ksh93 $'\u' expansion and survives Apple removing bundled
-# scripting runtimes (see Apple Catalina release notes).
+# This plugin once carried its own grep detector so the hook had no
+# dependency on scripts/. That bought a second codepoint table to keep in
+# sync and a weaker gate at exactly the layer closest to the attack: the
+# script's python3 path covers all of Unicode categories Cf and Cc plus
+# UTF-8-without-BOM enforcement, where the grep table covered sixteen
+# codepoints. The script's own POSIX-sh fallback (the same sixteen) is the
+# floor where python3 is absent, so the old behavior is the worst case
+# rather than the only case. Unified 2026-07-29; rationale and history in
+# ADR 0006:
+# https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0006-trojan-source-detection-strategy.md
 #
-# Per-file opt-out: a `bidi-allow: U+XXXX,U+YYYY` annotation anywhere in
-# the file declares which codepoints it is allowed to contain. Reviewable
-# in PR diff and grep-able (`grep -r bidi-allow:`). Use sparingly — every
-# exemption widens the attack surface and must be justified.
+# Missing script = hard error, not warn-and-skip (the 80-perms stance): a
+# security gate fails closed. The git_hooks sync set relies on scripts_core
+# for exactly this file pair.
 #
-# Universal: mastered at this natural path — repo-foundation runs it on its
-# own commits (ADR 0001) — and synced to every hook-carrying consumer
+# Universal: mastered at this natural path -- repo-foundation runs it on its
+# own commits (ADR 0001) -- and synced to every hook-carrying consumer
 # (git_hooks in sync-manifest.yaml). Run-parts classicalre name (no
 # extension); disable with a dot suffix (80-unicode.off). In the 80- verifier
-# tier, which runs after the tiers that restage files; independent of the
-# other verifiers.
-#
-# Rationale, codepoint coverage, and alternatives considered (org-wide ADR,
-# canonical in repo-foundation):
-# https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0006-trojan-source-detection-strategy.md
+# tier, which runs after the tiers that restage files.
 
 set -e
 
-# The runner exports PRE_COMMIT_STAGED_LIST: a NUL-delimited list of staged
-# paths (--diff-filter=ACMRT) computed once for every plugin. Fall back to
-# deriving it here so the plugin still runs standalone for debugging.
-#
-# NOTE: this stanza converts that list to newline-delimited, because of the
-# per-file `git show` + bidi-allow parsing loop below. `read -r -d ''` would
-# consume the NUL form directly but is a bashism (not in dash), and routing
-# each path through `xargs -0` would put build_pattern and read_bidi_allow
-# out of scope in the inner shell. So the loop is whitespace-safe
-# (IFS= read -r) but remains vulnerable to a newline embedded in a path.
-# Converting it to NUL transport end to end is a larger refactor tracked as
-# a follow-up; no such path exists in any consumer today.
-staged_lines() {
-  if [ -n "${PRE_COMMIT_STAGED_LIST:-}" ] && [ -r "${PRE_COMMIT_STAGED_LIST}" ]; then
-    tr '\0' '\n' < "$PRE_COMMIT_STAGED_LIST"
-  else
-    git diff --cached --name-only --diff-filter=ACMRT
-  fi
-}
-
-# Codepoint table: "U+XXXX:OOO_OOO_OOO" where OOO are the UTF-8 octal
-# bytes joined with backslashes for direct use as a printf format string.
-# Single source of truth. Default and per-file patterns are derived here.
-_bidi_table='U+061C:\330\234
-U+200B:\342\200\213
-U+200C:\342\200\214
-U+200D:\342\200\215
-U+200E:\342\200\216
-U+200F:\342\200\217
-U+202A:\342\200\252
-U+202B:\342\200\253
-U+202C:\342\200\254
-U+202D:\342\200\255
-U+202E:\342\200\256
-U+2066:\342\201\246
-U+2067:\342\201\247
-U+2068:\342\201\250
-U+2069:\342\201\251
-U+FEFF:\357\273\277'
-
-# Build the fixed-string pattern list from the table, one UTF-8 byte
-# sequence per line, optionally excluding codepoints listed in the first
-# argument (comma-separated U+XXXX). Empty exclude list → every codepoint.
-# Returns 1 if all are excluded (no pattern to match).
-#
-# One pattern per codepoint fed to `grep --fixed-strings`, NOT a bracket
-# expression: a bracket expression is a set of CHARACTERS, so it needs a
-# UTF-8 locale to read the table's multi-byte sequences as characters, and
-# a missing locale silently demotes it to a set of BYTES. That demotion is
-# not a subtle degradation -- it matches the E2 lead byte shared by every
-# U+2xxx character, so an ordinary em dash or curly quote trips the gate
-# and the hook rejects most prose files. Fixed strings under LC_ALL=C
-# compare exact byte sequences instead, which needs no locale at all and
-# cannot over-match: UTF-8 is self-synchronizing, so a lead byte never
-# appears as a continuation byte and each sequence matches only its own
-# codepoint.
-build_patterns() {
-  _exclude_csv="${1:-}"
-  _out=""
-  _saved_ifs=$IFS
-  IFS='
-'
-  for _row in $_bidi_table; do
-    _cp="${_row%%:*}"
-    _esc="${_row#*:}"
-    case ",$_exclude_csv," in
-    *",$_cp,"*) continue ;;
-    *) ;;
-    esac
-    # printf interprets the octal escapes into the raw UTF-8 bytes.
-    # shellcheck disable=SC2059  # intentional dynamic format string
-    _seq=$(printf "$_esc")
-    _out="${_out:+$_out
-}$_seq"
-  done
-  IFS=$_saved_ifs
-  [ -n "$_out" ] || return 1
-  printf '%s' "$_out"
-}
-
-# Extract the first bidi-allow annotation from the fetched blob content
-# ($1 = the temp file scan_one filled). Output: comma-separated U+XXXX
-# list, or empty if no annotation. The annotation may appear anywhere in
-# the file (not restricted to the top). Malformed tokens (non-U+XXXX) are
-# silently ignored: build_patterns' table lookup discards anything not
-# present in _bidi_table.
-read_bidi_allow() {
-  sed -n 's/.*bidi-allow:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$1" |
-    head -n 1
-}
-
-# Scan one staged path; print it when it carries a disallowed codepoint.
-scan_one() {
-  # `git show ":$file"` prints the staged blob (not the working tree). One
-  # fetch per path, written to a temp file that both the bidi-allow parse
-  # and the grep then read -- a pipe would not do: grep's stdin is taken by
-  # the pattern list, and a pipeline's `$?` is the LAST command's, so a
-  # `git show | grep` pipeline reports grep's status and a failed git show
-  # reaches grep as empty input -- "no match", and the file passes
-  # unscanned. Fetching first and checking separately makes that a scan
-  # error, and means a blob git cannot produce is refused before its
-  # annotation is ever parsed.
-  if ! git show ":$1" > "$_blob" 2> /dev/null; then
-    printf 'error: could not read the staged blob for %s\n' "$1" >&2
-    printf 'x' >> "$_scan_errors"
-    return 0
-  fi
-
-  _allow=$(read_bidi_allow "$_blob")
-  if [ -n "$_allow" ]; then
-    _patterns=$(build_patterns "$_allow") || return 0
-  else
-    _patterns="$default_patterns"
-  fi
-
-  # grep's status is three-valued and the third value matters here: 0 match,
-  # 1 no match, 2 ERROR. An `if grep ...` treats 2 as "no match" and the file
-  # passes -- a security gate failing OPEN.
-  #
-  # `--binary-files=without-match` skips blobs grep classifies as binary.
-  _status=0
-  printf '%s\n' "$_patterns" |
-    LC_ALL=C /usr/bin/grep \
-      --fixed-strings --file=- \
-      --binary-files=without-match --quiet "$_blob" || _status=$?
-  case "$_status" in
-  0) printf '%s\n' "$1" ;;
-  1) ;;
-  *)
-    printf 'error: grep exited %s scanning %s\n' "$_status" "$1" >&2
-    # scan_one runs inside a command-substitution subshell, so `exit` here
-    # would end only that subshell and the commit would proceed. Record the
-    # failure where the caller can see it.
-    printf 'x' >> "$_scan_errors"
-    ;;
-  esac
-}
-
-default_patterns=$(build_patterns "")
-_scan_errors=$(mktemp "${TMPDIR:-/tmp}/80-unicode.XXXXXX")
-_blob=$(mktemp "${TMPDIR:-/tmp}/80-unicode-blob.XXXXXX")
-trap 'rm -f "$_scan_errors" "$_blob"' EXIT INT TERM
-
-bidi_found=$(
-  staged_lines | while IFS= read -r _bfile; do
-    [ -n "$_bfile" ] || continue
-    scan_one "$_bfile"
-  done
-)
-
-if [ -s "$_scan_errors" ]; then
-  printf 'error: the invisible-Unicode scan could not complete; refusing the\n' >&2
-  printf '  commit rather than passing files it never managed to read.\n' >&2
+if [ ! -x scripts/lint-unicode.sh ]; then
+  printf 'error: scripts/lint-unicode.sh missing or not executable; the\n' >&2
+  printf '  invisible-Unicode gate cannot run, so the commit is refused.\n' >&2
+  printf '  Fix: sync scripts_core (scripts/lint-unicode.sh + .py), or\n' >&2
+  printf '       chmod 755 scripts/lint-unicode.sh\n' >&2
   exit 1
 fi
 
-if [ -n "$bidi_found" ]; then
-  printf 'error: invisible Unicode character(s) in staged files:\n' >&2
-  printf '%s\n' "$bidi_found" | while IFS= read -r _bf; do
-    printf '  %s\n' "$_bf" >&2
-  done
-  printf '\nA file may opt out of specific codepoints with an in-file\n' >&2
-  printf 'annotation, e.g.:  // bidi-allow: U+200E,U+200F\n' >&2
-  printf 'See https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0006-trojan-source-detection-strategy.md\n' >&2
-  exit 1
-fi
+exec scripts/lint-unicode.sh --scope=staged

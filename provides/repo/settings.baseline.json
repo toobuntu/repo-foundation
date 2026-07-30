@@ -254,7 +254,10 @@
       "reuse annotate *",
       "reuse download *",
       "zizmor *",
-      "bundle install"
+      "bundle install",
+
+      "scripts/annotate.sh",
+      "rumdl fmt .claude/skills/*"
     ],
     "filesystem": {
       "denyRead": [
@@ -297,6 +300,16 @@
           {
             "type": "command",
             "command": "if command -v jq >/dev/null 2>&1; then fp=$(jq -r '.tool_input.file_path // empty' 2>/dev/null || true); fi; if [ -z \"$fp\" ]; then fp=\"${CLAUDE_PROJECT_DIR:-$PWD}/\"; fi; case \"$fp\" in /*) ;; *) fp=\"${CLAUDE_PROJECT_DIR:-$PWD}/$fp\" ;; esac; case \"$fp\" in \"${CLAUDE_PROJECT_DIR:-$PWD}\"/*) if [ \"$(git -C \"${CLAUDE_PROJECT_DIR:-.}\" branch --show-current)\" = \"main\" ]; then echo 'Direct edits to main are not allowed. Create a feature branch (git switch -c feature/<topic>) before editing.' >&2; exit 2; fi ;; esac",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v jq >/dev/null 2>&1 || { echo 'jq is required to inspect the command this guard protects; refusing rather than leaving scripts/annotate.sh ungated.' >&2; exit 2; }; cmd=$(jq -r '.tool_input.command // empty') || { echo 'could not parse the tool input; refusing rather than leaving scripts/annotate.sh ungated.' >&2; exit 2; }; case \"$cmd\" in *scripts/annotate.sh*) d=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; if ! git -C \"$d\" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then echo 'scripts/annotate.sh runs OUTSIDE the sandbox. Refusing: there is no origin/main to verify it against. Run it yourself.' >&2; exit 2; fi; if ! git -C \"$d\" diff --quiet origin/main -- scripts/annotate.sh; then echo 'scripts/annotate.sh differs from origin/main and runs OUTSIDE the sandbox. Review the diff, then run it yourself.' >&2; exit 2; fi ;; esac",
             "timeout": 5
           }
         ]

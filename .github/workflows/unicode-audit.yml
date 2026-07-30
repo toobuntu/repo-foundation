@@ -1,0 +1,105 @@
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Scope 3 of the invisible-Unicode policy (ADR 0006, amended 2026-07-29): the
+# whole working tree is clean, vendored and generated content included. A bare
+# checkout has no untracked files, so the job installs the Ruby dependencies
+# first -- .bundle/config puts them under vendor/bundle/, which is exactly the
+# third-party source the scan exists to cover. Trojan Source deceives the
+# human reading a diff, so a dependency nothing here builds is still in scope;
+# a finding under vendor/ is an upstream report, not a local fix.
+#
+# ONE runner, ubuntu, deliberately. The binary/text confirmation shells out to
+# file(1), whose MIME vocabulary differs between BSD (macOS) and GNU (ubuntu),
+# and an earlier draft ran both as a matrix to compare them. That was the wrong
+# instrument. Developers and the pre-commit hook already exercise the macOS
+# vocabulary on every commit; CI exercising the GNU one is a SECOND angle on
+# the same tree, so a disagreement is extra evidence rather than lost coverage
+# -- and the direction that would matter (CI skipping what a local run scans)
+# is already covered by the staged-scope hook. Measuring the divergence is a
+# local `act` run against this job, not a permanent second runner:
+#
+#   colima start && act --job tree-scan \
+#     --platform ubuntu-latest=catthehacker/ubuntu:full-latest \
+#     --container-architecture linux/arm64 --container-daemon-socket=- \
+#     ; colima stop
+#
+# The classification report is written to the step summary for exactly that
+# comparison: `--classify-report` records path, MIME type, and the scan/skip
+# decision for every candidate, batched into one file(1) pass.
+#
+# This file is repo-foundation-only: NOT in sync-manifest.yaml. Promotion into
+# ci_core wants a per-ecosystem dependency step first, at which point the
+# interim tree-scan step in spec.yml is removed in the same change.
+
+name: Unicode audit
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions: {}
+
+jobs:
+  tree-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Homebrew IS preinstalled on the ubuntu runners, just not on PATH --
+      # actions/runner-images documents `eval "$(/home/linuxbrew/.linuxbrew/bin/brew
+      # shellenv)"` for exactly this. Doing that is cheaper than
+      # `setup-homebrew: true`, which re-provisions Homebrew to get the same
+      # result. The macOS runners need none of this, which is why spec.yml has
+      # no equivalent step. Same idiom as lint.yml's Linuxbrew invocations.
+      - name: Put the preinstalled Homebrew on PATH
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          printf '%s\n' "$HOMEBREW_PREFIX/bin" >> "$GITHUB_PATH"
+          {
+            printf 'HOMEBREW_PREFIX=%s\n' "$HOMEBREW_PREFIX"
+            printf 'HOMEBREW_CELLAR=%s\n' "$HOMEBREW_CELLAR"
+            printf 'HOMEBREW_REPOSITORY=%s\n' "$HOMEBREW_REPOSITORY"
+          } >> "$GITHUB_ENV"
+
+      # Same toolchain as spec.yml, so the two jobs' scans differ only in the
+      # OS and its file(1).
+      - name: Set up Homebrew portable Ruby (populates vendor/bundle)
+        uses: Homebrew/actions/setup-ruby@main
+        with:
+          portable-ruby: true
+          bundler-cache: true
+
+      - name: Scan the whole tree
+        run: scripts/lint-unicode.sh --scope=tree --classify-report=classify.tsv
+
+      - name: Summarize the classification
+        # Always: a failed scan's report is the evidence for why it failed.
+        if: always()
+        run: |
+          {
+            printf '## Unicode audit\n\n'
+            if [ ! -f classify.tsv ]; then
+              printf 'No classification report (the scan failed before writing it).\n'
+              exit 0
+            fi
+            printf 'Scanned %s, skipped %s, of %s files.\n\n' \
+              "$(cut -f4 classify.tsv | grep -c scan || true)" \
+              "$(cut -f4 classify.tsv | grep -c skip || true)" \
+              "$(wc -l < classify.tsv | tr -d ' ')"
+            printf 'Report columns: path, MIME type, MIME encoding, decision.\n'
+            printf 'A file is skipped only when BOTH say binary. Type/encoding\n'
+            printf 'pairs this runner suppressed (compare against a local macOS\n'
+            printf 'run to see where the two file(1) builds differ):\n\n'
+            printf '```text\n'
+            awk -F'\t' '$4 == "skip" { print $2 "\t" $3 }' classify.tsv |
+              sort | uniq -c | sort -rn
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
