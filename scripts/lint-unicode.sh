@@ -4,9 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Invisible-Unicode / Trojan Source (CVE-2021-42574) scanner and
-# UTF-8-without-BOM enforcement, run repo-wide. Single source of truth for
-# the CI lint-unicode job and `make lint`; .githooks/pre-commit applies the
-# same policy to staged blobs (its own copy, scoped to a commit).
+# UTF-8-without-BOM enforcement. Single source of truth for the pre-commit
+# plugin, the CI lint-unicode job, and the whole-tree audit.
 #
 # Prefers python3 (scripts/lint-unicode.py): Unicode category Cf+Cc detection
 # plus UTF-8/UTF-16/UTF-32 validation. Falls back to a POSIX-sh detector (the
@@ -38,6 +37,15 @@
 #            scope; the remediation for a finding under vendor/ is an upstream
 #            report. See ADR 0006 for where this scope is exercised.
 #
+# PATH LISTS ARE NUL-DELIMITED END TO END, so a path containing a newline is
+# scanned rather than silently split into two nonexistent entries. A POSIX
+# shell cannot iterate NUL records itself -- it cannot hold a NUL in a variable
+# and `read` has no delimiter option -- but that only means the per-path work
+# must be separately invocable, not that the pipeline has to degrade: the
+# fallback delegates to `xargs -0`, which re-enters this script in its internal
+# --scan-batch mode. The findings list is a temp FILE for the same reason a
+# variable will not do.
+#
 # Usage:
 #   scripts/lint-unicode.sh                  # --scope=tracked (the default)
 #   scripts/lint-unicode.sh --scope=tracked  # same, said out loud
@@ -51,9 +59,10 @@
 # rather than intersecting it with the index.
 #
 # --classify-report=FILE additionally records, for EVERY candidate file, the
-# file(1) MIME type(s) and the binary/text decision as TAB-separated rows --
-# the diagnostic for comparing how a runner's file(1) classifies this tree
-# against how the local one does. One batched file(1) pass. python3 path only.
+# file(1) MIME type(s), the charset, and the binary/text decision as
+# TAB-separated rows -- the diagnostic for comparing how a runner's file(1)
+# classifies this tree against how the local one does. One batched file(1)
+# pass. python3 path only.
 #
 # LINT_UNICODE_NO_PYTHON=1 forces the shell fallback (test seam).
 
@@ -61,10 +70,13 @@ set -eu
 
 scope=""
 classify_report=""
+scan_batch=""
 
-# Resolved before any chdir: $0 may be relative, and the staged scope moves
-# the working directory into the materialized tree.
+# Resolved before any chdir: $0 may be relative, and the staged scope moves the
+# working directory into the materialized tree. The fallback re-invokes this
+# same file through xargs, so the absolute form is load-bearing.
 _script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+_self="$_script_dir/${0##*/}"
 
 die() {
   printf '%s: %s\n' "${0##*/}" "$1" >&2
@@ -76,8 +88,101 @@ usage() {
   printf '  --scope=staged    the index content (what the pre-commit hook runs)\n'
   printf '  --scope=tracked   files git tracks (the default, and what CI runs)\n'
   printf '  --scope=tree      the whole working tree, vendored content included\n'
-  printf '  --classify-report=FILE  record MIME type and scan/skip per file\n'
+  printf '  --classify-report=FILE  record MIME type, charset, and scan/skip per file\n'
   printf '  PATH...           exactly these paths; directories are walked\n'
+}
+
+# --- POSIX-sh fallback detector (used when python3 is absent) -------------
+# Fixed codepoint table "U+XXXX:\OOO\OOO\OOO" (UTF-8 octal bytes). The ONLY
+# copy in the project: the 80-unicode plugin delegates here rather than
+# carrying its own (ADR 0006, amended 2026-07-29).
+_bidi_table='U+061C:\330\234
+U+200B:\342\200\213
+U+200C:\342\200\214
+U+200D:\342\200\215
+U+200E:\342\200\216
+U+200F:\342\200\217
+U+202A:\342\200\252
+U+202B:\342\200\253
+U+202C:\342\200\254
+U+202D:\342\200\255
+U+202E:\342\200\256
+U+2066:\342\201\246
+U+2067:\342\201\247
+U+2068:\342\201\250
+U+2069:\342\201\251
+U+FEFF:\357\273\277'
+
+# Build the fixed-string pattern list from the table, one UTF-8 byte sequence
+# per line, excluding codepoints in the comma-separated U+XXXX list passed as
+# $1. Returns 1 if all are excluded. Fixed strings under LC_ALL=C compare exact
+# bytes and need no locale, where a bracket expression needs a UTF-8 locale and
+# silently degrades to a BYTE set without one -- matching the E2 lead byte of
+# every U+2xxx character, so an em dash trips the gate.
+build_patterns() {
+  _exclude_csv="${1:-}"
+  _out=""
+  _saved_ifs=$IFS
+  IFS='
+'
+  for _row in $_bidi_table; do
+    _cp="${_row%%:*}"
+    _esc="${_row#*:}"
+    case ",$_exclude_csv," in
+    *",$_cp,"*) continue ;;
+    *) ;;
+    esac
+    # shellcheck disable=SC2059  # intentional dynamic format string
+    _seq=$(printf "$_esc")
+    _out="${_out:+$_out
+}$_seq"
+  done
+  IFS=$_saved_ifs
+  [ -n "$_out" ] || return 1
+  printf '%s' "$_out"
+}
+
+# First bidi-allow annotation in the file, or empty.
+read_bidi_allow() {
+  LC_ALL=C sed -n 's/.*bidi-allow:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$1" | head -n 1
+}
+
+# Internal mode: scan the paths given as arguments, appending each finding
+# NUL-terminated to $LINT_UNICODE_FOUND and one byte per scan error to
+# $LINT_UNICODE_ERRORS. Invoked through `xargs -0` so the caller never has to
+# iterate NUL records in-shell; exits 0 even on a finding, because xargs treats
+# a non-zero child as an abort condition and a finding is not an error.
+scan_batch_main() {
+  # `:?` rather than a bare reference: it documents the contract and lets
+  # ShellCheck see these are deliberately environment-supplied.
+  _found_file=${LINT_UNICODE_FOUND:?--scan-batch is internal}
+  _errors_file=${LINT_UNICODE_ERRORS:?--scan-batch is internal}
+  _default_patterns=$(build_patterns "")
+  for _f in "$@"; do
+    [ -f "$_f" ] || continue
+    _allow=$(read_bidi_allow "$_f")
+    if [ -n "$_allow" ]; then
+      _patterns=$(build_patterns "$_allow") || continue
+    else
+      _patterns="$_default_patterns"
+    fi
+    # Three-valued status: 0 match, 1 no match, 2 error. Treating 2 as "no
+    # match" would fail open.
+    _status=0
+    printf '%s\n' "$_patterns" |
+      LC_ALL=C /usr/bin/grep --fixed-strings --file=- \
+        --binary-files=without-match --quiet "$_f" || _status=$?
+    case "$_status" in
+    # Strip a leading ./ so the staged scope's `find .` reports the same
+    # logical path the python detector does (pathlib normalizes it away).
+    0) printf '%s\0' "${_f#./}" >> "$_found_file" ;;
+    1) ;;
+    *)
+      printf 'error: grep exited %s scanning %s\n' "$_status" "$_f" >&2
+      printf 'x' >> "$_errors_file"
+      ;;
+    esac
+  done
 }
 
 while [ "$#" -gt 0 ]; do
@@ -89,6 +194,7 @@ while [ "$#" -gt 0 ]; do
     shift
     ;;
   --classify-report=*) classify_report="${1#--classify-report=}" ;;
+  --scan-batch) scan_batch=1 ;;
   --help | -h)
     usage
     exit 0
@@ -102,6 +208,14 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+# The xargs re-entry: no scope, no collection, no temp files of its own.
+if [ -n "$scan_batch" ]; then
+  : "${LINT_UNICODE_FOUND:?--scan-batch is internal and needs LINT_UNICODE_FOUND}"
+  : "${LINT_UNICODE_ERRORS:?--scan-batch is internal and needs LINT_UNICODE_ERRORS}"
+  scan_batch_main "$@"
+  exit 0
+fi
 
 case "${scope:-}" in
 staged)
@@ -122,17 +236,21 @@ esac
 _files_tmp=$(mktemp "${TMPDIR:-/tmp}/lint-unicode.XXXXXX")
 _stage_dir=""
 _paths_tmp=""
+_found_tmp=""
+_errors_tmp=""
 cleanup() {
   rm -f "$_files_tmp"
   [ -z "$_paths_tmp" ] || rm -f "$_paths_tmp"
+  [ -z "$_found_tmp" ] || rm -f "$_found_tmp"
+  [ -z "$_errors_tmp" ] || rm -f "$_errors_tmp"
   if [ -n "$_stage_dir" ]; then rm -rf "$_stage_dir"; fi
 }
 trap cleanup EXIT INT TERM
 
 # The staged scope scans INDEX content. `git checkout-index` materializes the
 # staged blobs into a throwaway tree preserving relative paths, so findings
-# report the logical path and the bidi-allow annotation is read from the blob
-# a commit would actually record. The runner's PRE_COMMIT_STAGED_LIST (a
+# report the logical path and the bidi-allow annotation is read from the blob a
+# commit would actually record. The runner's PRE_COMMIT_STAGED_LIST (a
 # NUL-delimited file of ACMRT paths, computed once per commit) is honored when
 # present; standalone runs derive the same list. Non-regular entries (a staged
 # symlink) are recreated as symlinks and skipped by `find -type f` -- a link's
@@ -162,41 +280,27 @@ if [ "$scope" = staged ]; then
     git diff --cached --name-only --diff-filter=ACMRT -z > "$_paths_file" ||
       die "could not enumerate the staged paths"
   fi
-
-  # The list is NUL-delimited, so a newline inside it means a path contains
-  # one. Everything downstream is newline-delimited (the detector reads the
-  # file list a line at a time, and the POSIX fallback cannot use `read -d ''`),
-  # so such a path would be split into two entries that do not exist and
-  # silently go unscanned. Refuse instead: loud beats bypassed.
-  # Count the newlines rather than grepping for one: the extracted text is
-  # newlines only, so every "line" in it is empty and `grep '.'` matches
-  # nothing -- a guard that silently never fires, which is how this was first
-  # written and how the test caught it.
-  if [ "$(LC_ALL=C tr -dc '\n' < "$_paths_file" | wc -c | tr -d ' ')" -ne 0 ]; then
-    die "a staged path contains a newline; refusing to scan it unsafely"
-  fi
-
   git checkout-index --prefix="$_stage_dir/" --stdin -z < "$_paths_file" ||
     die "could not materialize the staged blobs"
   cd "$_stage_dir" || die "cannot enter the staged materialization"
 fi
 
-# Collect files to scan into a newline-delimited list.
+# Collect files to scan into a NUL-delimited list.
 collect_files() {
   case "$scope" in
   staged)
-    find . -type f -print | sed 's|^\./||'
+    find . -type f -print0
     ;;
   tracked)
-    if [ "$#" -eq 0 ]; then git ls-files; else git ls-files -- "$@"; fi
+    if [ "$#" -eq 0 ]; then git ls-files -z; else git ls-files -z -- "$@"; fi
     ;;
   tree)
     [ "$#" -gt 0 ] || set -- .
     for _p in "$@"; do
       if [ -d "$_p" ]; then
-        find "$_p" -name .git -prune -o -type f -print
+        find "$_p" -name .git -prune -o -type f -print0
       elif [ -f "$_p" ]; then
-        printf '%s\n' "$_p"
+        printf '%s\0' "$_p"
       fi
     done
     ;;
@@ -218,94 +322,27 @@ fi
 
 [ -z "$classify_report" ] || die "--classify-report needs the python3 detector"
 
-# --- POSIX-sh fallback (no python3) -------------------------------------
-# Fixed codepoint table "U+XXXX:\OOO\OOO\OOO" (UTF-8 octal bytes), kept in
-# sync with .githooks/pre-commit. Only bidi/zero-width/BOM are covered.
-_bidi_table='U+061C:\330\234
-U+200B:\342\200\213
-U+200C:\342\200\214
-U+200D:\342\200\215
-U+200E:\342\200\216
-U+200F:\342\200\217
-U+202A:\342\200\252
-U+202B:\342\200\253
-U+202C:\342\200\254
-U+202D:\342\200\255
-U+202E:\342\200\256
-U+2066:\342\201\246
-U+2067:\342\201\247
-U+2068:\342\201\250
-U+2069:\342\201\251
-U+FEFF:\357\273\277'
+_found_tmp=$(mktemp "${TMPDIR:-/tmp}/lint-unicode-found.XXXXXX")
+_errors_tmp=$(mktemp "${TMPDIR:-/tmp}/lint-unicode-errors.XXXXXX")
 
-# Build the fixed-string pattern list from the table, one UTF-8 byte sequence
-# per line, excluding codepoints in the comma-separated U+XXXX list passed as
-# $1. Returns 1 if all are excluded. Kept identical to the 80-unicode plugin's
-# copy, which carries the full rationale: fixed strings under LC_ALL=C compare
-# exact bytes and need no locale, where a bracket expression needs a UTF-8
-# locale and silently degrades to a BYTE set without one -- matching the E2
-# lead byte of every U+2xxx character, so an em dash trips the gate.
-build_patterns() {
-  _exclude_csv="${1:-}"
-  _out=""
-  _saved_ifs=$IFS
-  IFS='
-'
-  for _row in $_bidi_table; do
-    _cp="${_row%%:*}"
-    _esc="${_row#*:}"
-    case ",$_exclude_csv," in
-    *",$_cp,"*) continue ;;
-    *) ;;
-    esac
-    # shellcheck disable=SC2059  # intentional dynamic format string
-    _seq=$(printf "$_esc")
-    _out="${_out:+$_out
-}$_seq"
-  done
-  IFS=$_saved_ifs
-  [ -n "$_out" ] || return 1
-  printf '%s' "$_out"
-}
+# xargs -0 is how a POSIX shell iterates NUL records: it splits them and hands
+# each batch back to this script as arguments. `-r` (--no-run-if-empty) is a
+# GNU-compatibility option macOS xargs also accepts.
+LINT_UNICODE_FOUND="$_found_tmp" LINT_UNICODE_ERRORS="$_errors_tmp" \
+  xargs -0 -r "$_self" --scan-batch < "$_files_tmp"
 
-# First bidi-allow annotation in the working-tree file, or empty.
-read_bidi_allow() {
-  LC_ALL=C sed -n 's/.*bidi-allow:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$1" | head -n 1
-}
+if [ -s "$_errors_tmp" ]; then
+  printf 'error: the invisible-Unicode scan could not complete; refusing\n' >&2
+  printf '  rather than passing files it never managed to read.\n' >&2
+  exit 1
+fi
 
-_default_patterns=$(build_patterns "")
-_found=""
-while IFS= read -r _f; do
-  [ -z "$_f" ] && continue
-  [ -f "$_f" ] || continue
-  _allow=$(read_bidi_allow "$_f")
-  if [ -n "$_allow" ]; then
-    _patterns=$(build_patterns "$_allow") || continue
-  else
-    _patterns="$_default_patterns"
-  fi
-  # Three-valued status: 0 match, 1 no match, 2 error. Treating 2 as "no
-  # match" would fail open -- see the same guard in the 80-unicode plugin.
-  _status=0
-  printf '%s\n' "$_patterns" |
-    LC_ALL=C /usr/bin/grep --fixed-strings --file=- \
-      --binary-files=without-match --quiet "$_f" || _status=$?
-  case "$_status" in
-  0)
-    _found="${_found:+$_found
-}$_f"
-    ;;
-  1) ;;
-  *)
-    printf 'error: grep exited %s scanning %s\n' "$_status" "$_f" >&2
-    exit 1
-    ;;
-  esac
-done < "$_files_tmp"
-
-if [ -n "$_found" ]; then
+if [ -s "$_found_tmp" ]; then
   printf 'Invisible Unicode characters found (CVE-2021-42574):\n' >&2
-  printf '%s\n' "$_found" | while IFS= read -r _bf; do
+  # NUL to newline only HERE, at the human-output boundary: a path with a
+  # newline in it prints across two lines, which is a display quirk rather
+  # than the silent skip that newline-delimiting the pipeline would cause.
+  LC_ALL=C tr '\0' '\n' < "$_found_tmp" | while IFS= read -r _bf; do
     printf '  %s\n' "$_bf" >&2
   done
   printf '\nA file may opt out of specific codepoints with an in-file\n' >&2

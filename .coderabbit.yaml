@@ -108,6 +108,20 @@ reviews:
         every U+2xxx character, so an ordinary em dash or curly quote trips the
         gate. Fixed strings compare exact byte sequences, need no locale, and
         cannot over-match because UTF-8 is self-synchronizing.
+    - path: ".ai/**"
+      instructions: |
+        The `.ai/` continuity layer (repo-foundation ADR 0022). `memory.md` and
+        `org/memory.md` are APPEND-ONLY, and that is mechanically enforced: the
+        .githooks/pre-commit.d/40-memory plugin rejects any commit that removes
+        a line from either. So do NOT suggest editing, rewriting, or deleting an
+        existing entry to correct it, even when the entry is stale or wrong — the
+        correction is a NEW dated entry (`## YYYY-MM-DD — Topic`) that names what
+        it supersedes. Entries are historical records of what was true when
+        written; staleness alone is not a defect. `AI_MEMORY_ALLOW_REWRITE=1`
+        exists for the periodic consolidation pass only.
+        `org/memory.md` is org-wide and edited ONLY in repo-foundation;
+        `org/relay.md` is how another repository forwards a candidate entry
+        here. `progress.md` is gitignored volatile state and is not reviewable.
     - path: "spec/**"
       instructions: |
         `REUSE_LINT_SKIP=1` in the hook specs is load-bearing, not leftover: the

@@ -379,6 +379,26 @@ RSpec.describe "CI lint-unicode scanner" do
       end
     end
 
+    # The path list is NUL-delimited end to end. A newline-delimited pipeline
+    # split this filename into two nonexistent entries and passed silently;
+    # both detector paths must catch it now. The POSIX fallback reaches NUL
+    # records through `xargs -0` re-entering the script in --scan-batch mode,
+    # since a POSIX shell cannot iterate them in-process.
+    {
+      "python3 detector" => {},
+      "POSIX-sh fallback" => { "LINT_UNICODE_NO_PYTHON" => "1" },
+    }.each do |label, env|
+      it "scans a staged path containing a newline (#{label})" do
+        in_fixture_repo do |dir|
+          File.write(File.join(dir, "we\nird.txt"), "evil #{BIDI_OVERRIDE_RLO} here\n")
+          run!("git", "add", "-A")
+          _out, err, status = Open3.capture3(env, LINT_UNICODE_PATH, "--scope=staged")
+          expect(status.success?).to eq(false), "stderr=#{err.inspect}"
+          expect(err).to match(/Invisible Unicode/)
+        end
+      end
+    end
+
     it "rejects paths combined with --scope=staged" do
       _out, err, status = Open3.capture3(LINT_UNICODE_PATH, "--scope=staged", "x")
       expect(status.exitstatus).to eq(2)
@@ -502,23 +522,19 @@ RSpec.describe "CI lint-unicode scanner" do
     # so a path whose charset comes back empty gets one targeted
     # --mime-encoding query. Without it a fat binary would classify `scan`.
     it "fills a missing charset so a universal binary still classifies as binary" do
-      # Built here with lipo rather than borrowed from a path on the machine:
-      # this spec is canonical and runs in consumers, so it may not assume any
-      # layout outside the repository. /bin/sh is universal on macOS, so two
-      # thinned slices recombine into a fat Mach-O with no compiler involved.
-      skip "lipo is macOS-only" unless RUBY_PLATFORM.include?("darwin")
-      skip "lipo not available" if Open3.capture3("lipo", "-archs", "/bin/sh").last.exitstatus != 0
-      arches = Open3.capture3("lipo", "-archs", "/bin/sh").first.split
-      skip "/bin/sh is not universal here" if arches.length < 2
+      # Homebrew's own Mach-O test fixture, located through `brew --repository`
+      # rather than any assumed layout. Two rejected alternatives, both for
+      # durability: thinning /bin/sh with lipo works today but Apple ends Intel
+      # support in 2027, so a system binary will not stay universal; and
+      # committing a fat binary here would ship it to every consumer through
+      # the synced spec/ tree for one example's sake.
+      brew = Open3.capture3("brew", "--repository")
+      skip "Homebrew not available" unless brew.last.success?
+      fat = File.join(brew.first.strip, "Library", "Homebrew", "test",
+                      "support", "fixtures", "mach", "fat.dylib")
+      skip "Homebrew's Mach-O fixture is not present" unless File.exist?(fat)
 
       Dir.mktmpdir("rf-ci-test-") do |dir|
-        slices = arches.first(2).map do |arch|
-          slice = File.join(dir, "slice-#{arch}")
-          run!("lipo", "/bin/sh", "-thin", arch, "-output", slice)
-          slice
-        end
-        fat = File.join(dir, "fat.bin")
-        run!("lipo", "-create", "-output", fat, *slices)
         report = File.join(dir, "report.tsv")
         _out, err, status = Open3.capture3(
           LINT_UNICODE_PATH, "--scope=tree", "--classify-report=#{report}", fat)

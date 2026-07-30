@@ -270,11 +270,13 @@ def looks_binary(path):
 
 
 def main():
-    # The list is written by lint-unicode.sh from git output, which is
-    # UTF-8; decoding it in the locale's encoding instead would raise on a
-    # non-ASCII path under a C locale.
+    # NUL-delimited, so a path containing a newline survives intact rather than
+    # splitting into two nonexistent entries that silently go unscanned.
+    # Decoded as UTF-8 explicitly: the list comes from git and find, and reading
+    # it in the locale's encoding would raise on a non-ASCII path under a C
+    # locale.
     with open(sys.argv[1], encoding='utf-8') as fh:
-        paths = [line.rstrip('\n') for line in fh if line.strip()]
+        paths = [p for p in fh.read().split('\0') if p]
     report_path = sys.argv[2] if len(sys.argv) > 2 else None
 
     candidates = [p for p in paths if pathlib.Path(p).is_file()]

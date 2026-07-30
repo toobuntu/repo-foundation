@@ -53,14 +53,27 @@ jobs:
         with:
           persist-credentials: false
 
-      # `setup-homebrew: true` is required HERE and not in spec.yml: the macOS
-      # runners ship Homebrew, the ubuntu runners do not, and setup-ruby aborts
-      # with "Homebrew is required" without it. Same toolchain as spec.yml
-      # otherwise, so the two jobs' scans differ only in the OS and its file(1).
+      # Homebrew IS preinstalled on the ubuntu runners, just not on PATH --
+      # actions/runner-images documents `eval "$(/home/linuxbrew/.linuxbrew/bin/brew
+      # shellenv)"` for exactly this. Doing that is cheaper than
+      # `setup-homebrew: true`, which re-provisions Homebrew to get the same
+      # result. The macOS runners need none of this, which is why spec.yml has
+      # no equivalent step. Same idiom as lint.yml's Linuxbrew invocations.
+      - name: Put the preinstalled Homebrew on PATH
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          printf '%s\n' "$HOMEBREW_PREFIX/bin" >> "$GITHUB_PATH"
+          {
+            printf 'HOMEBREW_PREFIX=%s\n' "$HOMEBREW_PREFIX"
+            printf 'HOMEBREW_CELLAR=%s\n' "$HOMEBREW_CELLAR"
+            printf 'HOMEBREW_REPOSITORY=%s\n' "$HOMEBREW_REPOSITORY"
+          } >> "$GITHUB_ENV"
+
+      # Same toolchain as spec.yml, so the two jobs' scans differ only in the
+      # OS and its file(1).
       - name: Set up Homebrew portable Ruby (populates vendor/bundle)
         uses: Homebrew/actions/setup-ruby@main
         with:
-          setup-homebrew: true
           portable-ruby: true
           bundler-cache: true
 
