@@ -30,6 +30,13 @@ knowledge_base:
       - "**/CLAUDE.md"
       - "docs/agent-principles.md"
       - "CONTRIBUTING.md"
+      # architecture.md carries the sync contract — the engine's modes, the
+      # ownership tiers, the trust boundaries — which is what a reviewer needs
+      # to see that a change rewrites a file in every consumer. repo-standards
+      # carries the enforcement table and the doc-distribution rule. The second
+      # is repo-foundation-only; a pattern that matches nothing is harmless.
+      - "docs/architecture.md"
+      - "docs/repo-standards.md"
 
 reviews:
   # assertive surfaces more; matches the maintainer's web-UI setting.
@@ -138,6 +145,14 @@ reviews:
         `org/memory.md` is org-wide and edited ONLY in repo-foundation;
         `org/relay.md` is how another repository forwards a candidate entry
         here. `progress.md` is gitignored volatile state and is not reviewable.
+        Canonical-file neutrality does NOT apply to these entries the way it
+        applies to code. An org-memory entry NAMES the repositories, files, and
+        versions its finding was measured against, on purpose: an entry that
+        says "a consumer repository" cannot be acted on, and the specifics are
+        what let a later reader check whether the finding still holds. Do not
+        suggest generalizing a repository name, a path, or a version out of a
+        memory entry — that removes the evidence the entry exists to carry.
+        (Ruled 2026-07-30, on a finding that proposed exactly this.)
     - path: "spec/**"
       instructions: |
         `REUSE_LINT_SKIP=1` in the hook specs is load-bearing, not leftover: the
