@@ -29,6 +29,7 @@
       "Bash(git fetch)",
       "Bash(git fetch:*)",
       "Bash(git worktree list)",
+
       "Bash(gh pr view:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr checks:*)",
@@ -44,6 +45,7 @@
       "Bash(gh api /users/:*)",
       "Bash(gh api -X GET:*)",
       "Bash(gh auth status)",
+
       "Bash(reuse lint)",
       "Bash(reuse lint:*)",
       "Bash(reuse download:*)",
@@ -81,6 +83,7 @@
       "Bash(git worktree add:*)",
       "Bash(git worktree remove:*)",
       "Bash(git worktree prune)",
+
       "Bash(gh pr comment:*)",
       "Bash(gh pr edit:*)",
       "Bash(gh pr create:*)",
@@ -90,6 +93,7 @@
       "Bash(gh issue create:*)",
       "Bash(gh issue edit:*)",
       "Bash(gh release create:*)",
+
       "Bash(reuse annotate:*)",
       "Bash(bundle install)",
       "Bash(curl:*)"
@@ -125,6 +129,7 @@
       "Bash(git config --unset-all:*)",
       "Bash(git config --remove-section:*)",
       "Bash(git config --global:*)",
+
       "Bash(gh pr merge:*)",
       "Bash(gh pr close:*)",
       "Bash(gh pr delete:*)",
@@ -147,6 +152,7 @@
       "Bash(gh auth login:*)",
       "Bash(gh auth logout:*)",
       "Bash(gh auth refresh:*)",
+
       "Bash(rm -rf:*)",
       "Bash(rm -fr:*)",
       "Bash(rm -Rf:*)",
@@ -158,6 +164,7 @@
       "Bash(sudo rm:*)",
       "Bash(sudo make:*)",
       "Bash(sudo:*)",
+
       "Bash(log erase:*)",
       "Bash(pmset -a:*)",
       "Bash(pmset -b:*)",
@@ -186,6 +193,7 @@
       "Bash(reboot:*)",
       "Bash(halt:*)",
       "Bash(killall -9:*)",
+
       "Bash(brew install:*)",
       "Bash(brew uninstall:*)",
       "Bash(brew remove:*)",
@@ -209,6 +217,7 @@
       "Bash(curl:* | bash)",
       "Bash(curl:* | zsh)",
       "Bash(wget:*)",
+
       "Read(./.env)",
       "Read(./.env.*)",
       "Read(~/.ssh/**)",
@@ -246,6 +255,7 @@
       "reuse download *",
       "zizmor *",
       "bundle install",
+
       "scripts/annotate.sh",
       "scripts/annotate.sh *",
       "rumdl fmt *"
