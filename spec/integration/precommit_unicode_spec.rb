@@ -498,6 +498,26 @@ RSpec.describe "CI lint-unicode scanner" do
       end
     end
 
+    # `file --mime` omits the charset from a universal Mach-O's summary line,
+    # so a path whose charset comes back empty gets one targeted
+    # --mime-encoding query. Without it a fat binary would classify `scan`.
+    it "fills a missing charset so a universal binary still classifies as binary" do
+      fat = File.join(REPO_ROOT, "..", "..", "fork", "Homebrew", "brew",
+                      "Library", "Homebrew", "test", "support", "fixtures",
+                      "mach", "fat.dylib")
+      skip "no universal binary available on this machine" unless File.exist?(fat)
+      Dir.mktmpdir("rf-ci-test-") do |dir|
+        report = File.join(dir, "report.tsv")
+        _out, err, status = Open3.capture3(
+          LINT_UNICODE_PATH, "--scope=tree", "--classify-report=#{report}", fat)
+        expect(status.success?).to eq(true), "stderr=#{err.inspect}"
+        _path, mime, encoding, decision = File.readlines(report, chomp: true).first.split("\t")
+        expect(mime).to eq("application/x-mach-binary")
+        expect(encoding).to eq("binary")
+        expect(decision).to eq("skip")
+      end
+    end
+
     it "refuses the flag on the sh fallback rather than writing an empty report" do
       _out, err, status = Open3.capture3(
         { "LINT_UNICODE_NO_PYTHON" => "1" },

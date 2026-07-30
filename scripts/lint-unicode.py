@@ -23,9 +23,9 @@
 # A finding is confirmed against file(1) before it is reported, because the Cc
 # extension reaches ordinary binary content: a fixture holding a NUL decodes as
 # valid UTF-8, so the decode alone calls it text. Red Hat scopes its own
-# scanner to text/* for the same reason. Both `--mime-type` and
-# `--mime-encoding` must agree that a file is binary before a finding is
-# dropped -- see `is_binary_decision` for why neither suffices alone, and
+# scanner to text/* for the same reason. Both halves of `file --mime` -- the
+# format and the charset -- must agree that a file is binary before a finding
+# is dropped: see `is_binary_decision` for why neither suffices alone, and
 # `looks_binary` for why the check runs per finding rather than per file.
 #
 # Rationale, codepoint coverage, and alternatives considered (org-wide ADR):
@@ -42,7 +42,7 @@ import unicodedata
 ALLOWED = {0x09, 0x0A, 0x0D}  # TAB, LF, CR
 ALLOW_RE = re.compile(r'bidi-allow:\s*([U+0-9A-Fa-f,]+)')
 
-# Separator for `file --mime-type`, so the type can be taken as the field after
+# Separator for `file --mime`, so the answer can be taken as the field after
 # the LAST occurrence rather than by splitting on ':' (paths contain colons).
 MIME_SEP = '<<lint-unicode-mime>>'
 
@@ -164,14 +164,24 @@ def parse_mime_lines(stdout):
     return out
 
 
-def run_file(flag, paths):
-    """file(1) with one query flag over one or more paths.
+def split_mime(value):
+    """('text/plain', 'us-ascii') from 'text/plain; charset=us-ascii'.
 
-    Returns {path: [value, ...]}, or {} on any failure. The same
-    separator-keyed parse serves both queries, so neither depends on output
-    position -- `--mime-encoding` happens to emit one line per file even for a
-    universal binary, but relying on that would reintroduce the very
-    assumption `--mime-type` disproves.
+    Returns an empty charset when the field is absent, which the caller then
+    fills in with a targeted query. `file --mime` omits it on the summary line
+    of a universal Mach-O binary (the charset appears only on the
+    per-architecture continuation lines, and on the last of those it is
+    duplicated), so absence is a real case rather than a defensive branch.
+    """
+    mime, sep, charset = value.partition('; charset=')
+    return mime.strip(), charset.strip() if sep else ''
+
+
+def run_file(paths, flag='--mime'):
+    """file(1) over one or more paths; {path: [value, ...]}, {} on failure.
+
+    `--mime` answers both questions in one pass -- the format and the charset
+    -- which is why there is one batched pass rather than two.
     """
     try:
         proc = subprocess.run(
@@ -184,53 +194,67 @@ def run_file(flag, paths):
     return parse_mime_lines(proc.stdout.decode('utf-8', 'replace'))
 
 
+def encoding_of(path):
+    """The charset alone, for a path whose `--mime` line carried none."""
+    for values in run_file([str(path)], '--mime-encoding').values():
+        return values[0] if values else ''
+    return ''
+
+
+def classify_values(path, values):
+    """(types, encoding) from one path's `--mime` values."""
+    types, charsets = [], []
+    for value in values:
+        mime, charset = split_mime(value)
+        if mime:
+            types.append(mime)
+        if charset:
+            charsets.append(charset)
+    return types, charsets[0] if charsets else encoding_of(path)
+
+
 def classify(path):
     """(types, encoding) for one path -- the gate's lazy per-finding check.
 
     Reads the sole parsed entry rather than looking up by key, so it makes no
     assumption about how file(1) echoed the path back.
     """
-    def sole(flag):
-        for values in run_file(flag, [str(path)]).values():
-            return values
-        return []
-    return sole('--mime-type'), (sole('--mime-encoding') or [''])[0]
+    for values in run_file([str(path)]).values():
+        return classify_values(path, values)
+    return [], ''
 
 
 def classify_all(paths, chunk=400):
     """{path: (types, encoding)} for every path, in batched file(1) passes.
 
     file(1) startup dominates the per-file cost, so batching is far cheaper
-    over a whole tree: two batched passes in ~2.6s against roughly 25s
-    per-file. Chunked well below ARG_MAX. Used only by --classify-report; the
-    gate stays lazy.
+    over a whole tree: ~1.3s against roughly 25s per-file. Chunked well below
+    ARG_MAX. Used only by --classify-report; the gate stays lazy.
     """
-    types, encodings = {}, {}
+    raw = {}
     for i in range(0, len(paths), chunk):
-        batch = paths[i:i + chunk]
-        types.update(run_file('--mime-type', batch))
-        encodings.update(run_file('--mime-encoding', batch))
-    return {p: (types.get(p, []), (encodings.get(p) or [''])[0]) for p in paths}
+        raw.update(run_file(paths[i:i + chunk]))
+    return {p: classify_values(p, raw.get(p, [])) for p in paths}
 
 
 def is_binary_decision(types, encoding):
     """Suppress a finding only when BOTH file(1) queries say so.
 
-    Two independent axes, and requiring both narrows the suppression:
+    `file --mime` answers two independent questions in one pass, and requiring
+    both narrows the suppression:
 
-    - `--mime-encoding` describes the BYTES: `binary`, or a character
-      encoding. It cannot decide alone, because it answers `binary` for a
-      shell script carrying an embedded NUL -- which is exactly a file that
-      must be reported.
-    - `--mime-type` describes the FORMAT, which is the closer proxy for "does
-      a human review this as source." It cannot decide alone either, because
-      a format on the denylist may still hold plain text: PostScript is
+    - The CHARSET describes the bytes: `binary`, or an encoding. It cannot
+      decide alone, because it answers `binary` for a shell script carrying an
+      embedded NUL -- exactly a file that must be reported.
+    - The TYPE describes the format, the closer proxy for "does a human review
+      this as source." It cannot decide alone either, because a format on the
+      denylist may still hold plain text: PostScript is
       `application/postscript` and `utf-8`, and suppressing on type alone
       would swallow a bidi override inside a reviewable `.ps` file.
 
     So: skip only where the bytes are binary AND every reported format is a
-    known-binary one. Either query failing (file(1) absent, erroring, or
-    unparseable) yields a report, never a silent skip.
+    known-binary one. A missing or unreadable answer yields a report, never a
+    silent skip.
     """
     return (encoding == 'binary'
             and bool(types)
