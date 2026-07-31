@@ -203,7 +203,7 @@ act --job spec --platform macos-latest=-self-hosted --container-architecture dar
 
 `-self-hosted` runs the job on your real Mac, so its `brew install` and Ruby setup touch the host. To isolate it, run the job inside a throwaway macOS VM with [lume](https://github.com/trycua/lume) (Apple's Virtualization.framework).
 
-> **Status (2026-07-31, maintainer-run, lume 0.5.1): the baseline build is verified end to end** — create, unattended setup, key install, temporary sudo grant, Homebrew, revoke, `brew install act`. Do not use lume 0.5.0: `lume create` traps there on every macOS install (see *When a lume command fails* below). 0.5.1 fixes it.
+> **Status (2026-07-31, maintainer-run, lume 0.5.1): verified end to end, both halves.** The baseline build — create, unattended setup, key install, temporary sudo grant, Homebrew, revoke, `brew install act` — and then the run path against a clone of it: boot, share mount, `act version 0.2.89` inside the guest, and the checkout copied to the right path. Do not use lume 0.5.0: `lume create` traps there on every macOS install (see *When a lume command fails*). 0.5.1 fixes it.
 
 Two one-time settings before anything else. Telemetry is on by default (pseudonymous install and usage metadata — no names, paths, or VM contents); the org opts out of dev-tool analytics uniformly, the same stance as `HOMEBREW_NO_ANALYTICS=1`:
 
@@ -257,6 +257,16 @@ for _ in $(seq 60); do
 done
 [ -n "$ip" ] || { echo "VM never got an address; see ~/Library/Logs/lume/macos-baseline.log" >&2; exit 1; }
 
+# An address is not sshd. Probe the PORT, not a login: the key is not installed
+# yet, so an auth-based probe fails for the wrong reason and cannot distinguish
+# "sshd is down" from "no key yet".
+up=""
+for _ in $(seq 60); do
+  nc -z -G 2 "$ip" 22 2>/dev/null && { up=1; break; }
+  sleep 5
+done
+[ -n "$up" ] || { echo "sshd never came up at $ip; see ~/Library/Logs/lume/macos-baseline.log" >&2; exit 1; }
+
 sshvm() {
   ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
       -o RequestTTY=force -o IdentitiesOnly=yes -i "$VMKEY" lume@"$ip" "$@"
@@ -267,32 +277,39 @@ sshvm() {
 # agent (two landed here on the first attempt).
 ssh-copy-id -i "${VMKEY}.pub" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null lume@"$ip"
 
-# --- 4. Temporary root grant, for install.sh only -----------------------
-# Written to a TEMP file and validated there: `visudo -cf` on an
-# already-installed file validates too late, and a malformed file in
-# /etc/sudoers.d can lock sudo out of the guest entirely. install(1) does the
-# move with the right mode in one step, and only if validation passed.
-sshvm 'set -eu; echo lume | sudo --stdin --validate
+# --- 4. Grant root, install Homebrew, revoke -- ONE invocation ----------
+# The three are one remote command so the revoke rides an EXIT trap: an
+# install.sh that fails or is interrupted still takes the grant with it. Split
+# across three ssh calls, an abort in the middle leaves a passwordless-root
+# guest that every later clone inherits.
+#
+# The grant is written to a TEMP file and validated there, because `visudo -cf`
+# on an already-installed file validates too late: a malformed file is in
+# /etc/sudoers.d the moment it lands, and a bad file there can lock sudo out of
+# the guest entirely. install(1) does the move with the right mode in one step,
+# and only if validation passed.
+#
+# NOTE the installer executes remote code fetched at run time from a mutable ref
+# (Homebrew's documented entry point is HEAD; there is no released installer tag
+# to pin). Acceptable HERE and only here: a disposable guest, on a private NAT,
+# whose root grant expires with this command. Do not lift that line into a
+# context where any of those three stops being true.
+sshvm 'set -eu
+  trap "sudo rm -f /etc/sudoers.d/baseline-build" EXIT
+  echo lume | sudo --stdin --validate
   printf "lume ALL=(ALL) NOPASSWD: ALL\n" > /tmp/baseline-build
   sudo visudo -cf /tmp/baseline-build
   sudo install -m 440 -o root -g wheel /tmp/baseline-build /etc/sudoers.d/baseline-build
-  rm -f /tmp/baseline-build'
+  rm -f /tmp/baseline-build
+  NONINTERACTIVE=1 /bin/bash -c "$(curl --fail --silent --show-error --location https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
 
-# --- 5. Homebrew, now raceless (no credential cache to expire) ----------
-# NOTE this executes remote code fetched at run time from a mutable ref
-# (Homebrew's documented entry point is HEAD; there is no released installer
-# tag to pin). Acceptable HERE and only here: a disposable guest, on a private
-# NAT, whose root grant is revoked in the very next command. Do not lift this
-# line into a context where any of those three stops being true.
-sshvm 'NONINTERACTIVE=1 /bin/bash -c "$(curl --fail --silent --show-error --location https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+# --- 5. Confirm the grant is gone ---------------------------------------
+# The trap should have removed it; verify rather than assume, because a baseline
+# cloned with the grant still in place propagates it to every run clone. If this
+# prints nothing, remove it by hand before cloning.
+sshvm '! test -e /etc/sudoers.d/baseline-build && echo "grant revoked"'
 
-# --- 6. Revoke IMMEDIATELY ----------------------------------------------
-# The grant existed strictly for install.sh; pouring a bottle needs no root.
-# Confirm the removal rather than assuming it -- a baseline cloned with the
-# grant still in place would propagate it to every run clone.
-sshvm 'sudo rm -f /etc/sudoers.d/baseline-build; ! test -e /etc/sudoers.d/baseline-build && echo "grant revoked"'
-
-# --- 7. Toolchain --------------------------------------------------------
+# --- 6. Toolchain --------------------------------------------------------
 # Every brew call carries the inline shellenv: `ssh host command` is a
 # non-login shell and reads neither ~/.zprofile nor /etc/paths.d.
 sshvm 'mkdir -p ~/.homebrew && cat >> ~/.homebrew/brew.env <<EOF
@@ -304,7 +321,7 @@ EOF'
 sshvm 'echo "eval \"\$(/opt/homebrew/bin/brew shellenv)\"" >> ~/.zprofile'
 sshvm 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install act'
 
-# --- 8. Shut down gracefully --------------------------------------------
+# --- 7. Shut down gracefully --------------------------------------------
 # `shutdown`, not `stop`: this is the copy that gets kept and cloned, and it
 # has just written a Homebrew tree. `shutdown` powers the guest down over SSH;
 # `stop` is the immediate process-level stop, right for throwaway clones.
@@ -312,6 +329,8 @@ lume shutdown macos-baseline
 ```
 
 <!-- rumdl-enable MD013 -->
+
+**The block is deliberately resumable.** If a step fails, fix the cause and continue from that step — do not tear the VM down. The create alone costs an 18 GB download and several minutes, and a half-built baseline is exactly what you want to debug against. The one thing that must not be left behind is the sudo grant, which is why step 5 verifies it rather than trusting step 4.
 
 Refresh the toolchain later with `brew update && brew upgrade` **in the baseline, deliberately** — never in a run clone. Per-run upgrades make every run slow and, worse, non-reproducible: a failure then has two candidate causes, your workflow and today's Homebrew, and you cannot tell them apart. Re-create and re-remove the sudo grant the same way if a refresh needs it.
 
@@ -370,7 +389,12 @@ One command that exercises everything the isolated path depends on — clone, bo
 
 ```sh
 set -eu
-lume --version                       # 0.5.1 or newer; 0.5.0 cannot create a VM
+# 0.5.0 cannot create a VM at all, so refuse rather than fail later.
+v=$(lume --version)
+case "$v" in
+0.[0-4].* | 0.5.0) echo "lume $v is too old; 0.5.1 or newer required" >&2; exit 1 ;;
+*) ;;
+esac
 [ "$(lume ls --format=json | jq -r '.[]|select(.name=="macos-baseline").status')" = stopped ] ||
   { echo "baseline is not stopped; shut it down first" >&2; exit 1; }
 lsof ~/.lume/macos-baseline/nvram.bin >/dev/null 2>&1 &&
@@ -382,7 +406,10 @@ lume_teardown() {
   fi
   lume delete "$1" --force
 }
-trap 'lume_teardown macos-e2e >/dev/null 2>&1 || true' EXIT
+# Reports its own failures rather than swallowing them: a teardown that fails
+# silently leaves a VM holding the auxiliary-storage lock against the next run.
+# It does not mask the exit status of whatever actually failed.
+trap 'rc=$?; lume_teardown macos-e2e || echo "TEARDOWN FAILED: macos-e2e may still hold its lock" >&2; exit $rc' EXIT
 
 lume clone macos-baseline macos-e2e
 lume run macos-e2e --display=none --detach --shared-dir "${PWD}:ro"
@@ -468,6 +495,7 @@ Be clear-eyed about what the grant costs **in this guest**: the password is publ
 - **`lume create` traps on 0.5.0 specifically.** Every macOS install died at `_dispatch_assert_queue_fail` inside `-[VZMacOSInstaller initWithVirtualMachine:restoreImageURL:]`: the 0.5.0 native-display work moved the VM onto a private serial queue but left `installMacOS` constructing the installer on the main actor, and Apple asserts the two match. Reported as [trycua/cua#2670](https://github.com/trycua/cua/issues/2670) and fixed in 0.5.1. The last log line before the trap names the hardware model, which is a red herring — the crash report in `~/Library/Logs/DiagnosticReports/lume-*.ips` names the real frame. Upgrade rather than working around it.
 - **A trapped or interrupted create leaves scratch state.** `~/.lume/<UUID>/` directories, sparse and about 20 KB allocated, which `lume ls` reports as stopped VMs because listing enumerates directories under the storage root. `lume delete <UUID> --force` clears them when nothing is running; there is no separate index to fall out of step.
 - **`command not found: act` (or `brew`) over ssh, on a guest where both are installed.** Expected, and not a broken install. `ssh host command` and `lume ssh <name> <command>` both run a **non-login, non-interactive** shell, which reads neither `~/.zprofile` nor `/etc/paths.d` — the two mechanisms Homebrew's installer uses to put `/opt/homebrew/bin` on `PATH`. So every remote command that needs brew or a brew-installed tool must carry `eval "$(/opt/homebrew/bin/brew shellenv)"` inline, which is why the blocks above all do. An interactive `ssh` into the guest gets a login shell and finds them normally, so the difference is easy to misread as "it works when I look, and breaks when I script it."
+- **`lume shutdown` returns before the VM has stopped.** It prints `Graceful shutdown requested` and exits 0 immediately, so a chained `lume shutdown X && lume delete X --force` fails with `Cannot modify X: the VM is running. Stop it first.` Poll `lume ls` until the status reads `stopped`, or use `lume stop` when you do not need the graceful path — that is why `lume_teardown` calls `stop`. A related cosmetic trap: `lume stop` against a VM whose helper has already exited logs `Found process N holding lock on config file` with a PID that no longer exists, and `kill` on it answers `no such process`. Check `lume ls` rather than believing that line.
 - **`$ip` goes stale.** A deleted and re-created VM comes up on a new address, and the unattended setup stops the VM when it finishes — so an `ssh … Operation timed out` right after `lume create` usually means "not started, and your captured address is the last VM's." Re-capture after every create, clone, or run.
 - **The `.resize.guard` dotfiles are inert; leave them alone.** `~/.lume/.<name>.resize.guard` is an **flock target**, not a state marker (`VMDirectory.swift`: `tryAcquireResizeGuard` creates the file if missing, then takes a non-blocking `flock()`), and a running VM holds that lock for its lifetime. The lock dies with its holder, so the file legitimately persists between runs; a separate transaction marker (`hasResizeMarker`) records a real resize. Deleting a guard never helps, and while any lume process is live it defeats the lock outright: `flock` binds to the open file, so after an unlink the next operation recreates the guard as a new inode and locks *that*. Through 0.4.0 this surfaced as a misleading error — `lume delete --force` against a running VM reported `A previous disk resize … did not finish` even when no resize was ever requested. [trycua/cua#2491](https://github.com/trycua/cua/issues/2491), fixed in 0.5.0: a running VM now reads `Cannot modify <name>: the VM is running. Stop it first.`
 - **"Warning: Permanently added … to the list of known hosts" on every `sshvm` call is expected.** `UserKnownHostsFile=/dev/null` means each connection starts with an empty database, accepts the key, and "permanently" records it in `/dev/null`. `-o LogLevel=ERROR` silences it without hiding real errors.
