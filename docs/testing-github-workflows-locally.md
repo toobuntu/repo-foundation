@@ -370,7 +370,8 @@ set -eu
 lume --version                       # 0.5.1 or newer; 0.5.0 cannot create a VM
 [ "$(lume ls --format=json | jq -r '.[]|select(.name=="macos-baseline").status')" = stopped ] ||
   { echo "baseline is not stopped; shut it down first" >&2; exit 1; }
-pgrep -fq lume && { echo "a lume process is still running; it holds the aux-storage lock" >&2; exit 1; }
+lsof ~/.lume/macos-baseline/nvram.bin >/dev/null 2>&1 &&
+  { echo "something still holds the baseline's auxiliary storage; see the troubleshooting list" >&2; exit 1; }
 
 lume_teardown() {
   if [ "$(lume ls --format=json | jq -r ".[]|select(.name==\"$1\").status")" = running ]; then
@@ -452,7 +453,14 @@ Be clear-eyed about what the grant costs **in this guest**: the password is publ
 
 #### When a lume command fails
 
-- **`Invalid virtual machine configuration. Failed to lock auxiliary storage.`** Another lume process still holds the VM's `nvram.bin`. Only one `lume run` may hold it at a time, and the create flow's own process can outlive the command that started it — so a `--detach` immediately after `lume create` can fail this way while printing a PID and exiting 0. Check with `pgrep -fl lume`, wait for it to clear, and retry.
+- **`Invalid virtual machine configuration. Failed to lock auxiliary storage.`** A live process still holds the VM's `nvram.bin`. Do not look for it with `pgrep lume`: the holder is **`com.apple.Virtualization.VirtualMachine`**, Apple's framework helper, which outlives the `lume` command that spawned it and is not named after it. lume's own bookkeeping can say `stopped` while that helper is still running, so `lume ls` will not reveal this either. The instrument is `lsof`:
+
+  ```sh
+  lsof ~/.lume/<name>/nvram.bin        # names the PID holding the lock
+  kill -TERM <pid>                     # TERM, never -9: it also holds disk.img
+  ```
+
+  A `--detach` fired immediately after `lume create` races the create flow's own helper and fails this way while printing a PID and exiting 0. If the guest is genuinely running, stop it with `lume stop` instead; reach for `kill` only when `lume ls` says the VM is stopped and the helper is still holding the files.
 - **`CancellationError` during `lume create`.** Printed as `ERROR: Failed in VM.run … Swift.CancellationError`, immediately followed by `VM stopped successfully`. It is the unattended setup stopping the VM it started, twice, by design. Benign — the line to check is `Provisioning marker cleared`, which means the create completed.
 - **`lume create` traps on 0.5.0 specifically.** Every macOS install died at `_dispatch_assert_queue_fail` inside `-[VZMacOSInstaller initWithVirtualMachine:restoreImageURL:]`: the 0.5.0 native-display work moved the VM onto a private serial queue but left `installMacOS` constructing the installer on the main actor, and Apple asserts the two match. Reported as [trycua/cua#2670](https://github.com/trycua/cua/issues/2670) and fixed in 0.5.1. The last log line before the trap names the hardware model, which is a red herring — the crash report in `~/Library/Logs/DiagnosticReports/lume-*.ips` names the real frame. Upgrade rather than working around it.
 - **A trapped or interrupted create leaves scratch state.** `~/.lume/<UUID>/` directories, sparse and about 20 KB allocated, which `lume ls` reports as stopped VMs because listing enumerates directories under the storage root. `lume delete <UUID> --force` clears them when nothing is running; there is no separate index to fall out of step.
