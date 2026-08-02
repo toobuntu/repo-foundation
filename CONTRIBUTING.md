@@ -79,4 +79,20 @@ repo-foundation is not an ordinary repository — a change here can rewrite a fi
   <!-- vale Toobuntu.AbbreviationPluralsAmbiguous = YES -->
   ```
 
-  Always restore with the `YES` corollary — without it the rule stays off for the rest of the file. Two limits are worth knowing, both measured rather than assumed: a directive placed *mid-paragraph* suppresses unpredictably (it silenced one match and let the next through), so put it between blocks; and vale has no per-token form — `<!-- vale Toobuntu.AbbreviationPluralsAmbiguous["PR's"] = NO -->` parses as nothing and suppresses nothing. Code spans are the per-example tool. Writing either directive inside a fence or a code span, as above, is safe — vale does not act on it. The agent commit-and-signing procedure for sandboxed work is in `docs/agent-principles.md`.
+  Always restore with the `YES` corollary — without it the rule stays off for the rest of the file.
+
+  A directive can also name **one match**, leaving every other match of the same rule in the same block still reported:
+
+  ```html
+  <!-- vale Toobuntu.AbbreviationPluralsAmbiguous["PR's merged"] = NO -->
+  ```
+
+  The bracketed key must be the **whole matched span**, exactly as vale reports it — not a word you pick out of it. For a `sequence` rule the span covers every token in the sequence, so the key here is `PR's merged`, and the intuitive `PR's` silently matches nothing and suppresses nothing. Never guess it; ask:
+
+  ```sh
+  vale --output=JSON --minAlertLevel=warning CONTRIBUTING.md
+  ```
+
+  Each alert carries a `Match` field, and that string is the key. Verified on vale 3.17.0: keyed suppression holds at the start of a file and across a long soft-wrapped paragraph, and it leaves the other matches alone.
+
+  Two further notes, both measured rather than inferred. A directive placed *mid-paragraph* suppresses only partly — in test it silenced the first match inside its span and let the second through — so keep directives between blocks, where they are reliable. And writing any of these directives inside a fence or a code span, as above, is safe: vale does not act on a documented example. The agent commit-and-signing procedure for sandboxed work is in `docs/agent-principles.md`.
