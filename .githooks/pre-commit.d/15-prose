@@ -66,9 +66,11 @@ if has_files '\.md$'; then
         --filter='.Name=="Toobuntu.AbbreviationPluralsAmbiguous"' 2> /dev/null) || true
     case "$_amb" in
     *Toobuntu.AbbreviationPluralsAmbiguous*)
-      printf 'note: this commit has abbreviation+apostrophe cases that may be plurals.\n' >&2
-      printf '  A possessive is fine; a plural should drop the apostrophe (PRs, not PR%ss).\n' "'" >&2
-      printf '  Not blocking. Review with:\n' >&2
+      printf 'note: abbreviation+apostrophe cases in this commit may be plurals.\n' >&2
+      printf '  A possessive is fine; a plural drops the apostrophe (PRs, not PR%ss).\n' "'" >&2
+      printf '  NOT blocking -- resolve each by reading, not by rewording.\n\n' >&2
+      printf '%s\n\n' "$_amb" >&2
+      printf '  To re-run over the whole tree:\n' >&2
       printf '    git ls-files -z "*.md" | xargs -0 -r vale --minAlertLevel=warning \\\n' >&2
       printf '      --filter=%s.Name=="Toobuntu.AbbreviationPluralsAmbiguous"%s\n' "'" "'" >&2
       ;;

@@ -51,7 +51,7 @@ git ls-files -z '*.md' |
   xargs -0 -r vale
 ```
 
-`vale --glob='!vendor/**' .` is an alternate but excludes only the one named tree. `MinAlertLevel = error` suppresses warning-level rules entirely, so `Vale.Spelling` and `Toobuntu.AbbreviationPluralsAmbiguous` never appear in an ordinary run; add `--minAlertLevel=warning` to review rather than gate. Neither gates, deliberately — the `15-prose` plugin surfaces the ambiguity rule on its own, filtered to that one rule, when a commit contains a match. CI's `prose.yml` and the `15-prose` hook use the same readable-path form above; neither sees `vendor/`.
+`vale --glob='!vendor/**' .` is an alternate but excludes only the one named tree. `MinAlertLevel = error` suppresses warning-level rules entirely, so `Vale.Spelling` and `Toobuntu.AbbreviationPluralsAmbiguous` never appear in an ordinary run; add `--minAlertLevel=warning` to review rather than gate. Neither gates, deliberately — the `15-prose` plugin prints the ambiguity rule's findings when a commit contains any, and `prose.yml` logs them for the whole tree in an informational step, which is the only exposure a contributor who never enabled the hooks gets. CI's `prose.yml` and the `15-prose` hook use the same readable-path form above; neither sees `vendor/`.
 
 Add SPDX headers by running `scripts/annotate.sh` — never hand-write them; this includes ADRs (see the SPDX/REUSE section of `docs/agent-principles.md`).
 

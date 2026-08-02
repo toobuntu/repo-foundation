@@ -50,4 +50,21 @@ repo-foundation is not an ordinary repository — a change here can rewrite a fi
   ```
 
   Actually running a job needs a container backend and a few non-obvious flags. The copy-paste forms, the Colima lifecycle, and why each flag is there are in [`docs/testing-github-workflows-locally.md`](docs/testing-github-workflows-locally.md) — start at its Quick reference.
-- **Run the gates locally** before pushing: `bundle exec rspec`, `reuse lint`, `scripts/lint-unicode.sh .`, `scripts/lint-perms.sh --tracked`, `adrs doctor`, `rumdl check .`, `git ls-files '*.md' | xargs vale` (vale has no `.gitignore` support, so a bare `vale .` also scans vendored docs), `actionlint`, and `zizmor .`. The agent commit-and-signing procedure for sandboxed work is in `docs/agent-principles.md`.
+- **Run the gates locally** before pushing: `bundle exec rspec`, `reuse lint`, `scripts/lint-unicode.sh --scope=tree`, `scripts/lint-perms.sh --tracked`, `adrs doctor`, `rumdl check .`, `actionlint`, `zizmor .`, and vale over the tracked Markdown:
+
+  ```sh
+  git ls-files -z '*.md' |
+    xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' keep-readable |
+    xargs -0 -r vale
+  ```
+
+  Vale has no `.gitignore` support, so a bare `vale .` also scans vendored docs; listing the tracked files avoids that. The `-z`/`-0` pairing is not decoration — a path containing a space or a newline is split into pieces without it. The inner filter drops a tracked file that has been deleted on disk without the deletion being staged, which vale would otherwise fail on; it is a no-op on a clean tree.
+
+  That run is the **gate**, and it is silent about one rule on purpose. `MinAlertLevel = error` discards warning-level alerts, so `Toobuntu.AbbreviationPluralsAmbiguous` never appears in it. That rule flags an abbreviation followed by `'s` in a position where a possessive is perfectly legitimate ("RF's existing calls") and a plural would be wrong ("the PR's merged yesterday") — no linter can tell those apart, so it is a prompt to read, never a build failure. The pre-commit plugin shows you its findings when a commit contains one, and CI logs them under *Report ambiguous abbreviation plurals*. To ask for them yourself, add the level and narrow to that rule:
+
+  ```sh
+  git ls-files -z '*.md' | xargs -0 -r vale --minAlertLevel=warning \
+    --filter='.Name=="Toobuntu.AbbreviationPluralsAmbiguous"'
+  ```
+
+  Without `--filter`, raising the level also surfaces `Vale.Spelling`, which rides at warning against a still-maturing vocabulary and will bury the handful of results you asked for. The agent commit-and-signing procedure for sandboxed work is in `docs/agent-principles.md`.

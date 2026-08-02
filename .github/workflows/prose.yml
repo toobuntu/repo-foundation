@@ -47,3 +47,23 @@ jobs:
           git ls-files -z '*.md' |
             xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' keep-readable |
             xargs -0 -r vale
+
+      # Informational only, and deliberately so. MinAlertLevel = error discards
+      # warning-level alerts, so Toobuntu.AbbreviationPluralsAmbiguous never
+      # appears in the gate above -- its matches are ambiguous by construction
+      # (a possessive before a participle is as legitimate as a plural is
+      # wrong), so they want a human read, not a failed build. The 15-prose
+      # pre-commit plugin surfaces them at authoring time, but git hooks are
+      # opt-in (core.hooksPath), so this step is the only exposure a
+      # contributor who never enabled them gets. --no-exit keeps it from
+      # gating; `if: always()` runs it even when the gate above failed, since
+      # an error and an ambiguity are independent findings. No reviewdog and no
+      # annotation: this is a log to read when reviewing, not a change request.
+      - name: Report ambiguous abbreviation plurals (informational)
+        if: always()
+        run: |
+          # shellcheck disable=SC2016  # $@/$f expand in the inner sh -c, by design
+          git ls-files -z '*.md' |
+            xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' keep-readable |
+            xargs -0 -r vale --no-exit --minAlertLevel=warning \
+              --filter='.Name=="Toobuntu.AbbreviationPluralsAmbiguous"'
