@@ -208,7 +208,7 @@ act --job spec --platform macos-latest=-self-hosted --container-architecture dar
 Two one-time settings before anything else. Telemetry is on by default (pseudonymous install and usage metadata — no names, paths, or VM contents); the org opts out of dev-tool analytics uniformly, the same stance as `HOMEBREW_NO_ANALYTICS=1`:
 
 ```sh
-brew install lume                    # jq ships with macOS (since Sequoia); no need to install it
+brew install lume                    # jq ships at /usr/bin/jq since macOS 15 Sequoia; on an older host, add jq here
 lume config telemetry disable        # `lume config get` shows the current state
 ```
 
