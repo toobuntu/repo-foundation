@@ -50,4 +50,12 @@ repo-foundation is not an ordinary repository — a change here can rewrite a fi
   ```
 
   Actually running a job needs a container backend and a few non-obvious flags. The copy-paste forms, the Colima lifecycle, and why each flag is there are in [`docs/testing-github-workflows-locally.md`](docs/testing-github-workflows-locally.md) — start at its Quick reference.
-- **Run the gates locally** before pushing: `bundle exec rspec`, `reuse lint`, `scripts/lint-unicode.sh .`, `scripts/lint-perms.sh --tracked`, `adrs doctor`, `rumdl check .`, `git ls-files '*.md' | xargs vale` (vale has no `.gitignore` support, so a bare `vale .` also scans vendored docs), `actionlint`, and `zizmor .`. The agent commit-and-signing procedure for sandboxed work is in `docs/agent-principles.md`.
+- **Run the gates locally** before pushing: `bundle exec rspec`, `reuse lint`, `scripts/lint-unicode.sh --scope=tree`, `scripts/lint-perms.sh --tracked`, `adrs doctor`, `rumdl check .`, `actionlint`, `zizmor .`, and vale over the tracked Markdown:
+
+  ```sh
+  git ls-files -z '*.md' |
+    xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' keep-readable |
+    xargs -0 -r vale
+  ```
+
+  Vale has no `.gitignore` support, so a bare `vale .` also scans vendored docs; listing the tracked files avoids that where the vendored content is untracked, and the `-z`/`-0` pairing keeps a path containing a space intact. One rule is deliberately invisible in that run — it flags abbreviation-plural ambiguities that a human has to judge, so it never gates — and the pre-commit hook and CI surface it for you. [`docs/prose-linting.md`](docs/prose-linting.md) covers reviewing it, and how to excuse a deliberate example without weakening the rule. The agent commit-and-signing procedure for sandboxed work is in `docs/agent-principles.md`.

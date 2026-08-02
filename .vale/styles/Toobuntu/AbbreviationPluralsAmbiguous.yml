@@ -2,7 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Second pass over the contexts AbbreviationPlurals deliberately passes.
+# A second LOOK at the contexts AbbreviationPlurals deliberately passes -- not a
+# second automated pass over everything. MinAlertLevel = error suppresses
+# warning-level alerts entirely, so this rule is invisible in an ordinary run
+# by design. Two places surface it deliberately, neither of them gating: the
+# 15-prose pre-commit plugin re-runs vale filtered to THIS rule alone once the
+# error gate passes, printing the findings when the commit contains any; and
+# prose.yml logs them for the whole tree, which is the only exposure a
+# contributor who never enabled the git hooks gets. To ask by hand:
+#
+#   git ls-files -z '*.md' | xargs -0 -r vale --minAlertLevel=warning \
+#     --filter='.Name=="Toobuntu.AbbreviationPluralsAmbiguous"'
 #
 # The error-level rule's 2026-07-14 extension lets an acronym + "'s" pass when
 # followed by a participial adjective (VBG/VBN), a predicative infinitive (TO),

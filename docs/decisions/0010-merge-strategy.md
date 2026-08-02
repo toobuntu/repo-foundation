@@ -17,9 +17,14 @@ decision-makers:
 
 GitHub offers three merge strategies:
 
+<!-- Confirmed possessive ("the grouping of the PR"), not a plural: kept as written per the rule's own guidance to resolve by reading, not rewording. -->
+<!-- vale Toobuntu.AbbreviationPluralsAmbiguous["PR's grouping"] = NO -->
+
 - **Create a merge commit** — preserves the PR branch's commits and adds a merge commit that has both the base branch tip and the PR head as parents. The PR is identifiable in `git log --graph` as a topology feature; the merge commit's message preserves the PR number and title.
 - **Squash and merge** — collapses every PR commit into one commit on the base branch. The intermediate commits are gone; only the final state is preserved.
 - **Rebase and merge** — replays the PR commits onto the base branch individually, with no merge commit. The PR's grouping into a logical unit is lost; commits appear interleaved with whatever else lands on main between the rebase and any subsequent merges.
+
+<!-- vale Toobuntu.AbbreviationPluralsAmbiguous["PR's grouping"] = YES -->
 
 A previous PR was merged via "rebase and merge" by accident, prompting the authoring of `scripts/rewrite-pr-as-merge-commit.sh` to convert it after the fact.
 

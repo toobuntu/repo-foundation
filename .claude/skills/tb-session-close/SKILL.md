@@ -20,7 +20,11 @@ The last thing a session prints is not a summary but a sequence the maintainer c
 
 This skill exists because the prose version of it in `docs/agent-principles.md` has repeatedly been shipped incomplete — most expensively when a pull request merged without three commits that were never sign-pushed.
 
-## First, the continuity files
+## When this runs: every recipe-bearing turn
+
+A session cannot know in advance which turn is its last, but it always knows when it *might* end: **any turn that ends with a closing recipe is a potential session end, so the ritual below runs before printing the recipe — not only when the maintainer says wrap up.** Waiting for an explicit close is how a session prints a current-looking recipe over a `progress.md` three days stale, which happened on 2026-08-02 and added this section.
+
+Running early is safe by construction, so err toward running: `ai-session.sh end` is read-only and idempotent (it diffs the start snapshot against the current file, exits 0, and never consumes the snapshot); `progress.md` is rewritten freely by design; memory entries are dated and append-only, so an early entry is legal and the periodic consolidation pass absorbs any fragmentation. Only append to memory when the turn produced a durable learning not yet recorded — the idempotence license covers re-running the ritual, not re-stating the same lesson.
 
 1. **`scripts/ai-session.sh end`**, then **account in the report for every line it lists as removed from `.ai/progress.md`.** Most removals are correct: finished status should go away. The one that is not is a line recording a COMMITMENT rather than a status, which had to graduate somewhere durable — a dispatch row, an issue, an ADR, `.ai/memory.md` — before it left the file. Stating each removal is what makes that case visible; a rewrite with no diff hides it.
 2. **Append durable learnings to `.ai/memory.md`** as a dated entry. Append-only, hook-enforced: a correction is a new entry naming what it supersedes, never an edit. Graduate what belongs elsewhere — a decision to an ADR, a fact the code can carry into code, an org-wide rule of conduct to `docs/agent-principles.md`, an org-wide fact to `.ai/org/memory.md` (or `.ai/org/relay.md` outside repo-foundation). Per-session "what shipped" does not go in at all; git history owns that.

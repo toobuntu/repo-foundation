@@ -68,3 +68,7 @@ reuse annotate --copyright="<name>" --merge-copyrights --license=<spdx-id> \
 ```
 
 `--copyright-prefix=spdx-string` is load-bearing there. Without it `reuse` prepends its own year, and the diff shows a copyright-text difference that reads like a placement difference. Run that way against the three skills added the same day, all three came out byte-identical to their hand-written form.
+
+## 2026-08-02 — sandbox.excludedCommands contaminates the whole compound
+
+A Bash call whose command string matches an excludedCommands entry (here `zizmor *`) runs the ENTIRE compound unsandboxed, not just the matched command. Measured via pty: `PTY.spawn` fails under Seatbelt in every plain invocation, succeeded in the one compound that also ran zizmor, and the 3 pty-gated sign_push specs silently ran (234/0/0 instead of 234/0/3). Consequences: (1) never chain an excluded command with anything whose behavior you are using to reason about the sandbox; (2) a compound containing an excluded command has the sandbox OFF for every part of it — treat exclusions as widening the whole call, not the one tool.

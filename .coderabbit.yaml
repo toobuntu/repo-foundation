@@ -161,6 +161,26 @@ reviews:
         reader, and `.ai/org/memory.md` syncs to every consumer while ADR text
         is published. The repo-relative path or the `<repo-root>` placeholder
         carries the same information without the leak.
+    - path: "{docs/prose-linting.md,CONTRIBUTING.md,provides/repo/CONTRIBUTING.baseline.md,.vale/styles/Toobuntu/**}"
+      instructions: |
+        Vale invocations in prose and comments are deliberately shorter than
+        the gate's. The gate pipes through an xargs+sh readable-path filter
+        that drops a tracked file deleted on disk without the deletion staged;
+        the review-pass examples skip it on purpose. That case is worth
+        handling silently in automation and not worth carrying in a command a
+        human types, where the resulting `no such file` names the path. Do NOT
+        ask for the filter to be added to a documented review invocation. The
+        15-prose plugin DOES apply it to both of its passes; a claim that it
+        is missing there is stale.
+
+        Toobuntu.AbbreviationPluralsAmbiguous rides at warning permanently and
+        must never be promoted to error or added to a gate: its matches are
+        ambiguous by construction (a possessive before a participle is as
+        legitimate as a plural is wrong), so they are surfaced for a human
+        read. Suppressing a deliberate example is done with a code span, or a
+        vale directive keyed on the WHOLE matched span. Do not suggest
+        rewording prose to satisfy it.
+
     - path: "spec/**"
       instructions: |
         `REUSE_LINT_SKIP=1` in the hook specs is load-bearing, not leftover: the
