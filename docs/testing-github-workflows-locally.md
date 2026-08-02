@@ -295,7 +295,9 @@ ssh-copy-id -i "${VMKEY}.pub" -o StrictHostKeyChecking=no -o UserKnownHostsFile=
 # whose root grant expires with this command. Do not lift that line into a
 # context where any of those three stops being true.
 sshvm 'set -eu
-  trap "sudo rm -f /etc/sudoers.d/baseline-build" EXIT
+  trap 'sudo rm -f /etc/sudoers.d/baseline-build
+    test ! -e /etc/sudoers.d/baseline-build ||
+      echo "WARNING: could not remove the sudo grant; remove it before cloning" >&2' EXIT
   echo lume | sudo --stdin --validate
   printf "lume ALL=(ALL) NOPASSWD: ALL\n" > /tmp/baseline-build
   sudo visudo -cf /tmp/baseline-build
@@ -326,6 +328,14 @@ sshvm 'eval "$(/opt/homebrew/bin/brew shellenv)" && brew install act'
 # has just written a Homebrew tree. `shutdown` powers the guest down over SSH;
 # `stop` is the immediate process-level stop, right for throwaway clones.
 lume shutdown macos-baseline
+# `shutdown` returns before the VM is down, and the clone step needs it
+# stopped, so wait rather than racing it.
+for _ in $(seq 60); do
+  [ "$(lume ls --format=json | jq -r '.[]|select(.name=="macos-baseline").status')" = stopped ] && break
+  sleep 5
+done
+[ "$(lume ls --format=json | jq -r '.[]|select(.name=="macos-baseline").status')" = stopped ] ||
+  { echo "baseline never stopped; see ~/Library/Logs/lume/macos-baseline.log" >&2; exit 1; }
 ```
 
 <!-- rumdl-enable MD013 -->
@@ -377,7 +387,7 @@ lume_teardown macos-run
 
 Three deliberate choices there, since each obvious shortcut gives something away:
 
-- **`:ro`, not `:rw`.** With `-self-hosted` the job runs *in* the directory it is given, and this job writes: `actions/checkout` copies, Bundler populates `vendor/bundle`, act writes its own cache. A read-write share sends all of that back into your working tree through the mount — relocating the mess rather than preventing it, and leaving the VM's only real job half done. Read-only plus a copy inside the guest keeps the host tree untouched. lume supports the tag natively (`path:ro`; a bare path means read-write).
+- **`:ro`, not `:rw`.** With `-self-hosted` the job runs *in* the directory it is given, and this job writes: `actions/checkout` copies, Bundler populates `vendor/bundle`, act writes its own cache. A read-write share sends all of that back into your working tree through the mount — relocating the mess rather than preventing it, and leaving the isolation half done. Read-only plus a copy inside the guest keeps the host tree untouched. lume supports the tag natively (`path:ro`; a bare path means read-write).
 - **A share at all, rather than cloning from GitHub inside the VM.** The whole reason to preflight locally is to exercise a workflow edit that is *not pushed yet* — a VM that cloned from the remote could only run what CI would already run for you. The share is how uncommitted work reaches the guest; `:ro` is how it does so safely.
 - **An ephemeral clone per run, from a baseline you keep.** `lume delete` removes the disk, so without a baseline every run pays for the Homebrew install again. For fast iteration a `git reset --hard` inside the guest and a re-run is fine; prefer delete-and-reclone whenever the result matters, since a reused guest carries the previous run's Homebrew state and caches.
 
@@ -392,7 +402,7 @@ set -eu
 # 0.5.0 cannot create a VM at all, so refuse rather than fail later.
 v=$(lume --version)
 case "$v" in
-0.[0-4].* | 0.5.0) echo "lume $v is too old; 0.5.1 or newer required" >&2; exit 1 ;;
+0.[0-4].* | 0.5.0 | 0.5.0-*) echo "lume $v is too old; 0.5.1 or newer required" >&2; exit 1 ;;
 *) ;;
 esac
 [ "$(lume ls --format=json | jq -r '.[]|select(.name=="macos-baseline").status')" = stopped ] ||
@@ -409,7 +419,7 @@ lume_teardown() {
 # Reports its own failures rather than swallowing them: a teardown that fails
 # silently leaves a VM holding the auxiliary-storage lock against the next run.
 # It does not mask the exit status of whatever actually failed.
-trap 'rc=$?; lume_teardown macos-e2e || echo "TEARDOWN FAILED: macos-e2e may still hold its lock" >&2; exit $rc' EXIT
+trap 'rc=$?; lume_teardown macos-e2e || { echo "TEARDOWN FAILED: macos-e2e may still hold its lock" >&2; [ "$rc" -ne 0 ] || rc=1; }; exit $rc' EXIT
 
 lume clone macos-baseline macos-e2e
 lume run macos-e2e --display=none --detach --shared-dir "${PWD}:ro"
@@ -496,7 +506,7 @@ Be clear-eyed about what the grant costs **in this guest**: the password is publ
 - **A trapped or interrupted create leaves scratch state.** `~/.lume/<UUID>/` directories, sparse and about 20 KB allocated, which `lume ls` reports as stopped VMs because listing enumerates directories under the storage root. `lume delete <UUID> --force` clears them when nothing is running; there is no separate index to fall out of step.
 - **`command not found: act` (or `brew`) over ssh, on a guest where both are installed.** Expected, and not a broken install. `ssh host command` and `lume ssh <name> <command>` both run a **non-login, non-interactive** shell, which reads neither `~/.zprofile` nor `/etc/paths.d` — the two mechanisms Homebrew's installer uses to put `/opt/homebrew/bin` on `PATH`. So every remote command that needs brew or a brew-installed tool must carry `eval "$(/opt/homebrew/bin/brew shellenv)"` inline, which is why the blocks above all do. An interactive `ssh` into the guest gets a login shell and finds them normally, so the difference is easy to misread as "it works when I look, and breaks when I script it."
 - **`lume shutdown` returns before the VM has stopped.** It prints `Graceful shutdown requested` and exits 0 immediately, so a chained `lume shutdown X && lume delete X --force` fails with `Cannot modify X: the VM is running. Stop it first.` Poll `lume ls` until the status reads `stopped`, or use `lume stop` when you do not need the graceful path — that is why `lume_teardown` calls `stop`. A related trap: `lume stop` logs `Found process N holding lock on config file`, and that PID is **not** the one holding the auxiliary storage — the config-file lock and the aux-storage lock are different locks held by different processes. `kill` on it can answer `no such process` if it has already exited between lume's report and your command. Do not treat it as the aux-storage holder; check `lume ls` for the state and `lsof` for the file.
-- **`$ip` goes stale.** A deleted and re-created VM comes up on a new address, and the unattended setup stops the VM when it finishes — so an `ssh … Operation timed out` right after `lume create` usually means "not started, and your captured address is the last VM's." Re-capture after every create, clone, or run.
+- **`$ip` goes stale.** A deleted and re-created VM comes up on a new address, and the unattended setup stops the VM when it finishes — so an `ssh … Operation timed out` right after `lume create` usually means "not started, and your captured address belongs to the previous VM." Re-capture after every create, clone, or run.
 - **The `.resize.guard` dotfiles are inert; leave them alone.** `~/.lume/.<name>.resize.guard` is an **flock target**, not a state marker (`VMDirectory.swift`: `tryAcquireResizeGuard` creates the file if missing, then takes a non-blocking `flock()`), and a running VM holds that lock for its lifetime. The lock dies with its holder, so the file legitimately persists between runs; a separate transaction marker (`hasResizeMarker`) records a real resize. Deleting a guard never helps, and while any lume process is live it defeats the lock outright: `flock` binds to the open file, so after an unlink the next operation recreates the guard as a new inode and locks *that*. Through 0.4.0 this surfaced as a misleading error — `lume delete --force` against a running VM reported `A previous disk resize … did not finish` even when no resize was ever requested. [trycua/cua#2491](https://github.com/trycua/cua/issues/2491), fixed in 0.5.0: a running VM now reads `Cannot modify <name>: the VM is running. Stop it first.`
 - **"Warning: Permanently added … to the list of known hosts" on every `sshvm` call is expected.** `UserKnownHostsFile=/dev/null` means each connection starts with an empty database, accepts the key, and "permanently" records it in `/dev/null`. `-o LogLevel=ERROR` silences it without hiding real errors.
 - **Chaining `sshvm` calls inside one single-quoted argument breaks in the host's shell.** A nested `'…'` closes the outer quote, so the middle section expands locally — which is how `zsh: no such file or directory: /home/linuxbrew/.linuxbrew/bin/brew` appeared. Where a command genuinely must be one unit, write it to a file and pipe it in rather than nesting quotes.
