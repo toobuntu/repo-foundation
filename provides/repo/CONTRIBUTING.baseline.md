@@ -66,7 +66,16 @@ git ls-files -z '*.md' |
 
 Vale has no `.gitignore` support, so a bare `vale .` also scans any vendored documentation in the working tree; listing the tracked files avoids that, and the `-z`/`-0` pairing keeps a path containing a space intact.
 
-One rule deliberately never gates. `Toobuntu.AbbreviationPluralsAmbiguous` flags an abbreviation followed by an apostrophe-s in a position where a possessive is legitimate and a plural would be wrong — no linter can decide between those, so it rides at warning and asks for a human read. The pre-commit plugin prints its findings when a commit contains any, and the CI job logs them; neither blocks. Reviewing it, and excusing a deliberate example without weakening the rule, are covered in [`docs/prose-linting.md`](https://github.com/toobuntu/repo-foundation/blob/main/docs/prose-linting.md).
+One rule deliberately never gates. `Toobuntu.AbbreviationPluralsAmbiguous` flags an abbreviation followed by an apostrophe-s in a position where a possessive is legitimate and a plural would be wrong — no linter can decide between those, so it rides at warning and asks for a human read. The pre-commit plugin prints its findings when a commit contains any, and the CI job logs them; neither blocks. To see them before you get as far as committing, run the same second pass those two run:
+
+```sh
+git ls-files -z '*.md' | xargs -0 -r vale --minAlertLevel=warning \
+  --filter='.Name=="Toobuntu.AbbreviationPluralsAmbiguous"'
+```
+
+`--filter` narrows to that one rule, which is what keeps `Vale.Spelling` — also at warning, against a still-maturing vocabulary — from burying the result. It is a **second** pass, never a substitute for the gate above: `--filter` drops non-matching alerts before vale computes its exit code, so a filtered run reports success on a file that has a real error. Chain the two with `&&`.
+
+Judging a finding, and excusing a deliberate example without weakening the rule, are covered in [`docs/prose-linting.md`](https://github.com/toobuntu/repo-foundation/blob/main/docs/prose-linting.md).
 
 ## Encoding and invisible Unicode
 

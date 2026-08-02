@@ -47,7 +47,7 @@ Without a filter, the level alone is safe to raise: **vale's exit code keys on e
 git ls-files -z '*.md' | xargs -0 -r vale --minAlertLevel=warning
 ```
 
-So that single unfiltered pass gates exactly as the default does while also showing every warning — useful when reviewing the whole corpus, at the cost of the spelling noise the filtered form avoids. Day to day, run the plain gate and let the hook and CI raise the ambiguity rule when it applies.
+So that single unfiltered pass gates exactly as the default does while also showing every warning. Be ready for the volume: against an immature vocabulary `Vale.Spelling` routinely outnumbers everything else by two or three orders of magnitude, so this form is for a deliberate vocabulary review, not for finding the handful of alerts you came for. Day to day, run the plain gate and let the hook and CI raise the ambiguity rule when it applies.
 
 ### Slicing one run with jq
 

@@ -37,6 +37,28 @@ RSpec.describe "sync-manifest.yaml contract" do
                                ".githooks/pre-commit.d/10-markdown")
   end
 
+  # The reference doc travels with the rules it documents. A consumer that got
+  # the style, the vocabulary and prose.yml but not the page explaining the one
+  # rule that never gates is the state this set was in before 2026-08-02: the
+  # machinery ran everywhere and every word about it stayed in RF.
+  it "ships the prose reference alongside the rules in prose_lint" do
+    sources = sets.fetch("prose_lint").map { |c| c.fetch("source") }
+    expect(sources).to include(".vale/styles/Toobuntu/AbbreviationPluralsAmbiguous.yml",
+                               ".github/workflows/prose.yml",
+                               "docs/prose-linting.md")
+  end
+
+  # prose-linting.md documents the 15-prose plugin's behavior (it prints the
+  # ambiguity findings after the error gate passes). A consumer holding the
+  # rules and the page but not the plugin would carry a document describing
+  # machinery it does not have, so the two sets travel together.
+  it "gives every prose_lint consumer prose_plugin too" do
+    offenders = consumers.select { |c| c["sets"].include?("prose_lint") }
+                         .reject { |c| c["sets"].include?("prose_plugin") }
+                         .map { |c| c.fetch("repo") }
+    expect(offenders).to be_empty
+  end
+
   # The 80-unicode plugin runs scripts/lint-unicode.sh --scope=staged and fails
   # the commit when it is absent (ADR 0006, amended 2026-07-29), exactly as
   # 80-perms relies on scripts/lint-perms.sh. A consumer taking the hooks
