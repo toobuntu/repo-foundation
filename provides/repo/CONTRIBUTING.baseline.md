@@ -54,6 +54,20 @@ The `.githooks/pre-push` hook validates that every commit a push introduces carr
 - `git config hooks.requireSignedPush true|false` overrides the detection in either direction. A one-off bypass that keeps every other check: `git -c hooks.requireSignedPush=false push ...` (prefer this over `--no-verify`, which skips the hook entirely).
 - A signature is the committer's attestation, not the author's, so a maintainer may re-sign contributor commits before merging; authorship is preserved. For the routine case — signing a repository's own unpushed unsigned commits and pushing — use `scripts/sign-push.sh`; for an arbitrary fetched range (a contributor's PR branch, which sign-push.sh's unpushed-commit detection deliberately skips because those commits are already remote-reachable), the underlying recipe is `git rebase --exec 'git commit --amend --no-edit --gpg-sign' <base>`. Any server-side signed-commit rule on `main` applies regardless of local hooks — keep the GitHub ruleset consistent with this policy.
 
+## Prose and style
+
+Markdown prose is linted with [Vale](https://vale.sh) against the org-wide `Toobuntu` style, enforced by the CI `prose` job and the `15-prose` pre-commit plugin. Run it locally over the tracked files:
+
+```sh
+git ls-files -z '*.md' |
+  xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' keep-readable |
+  xargs -0 -r vale
+```
+
+Vale has no `.gitignore` support, so a bare `vale .` also scans any vendored documentation in the working tree; listing the tracked files avoids that, and the `-z`/`-0` pairing keeps a path containing a space intact.
+
+One rule deliberately never gates. `Toobuntu.AbbreviationPluralsAmbiguous` flags an abbreviation followed by an apostrophe-s in a position where a possessive is legitimate and a plural would be wrong — no linter can decide between those, so it rides at warning and asks for a human read. The pre-commit plugin prints its findings when a commit contains any, and the CI job logs them; neither blocks. Reviewing it, and excusing a deliberate example without weakening the rule, are covered in [`docs/prose-linting.md`](https://github.com/toobuntu/repo-foundation/blob/main/docs/prose-linting.md).
+
 ## Encoding and invisible Unicode
 
 All source, documentation, and configuration files must be valid **UTF-8** and contain **no BOM** (U+FEFF anywhere, including a leading byte-order mark); UTF-16/UTF-32 are rejected. This is enforced automatically: the pre-commit hook scans each staged blob for invisible bidi/zero-width control characters (RedHat's [RHSB-2021-007](https://access.redhat.com/security/vulnerabilities/RHSB-2021-007) approach, in POSIX `/bin/sh`), and the CI `lint-unicode` job rejects any Unicode Cf/Cc-category character on the Ubuntu runner. Rationale, full codepoint coverage, and alternatives considered live in repo-foundation

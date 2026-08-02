@@ -307,6 +307,7 @@ component_sets:
     - { source: .vale/styles/config/vocabularies/Toobuntu/accept.txt,         target: .vale/styles/config/vocabularies/Toobuntu/accept.txt,         mode: canonical }
     - { source: .vale/styles/config/vocabularies/Toobuntu/accept.txt.license, target: .vale/styles/config/vocabularies/Toobuntu/accept.txt.license, mode: canonical }
     - { source: .github/workflows/prose.yml,                   target: .github/workflows/prose.yml,                   mode: canonical }
+    - { source: docs/prose-linting.md,                         target: docs/prose-linting.md,                         mode: canonical }
 
   # codeql.yml and ci.yml are NOT synced: each is intrinsic to the repo (CodeQL
   # languages; build/test steps). copilot-setup-steps is per-repo too EXCEPT for

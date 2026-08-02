@@ -16,7 +16,7 @@ git ls-files -z '*.md' |
   xargs -0 -r vale
 ```
 
-Vale has no `.gitignore` support, so a bare `vale .` also scans vendored docs under `vendor/bundle/`; listing the tracked files avoids that. The `-z`/`-0` pairing is not decoration — a path containing a space or a newline is split into pieces without it. The inner filter drops a tracked file that has been deleted on disk without the deletion being staged, which vale would otherwise fail on; it is a no-op on a clean tree.
+Vale has no `.gitignore` support, so a bare `vale .` also scans whatever vendored documentation the working tree happens to carry — `vendor/bundle/`, `node_modules/`, a checked-out dependency; listing the tracked files avoids all of it. The `-z`/`-0` pairing is not decoration — a path containing a space or a newline is split into pieces without it. The inner filter drops a tracked file that has been deleted on disk without the deletion being staged, which vale would otherwise fail on; it is a no-op on a clean tree.
 
 The same command runs in the `prose` CI job and, over the staged files, in the `15-prose` pre-commit plugin. One policy, three triggers.
 
@@ -113,7 +113,7 @@ A directive can carry a bracketed key, suppressing one match and leaving every o
 
 The key must be the **whole matched span**, exactly as vale reports it — not a word you pick out of it. For a `sequence` rule the span covers every token in the sequence, so the key is `PR's merged`; the intuitive `PR's` matches nothing and silently suppresses nothing, which is worse than an error because it looks like it worked.
 
-Never guess the key. Read it from the `Match` field of the JSON output above. `docs/decisions/0010-merge-strategy.md` carries a worked example: a confirmed possessive in published prose, excused by name with a comment recording what was confirmed, leaving the ADR's text untouched.
+Never guess the key. Read it from the `Match` field of the JSON output above. [ADR 0010](https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0010-merge-strategy.md) carries a worked example: a confirmed possessive in published prose, excused by name with a comment recording what was confirmed, leaving the ADR's text untouched.
 
 ## Traps
 
