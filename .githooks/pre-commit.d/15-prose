@@ -46,9 +46,34 @@ if has_files '\.md$'; then
     # The single quotes are the point: $@ must reach the INNER sh
     # unexpanded, which is exactly the case SC2016 warns about.
     # shellcheck disable=SC2016
+    _readable="for f in \"\$@\"; do [ -r \"\$f\" ] && printf \"%s\\0\" \"\$f\"; done"
     staged_z '\.md$' |
-      xargs -0 -r sh -c 'for f in "$@"; do [ -r "$f" ] && printf "%s\0" "$f"; done' keep-readable |
-      xargs -0 -r vale
+      xargs -0 -r sh -c "$_readable" keep-readable |
+      xargs -0 -r vale || exit $?
+
+    # The gate passed. Now the AMBIGUITY pass, which never gates.
+    #
+    # MinAlertLevel = error suppresses warning-level rules entirely, so
+    # Toobuntu.AbbreviationPluralsAmbiguous is invisible in the run above by
+    # design -- its matches want a human read, not a block. Surface it only
+    # when this commit actually contains one, so the note reaches the person
+    # who wrote the sentence and nobody else ever sees it. --filter narrows to
+    # that single rule rather than every warning, which would drag in
+    # Vale.Spelling and bury the signal.
+    _amb=$(staged_z '\.md$' |
+      xargs -0 -r sh -c "$_readable" keep-readable |
+      xargs -0 -r vale --minAlertLevel=warning \
+        --filter='.Name=="Toobuntu.AbbreviationPluralsAmbiguous"' 2> /dev/null) || true
+    case "$_amb" in
+    *Toobuntu.AbbreviationPluralsAmbiguous*)
+      printf 'note: this commit has abbreviation+apostrophe cases that may be plurals.\n' >&2
+      printf '  A possessive is fine; a plural should drop the apostrophe (PRs, not PR%ss).\n' "'" >&2
+      printf '  Not blocking. Review with:\n' >&2
+      printf '    git ls-files -z "*.md" | xargs -0 -r vale --minAlertLevel=warning \\\n' >&2
+      printf '      --filter=%s.Name=="Toobuntu.AbbreviationPluralsAmbiguous"%s\n' "'" "'" >&2
+      ;;
+    *) ;;
+    esac
   else
     printf 'warning: vale not found — skipping prose lint (brew install vale)\n' >&2
   fi
