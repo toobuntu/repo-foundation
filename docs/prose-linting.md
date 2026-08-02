@@ -30,13 +30,24 @@ You do not have to remember to look for it. The `15-prose` plugin prints its fin
 
 ## Reviewing warnings by hand
 
-Raising the level is safe: **vale's exit code keys on errors, not on `--minAlertLevel`.** A warning-only file exits 0 either way, and a file with an error exits 1 either way. So a single pass at warning level gates exactly as the default does while also showing you the warnings.
+The everyday form narrows to the one rule, which is exactly what the pre-commit plugin and the CI step already run:
+
+```sh
+git ls-files -z '*.md' | xargs -0 -r vale --minAlertLevel=warning \
+  --filter='.Name=="Toobuntu.AbbreviationPluralsAmbiguous"'
+```
+
+`--filter` takes a vale expression matching against the alert's fields; `.Name` is the rule. It is what keeps `Vale.Spelling` — which rides at warning against a still-maturing vocabulary — from burying the handful of results you asked for, and it does that without a `jq` pipeline. Chain it after the gate with `&&` for a full sweep in one line.
+
+**One caveat, and it is the reason this is a second pass rather than a replacement for the first.** `--filter` drops non-matching alerts *before* vale computes its exit code, so a file with a real error exits 0 under a filtered run. Never let a filtered invocation stand in for the gate.
+
+Without a filter, the level alone is safe to raise: **vale's exit code keys on errors, not on `--minAlertLevel`.** A warning-only file exits 0 at either level, and a file with an error exits 1 at either level.
 
 ```sh
 git ls-files -z '*.md' | xargs -0 -r vale --minAlertLevel=warning
 ```
 
-That is one vale invocation and it answers both questions. The cost is noise: it also surfaces `Vale.Spelling` against a still-maturing vocabulary. To keep the gate clean day to day, run the plain gate above and let the hook and CI raise the ambiguity rule when it actually applies.
+So that single unfiltered pass gates exactly as the default does while also showing every warning — useful when reviewing the whole corpus, at the cost of the spelling noise the filtered form avoids. Day to day, run the plain gate and let the hook and CI raise the ambiguity rule when it applies.
 
 ### Slicing one run with jq
 
