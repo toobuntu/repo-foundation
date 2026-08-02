@@ -67,7 +67,7 @@ repo-foundation is not an ordinary repository — a change here can rewrite a fi
     --filter='.Name=="Toobuntu.AbbreviationPluralsAmbiguous"'
   ```
 
-  Without `--filter`, raising the level also surfaces `Vale.Spelling`, which rides at warning against a still-maturing vocabulary and will bury the handful of results you asked for.
+  Without `--filter`, raising the level also surfaces `Vale.Spelling`, which rides at warning against a still-maturing vocabulary and will bury the handful of results you asked for. Chain the two with `&&` to do a full sweep in one go — the gate first, the review pass only if it passes, which is the order the pre-commit plugin uses too.
 
   Those two examples sit in code spans deliberately: vale skips inline code, so a document *about* the rule does not trip it on every edit. Where an example has to be prose, bracket the block with vale's own directives, which read as documentation of what is being excused and why:
 
@@ -93,6 +93,19 @@ repo-foundation is not an ordinary repository — a change here can rewrite a fi
   vale --output=JSON --minAlertLevel=warning CONTRIBUTING.md
   ```
 
-  Each alert carries a `Match` field, and that string is the key. Verified on vale 3.17.0: keyed suppression holds at the start of a file and across a long soft-wrapped paragraph, and it leaves the other matches alone.
+  Each alert carries a `Match` field, and that string is the key. For a one-line-per-finding summary, `--filter` already narrows the set, so `jq` only has to shape it:
 
-  Two further notes, both measured rather than inferred. A directive placed *mid-paragraph* suppresses only partly — in test it silenced the first match inside its span and let the second through — so keep directives between blocks, where they are reliable. And writing any of these directives inside a fence or a code span, as above, is safe: vale does not act on a documented example. The agent commit-and-signing procedure for sandboxed work is in `docs/agent-principles.md`.
+  ```sh
+  git ls-files -z '*.md' |
+    xargs -0 -r vale --output=JSON --no-exit --minAlertLevel=warning \
+      --filter='.Name=="Toobuntu.AbbreviationPluralsAmbiguous"' |
+    jq -r 'to_entries[] | .key as $file | .value[] | "\($file):\(.Line): \(.Match)"'
+  ```
+
+  That prints `file:line: match` — the third field is exactly what a keyed directive needs. Verified on vale 3.17.0: keyed suppression holds at the start of a file and across a long soft-wrapped paragraph, and it leaves the other matches alone.
+
+  **Directives take effect a block at a time**, which is the one thing worth internalizing about them. A block is a Markdown block-level element — a paragraph, a list, a heading, a fenced code block — not a code fence specifically. A `NO` applies from the block it sits in through the end of the file, or until the matching `YES`; where inside that block it sits makes no difference, so a directive trailing its own paragraph still covers that paragraph.
+
+  The corollary is that `NO` and `YES` must not share a block. Put both inside one paragraph and the suppression is unreliable: keyed, it does nothing at all; unkeyed, it silenced the first match and let the next through. Neither is worth depending on — give each directive its own line between blocks.
+
+  Writing any of these directives inside a fence or a code span, as above, is safe: vale does not act on a documented example. The agent commit-and-signing procedure for sandboxed work is in `docs/agent-principles.md`.
