@@ -295,9 +295,14 @@ ssh-copy-id -i "${VMKEY}.pub" -o StrictHostKeyChecking=no -o UserKnownHostsFile=
 # whose root grant expires with this command. Do not lift that line into a
 # context where any of those three stops being true.
 sshvm 'set -eu
-  trap 'sudo rm -f /etc/sudoers.d/baseline-build
+  # Defined as a function, not inline in the trap: an inline trap needs single
+  # quotes, and this whole payload is already inside a single-quoted argument.
+  cleanup() {
+    sudo rm -f /etc/sudoers.d/baseline-build
     test ! -e /etc/sudoers.d/baseline-build ||
-      echo "WARNING: could not remove the sudo grant; remove it before cloning" >&2' EXIT
+      echo "WARNING: could not remove the sudo grant; remove it before cloning" >&2
+  }
+  trap cleanup EXIT
   echo lume | sudo --stdin --validate
   printf "lume ALL=(ALL) NOPASSWD: ALL\n" > /tmp/baseline-build
   sudo visudo -cf /tmp/baseline-build
@@ -403,6 +408,8 @@ set -eu
 v=$(lume --version)
 case "$v" in
 0.[0-4].* | 0.5.0 | 0.5.0-*) echo "lume $v is too old; 0.5.1 or newer required" >&2; exit 1 ;;
+# A prerelease precedes its own release, so 0.5.1-rc1 need not carry the fix.
+*-*) echo "lume $v is a prerelease; use a stable 0.5.1 or newer" >&2; exit 1 ;;
 *) ;;
 esac
 [ "$(lume ls --format=json | jq -r '.[]|select(.name=="macos-baseline").status')" = stopped ] ||
