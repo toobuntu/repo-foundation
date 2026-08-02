@@ -64,7 +64,7 @@ git ls-files -z '*.md' |
   xargs -0 -r vale
 ```
 
-Vale has no `.gitignore` support, so a bare `vale .` also scans any vendored documentation in the working tree; listing the tracked files avoids that, and the `-z`/`-0` pairing keeps a path containing a space intact.
+Vale has no `.gitignore` support, so a bare `vale .` also scans any vendored documentation in the working tree; listing the tracked files avoids that where the vendored content is untracked, and the `-z`/`-0` pairing keeps a path containing a space intact.
 
 One rule deliberately never gates. `Toobuntu.AbbreviationPluralsAmbiguous` flags an abbreviation followed by an apostrophe-s in a position where a possessive is legitimate and a plural would be wrong — no linter can decide between those, so it rides at warning and asks for a human read. The pre-commit plugin prints its findings when a commit contains any, and the CI job logs them; neither blocks. To see them before you get as far as committing, run the same second pass those two run:
 

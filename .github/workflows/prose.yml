@@ -61,6 +61,10 @@ jobs:
       # annotation: this is a log to read when reviewing, not a change request.
       - name: Report ambiguous abbreviation plurals (informational)
         if: always()
+        # --no-exit covers vale's alert-driven exit, not a crash or a missing
+        # binary; without this, such a failure would redden a gate that passed.
+        # GitHub still marks the step failed in the UI, so breakage stays visible.
+        continue-on-error: true
         run: |
           # shellcheck disable=SC2016  # $@/$f expand in the inner sh -c, by design
           git ls-files -z '*.md' |

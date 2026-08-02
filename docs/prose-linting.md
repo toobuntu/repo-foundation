@@ -16,7 +16,7 @@ git ls-files -z '*.md' |
   xargs -0 -r vale
 ```
 
-Vale has no `.gitignore` support, so a bare `vale .` also scans whatever vendored documentation the working tree happens to carry — `vendor/bundle/`, `node_modules/`, a checked-out dependency; listing the tracked files avoids all of it. The `-z`/`-0` pairing is not decoration — a path containing a space or a newline is split into pieces without it. The inner filter drops a tracked file that has been deleted on disk without the deletion being staged, which vale would otherwise fail on; it is a no-op on a clean tree.
+Vale has no `.gitignore` support, so a bare `vale .` also scans whatever vendored documentation the working tree happens to carry — `vendor/bundle/`, `node_modules/`, a checked-out dependency; listing the tracked files avoids all of it, provided it is untracked — which vendored dependencies normally are, but a repository that commits its vendored docs will see them in this run. The `-z`/`-0` pairing is not decoration — a path containing a space or a newline is split into pieces without it. The inner filter drops a tracked file that has been deleted on disk without the deletion being staged, which vale would otherwise fail on; it is a no-op on a clean tree.
 
 The same command runs in the `prose` CI job and, over the staged files, in the `15-prose` pre-commit plugin. One policy, three triggers.
 
@@ -37,7 +37,7 @@ git ls-files -z '*.md' | xargs -0 -r vale --minAlertLevel=warning \
   --filter='.Name=="Toobuntu.AbbreviationPluralsAmbiguous"'
 ```
 
-`--filter` takes a vale expression matching against the alert's fields; `.Name` is the rule. It is what keeps `Vale.Spelling` — which rides at warning against a still-maturing vocabulary — from burying the handful of results you asked for, and it does that without a `jq` pipeline. Chain it after the gate with `&&` for a full sweep in one line.
+The review forms on this page are deliberately short: they skip the readable-path filter the gate uses. That filter guards one narrow case — a tracked file deleted on disk without the deletion staged — which is worth handling silently in an automated gate and not worth carrying in a command you type, where the resulting `no such file` names the path and tells you exactly what to do. `--filter` takes a vale expression matching against the alert's fields; `.Name` is the rule. It is what keeps `Vale.Spelling` — which rides at warning against a still-maturing vocabulary — from burying the handful of results you asked for, and it does that without a `jq` pipeline. Chain it after the gate with `&&` for a full sweep in one line.
 
 **One caveat, and it is the reason this is a second pass rather than a replacement for the first.** `--filter` drops non-matching alerts *before* vale computes its exit code, so a file with a real error exits 0 under a filtered run. Never let a filtered invocation stand in for the gate.
 
