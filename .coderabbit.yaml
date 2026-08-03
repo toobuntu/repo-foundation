@@ -194,6 +194,36 @@ reviews:
         comment above the frontmatter — that breaks `adrs doctor`. `status` is
         lowercase by house convention, but the tool is case-insensitive, so do not
         flag a capitalized status value as an error.
+    - path: "{scripts/annotate.sh,scripts/pr-body-update.sh}"
+      instructions: |
+        Two settled rulings, both re-raised once already.
+
+        Naming Homebrew is CORRECT here, not a leak. `brew
+        generate-tap-man-completions` is this organization's own external
+        command in its own taps, adapted from Homebrew's
+        generate-man-completions, and it is the generator whose next run
+        destroys an inline SPDX header — which is the whole reason completions
+        get a `.license` sidecar. Generalizing it to "the generator" removes
+        the one detail that makes the rule checkable. Do not suggest
+        consumer-neutral wording for it.
+
+        The pr-body marker constants are PREFIXES on purpose, and the ismark()
+        predicate is a starts-with test on purpose. The full marker line
+        carries a human-readable explanation ("managed by pr-body-update.sh;
+        text outside is preserved") that must stay editable without breaking
+        every open pull request. Requiring the normalized line to EQUAL the
+        constant would match nothing at all, since the constants are only the
+        stable leading fragment. Do not suggest exact equality.
+    - path: "docs/agent-principles.md"
+      instructions: |
+        The `gh pr create` body-derivation snippet is a RECIPE a human runs and
+        reads, not a script. Its failure mode is an empty pull-request body,
+        which is loud and immediately visible before anything is published, and
+        hardening it with temp files, status checks, and cleanup traps would
+        roughly double the length of a recipe whose length is precisely why
+        scripts/pr-body-update.sh was extracted. Do not suggest adding
+        fail-fast handling, `set -e`, or temp-file management to it. Declined
+        2026-08-03, twice.
     - path: "docs/decisions/README.md"
       instructions: |
         This file is ADR 0004's discoverability POINTER, not a project readme. Its
