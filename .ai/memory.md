@@ -99,6 +99,18 @@ Every TRACKED repo-foundation file that meant the tier now says `tb-coordination
 
 Deliberately NOT swept, and a future session should not "finish the job": `docs/handoff/**`, ADR 0022's body, and the existing memory entries above. Those are records of what was true when written, and rewriting them would falsify a point-in-time account — the same rule that keeps this file append-only. ADR 0022 § "the maintainer's private workspace" is the one arguable case; changing it wants an amendment, not a find-and-replace.
 
+## 2026-08-03 — The reference clone goes stale silently, and a lot arrived in it
+
+A prompt was drafted quoting fleet's `reusable_pin`/`version_commit` from `reference/starhaven-io/.github/` while that clone sat **eleven tags behind** — `99787bf`, `fleet/VERSION` at `v2026.07.08.1`. The maintainer pulled it to `41abc75` (2026-07-31, `v2026.07.30.1`) and `fleet/sync.rb` alone was +375 lines. The two quoted methods happened to be byte-identical, so the prompt survived; nothing about the process made that likely. **A local reference clone is a snapshot with no freshness signal — `git -C <clone> pull --ff-only` before citing it, and record the commit and version alongside the quote so the next reader can tell.** The "verify versioned and scheduled values" rule in `docs/agent-principles.md` covers registries and upstream releases; a vendored read-only clone is the same hazard with none of the prompts.
+
+What that pull brought in is **unevaluated prior art**, and the org's earlier adopt/adapt/skip pass (`docs/handoff/rf-upstream-notes.md` §§ 16–18) predates all of it. Named so a later pass does not have to re-derive the list:
+
+- **`fleet/test/golden_render_test.rb`** (new) — renders every consumer config into a synthetic skeleton and asserts the output shape, because that is "the only pre-merge coverage possible for consumers the dry-run cannot check out, such as private repositories". repo-foundation's `--audit` needs a live sibling clone that CI does not have, so this is the shape of the coverage gap RF has too.
+- **`fleet/templates/*.erb` and `render_template`** — fleet renders workflows through ERB (`ERB.new(template, trim_mode: "-")`), including `fleet-guard.yml.erb`, the direct analogue of `foundation-guard.yml`, and `renovate.json.erb`, which takes the version as a parameter. Directly relevant to any "templated render target" decision.
+- **`fleet/repos/*.yml`** (ten new per-consumer configs) — `schema:`/`params:`/`exceptions:` per repository, where RF keeps consumers inline in one manifest. The cited-exception idea RF already adopted; the per-file split it did not.
+- **`fleet/test/guard_regressions_test.rb`** (+777 lines) and `commit_msg_hook_test.rb` (new, 178) — a much larger guard-regression corpus than when this org last looked.
+- Also new and unexamined: `.github/workflows/conclusion.yml`, `renovate-config.json` plus `renovate: true` per repo (RF uses Dependabot), `fleet/files/check-npm-install-policy.mjs`, and the `ISSUE_TEMPLATE/` + `PULL_REQUEST_TEMPLATE.md` set.
+
 ## 2026-08-03 — rumdl counts lines inside fenced code blocks
 
 `MD013` (line length, 118 here) applies to fenced code content, not only to prose — a shell recipe in a ```` ```sh ```` block failed the gate at 122 characters. So a long literal inside a documented command is a real constraint on the literal, not something to suppress: the marker string in the pull-request recipe was shortened to fit rather than the rule disabled. Worth knowing before writing a recipe with a long one-liner in it; `rumdl fmt` will not fix this one, because it cannot reflow code.
