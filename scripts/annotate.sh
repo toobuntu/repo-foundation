@@ -145,13 +145,14 @@ remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp
 #    would be destroyed the next time the generator runs -- in the Homebrew
 #    taps that is `brew generate-tap-man-completions`, which rewrites
 #    completions/{bash,fish,zsh}/ wholesale.
-#    Matched by PATH, which is the org convention and what the taps actually
-#    ship (completions/fish/*.fish beside its .license), AND by the .fish
-#    EXTENSION, so a generated fish file written outside completions/ still
-#    gets a sidecar rather than an inline # header. bash completions are
-#    extension-less and zsh ones are _-prefixed, so path is the only handle
-#    on those two.
-compl_re='(^|/)completions/|\.fish$'
+#    Matched by PATH, deliberately, and NOT by the .fish extension. The
+#    generator writes where this project tells it to, so the path is reliable;
+#    an extension rule would also claim hand-written fish -- a script, or a
+#    config.fish -- which is ordinary source and wants an inline # header like
+#    any other shell file. A sidecar there is harmless but is noise. bash
+#    completions are extension-less and zsh ones are _-prefixed, so path is
+#    the only handle on those two regardless.
+compl_re='(^|/)completions/'
 compl_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${compl_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${compl_re}" || true)
 
