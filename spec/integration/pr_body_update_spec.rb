@@ -114,6 +114,22 @@ RSpec.describe "pr-body-update.sh" do
     end
   end
 
+  it "pads the region with a blank line inside each marker" do
+    # Same convention the sync engine applies to its Markdown managed regions:
+    # an HTML comment butted against prose is a rendering hazard.
+    with_pr_body(bot_body, "Fresh.\n") do |_o, _e, status|
+      expect(status).to be_success
+      expect(edited).to include("#{BEGIN_MARK}\n\nFresh.\n\n#{END_MARK}")
+    end
+  end
+
+  it "trims the replacement's own blank edges so repeated runs converge" do
+    with_pr_body(bot_body, "\n\nFresh.\n\n\n") do |_o, _e, status|
+      expect(status).to be_success
+      expect(edited).to include("#{BEGIN_MARK}\n\nFresh.\n\n#{END_MARK}")
+    end
+  end
+
   it "ignores a marker mentioned in prose rather than standing alone" do
     # This repository documents these markers, so a pull request describing
     # them would otherwise be refused as carrying two pairs — the tool broken

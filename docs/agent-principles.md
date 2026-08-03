@@ -179,10 +179,10 @@ Prefer language with a positivity bias in all output — docs, prompts, summarie
   ```sh
   mkdir -p .ai/scratchpad
   {
-    printf '%s\n' '<!-- pr-body:begin - managed by pr-body-update.sh; text outside is preserved -->'
+    printf '%s\n' '<!-- pr-body:begin - managed by pr-body-update.sh; text outside is preserved -->' ''
     git log --reverse --format='## %s%n%n%b' main..HEAD |
       grep -v '^Co-Authored-By: '
-    printf '%s\n' '' '---' '' 'Created with AI assistance; manually reviewed.'
+    printf '%s\n' '' '---' '' 'Created with AI assistance; manually reviewed.' ''
     printf '%s\n' '<!-- pr-body:end -->'
   } | rumdl fmt --silent - > .ai/scratchpad/pr-body.md
   gh pr create --base main --title "$(git log -1 --format=%s)" \

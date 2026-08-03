@@ -136,7 +136,14 @@ fi
 # needs the markers in the body it uploads) and this script; copying them
 # through would nest a second pair and break the next run. A marker mentioned
 # mid-sentence in the replacement is content, and survives.
-PB_BEGIN="$BEGIN_MARK" PB_END="$END_MARK" PB_FILE="$replacement" awk "$IS_MARK"' BEGIN{b=ENVIRON["PB_BEGIN"];e=ENVIRON["PB_END"];f=ENVIRON["PB_FILE"]} ismark($0,b){print;while((getline l<f)>0){if(ismark(l,b)||ismark(l,e))continue;print l}s=1;next} ismark($0,e){s=0} !s{print}' "$current" > "$merged"
+#
+# The region is PADDED with a blank line inside each marker, and the
+# replacement's own leading and trailing blanks are trimmed first so repeated
+# runs converge instead of accumulating them. Same convention the sync engine
+# applies to its Markdown managed regions, for the same reason: an HTML comment
+# butted against prose is a rendering hazard, and the padded form is what a
+# human editing the description in the web UI will produce anyway.
+PB_BEGIN="$BEGIN_MARK" PB_END="$END_MARK" PB_FILE="$replacement" awk "$IS_MARK"' BEGIN{b=ENVIRON["PB_BEGIN"];e=ENVIRON["PB_END"];f=ENVIRON["PB_FILE"]} ismark($0,b){print;n=0;while((getline l<f)>0){if(ismark(l,b)||ismark(l,e))continue;a[++n]=l}i=1;while(i<=n&&a[i]=="")i++;j=n;while(j>=i&&a[j]=="")j--;print "";for(k=i;k<=j;k++)print a[k];print "";s=1;next} ismark($0,e){s=0} !s{print}' "$current" > "$merged"
 
 if [ -n "$dry_run" ]; then
   cat "$merged"
