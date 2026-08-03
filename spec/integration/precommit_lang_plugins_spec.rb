@@ -6,16 +6,20 @@ require "fileutils"
 require "open3"
 require "tmpdir"
 
-# Behavioral tests for the per-language pre-commit plugin masters under
-# provides/githooks/pre-commit.d/: 20-go, 20-objc, 20-brew. Same stub pattern
-# as the Swift and docs-plugin specs — each plugin runs in a throwaway git
-# repository with stub tools prepended to PATH, so no real Go / clang / brew
-# toolchain is needed and a stub shadows any installed copy.
+# Behavioral tests for the per-language pre-commit plugin masters: 20-go,
+# 20-objc, and 20-brew under provides/githooks/pre-commit.d/, and 20-ruby at
+# the natural path (repo-foundation is itself a Ruby repository and runs it on
+# its own commits — ADR 0001). Same stub pattern as the Swift and docs-plugin
+# specs — each plugin runs in a throwaway git repository with stub tools
+# prepended to PATH, so no real Go / clang / brew toolchain is needed and a
+# stub shadows any installed copy. 20-ruby is the exception that uses the real
+# interpreter: a syntax check stubbed out would assert nothing.
 
 LANG_PLUGINS = {
   go:   File.join(REPO_ROOT, "provides", "githooks", "pre-commit.d", "20-go"),
   objc: File.join(REPO_ROOT, "provides", "githooks", "pre-commit.d", "20-objc"),
   brew: File.join(REPO_ROOT, "provides", "githooks", "pre-commit.d", "20-brew"),
+  ruby: File.join(REPO_ROOT, ".githooks", "pre-commit.d", "20-ruby"),
 }.freeze
 
 module LangPluginHelpers
@@ -214,6 +218,91 @@ RSpec.describe "language pre-commit plugins" do
       with_lang_plugin(:brew, { "readme.md" => "hi\n" }, stubs: { "brew" => cmd_stub("brew") }) do |_o, _e, status|
         expect(status).to be_success
         expect(calls).to be_empty
+      end
+    end
+  end
+
+  describe "20-ruby" do
+    VALID_RB   = "# frozen_string_literal: true\n\ndef ok = 1\n"
+    BROKEN_RB  = "def broken(\n"
+
+    # A PATH holding only these — as shims, so the real tools still work — has
+    # no `ruby` and no `brew`, which is how the warn-and-skip path is reached.
+    # `ruby` cannot simply be shadowed by a stub: a stub that exists is a ruby
+    # that `command -v` finds.
+    def shim(target)
+      "#!/bin/sh\nexec #{target} \"$@\"\n"
+    end
+
+    def bare_shims
+      %w[git wc xargs].to_h { |t| [t, shim(`command -v #{t}`.strip)] }
+    end
+
+    it "passes a syntactically valid Ruby file" do
+      with_lang_plugin(:ruby, { "lib/a.rb" => VALID_RB }) do |_o, err, status|
+        expect(status).to be_success, "stderr=#{err.inspect}"
+      end
+    end
+
+    it "fails a syntax error and names the file" do
+      with_lang_plugin(:ruby, { "lib/bad.rb" => BROKEN_RB }) do |_o, err, status|
+        expect(status).not_to be_success
+        expect(err).to include("lib/bad.rb")
+        expect(err).to include("20-ruby")
+      end
+    end
+
+    it "checks every staged file, not only the first" do
+      # `ruby -c a.rb b.rb` checks a.rb and puts b.rb in ARGV, exiting 0. The
+      # plugin's xargs -n1 is what makes the second file gate; batching would
+      # be a guard that cannot fire.
+      files = { "lib/a.rb" => VALID_RB, "lib/z_bad.rb" => BROKEN_RB }
+      with_lang_plugin(:ruby, files) do |_o, err, status|
+        expect(status).not_to be_success
+        expect(err).to include("z_bad.rb")
+      end
+    end
+
+    it "does nothing when no Ruby is staged" do
+      with_lang_plugin(:ruby, { "readme.md" => "hi\n" }) do |_o, err, status|
+        expect(status).to be_success
+        expect(err).to be_empty
+      end
+    end
+
+    it "prefers Homebrew's portable Ruby over the one on PATH" do
+      # brew reports a prefix whose portable-ruby is a logging stub; the plugin
+      # must run that, not the `ruby` sitting earlier on PATH.
+      Dir.mktmpdir("rf-portable-") do |prefix|
+        bin = File.join(prefix, "Library/Homebrew/vendor/portable-ruby/current/bin")
+        FileUtils.mkdir_p(bin)
+        File.write(File.join(bin, "ruby"), cmd_stub("portable-ruby"))
+        File.chmod(0o755, File.join(bin, "ruby"))
+        stubs = { "brew" => "#!/bin/sh\nprintf '#{prefix}\\n'\n", "ruby" => cmd_stub("path-ruby") }
+        with_lang_plugin(:ruby, { "lib/a.rb" => VALID_RB }, stubs: stubs) do |_o, _e, status|
+          expect(status).to be_success
+          expect(calls.grep(/^portable-ruby/)).not_to be_empty
+          expect(calls.grep(/^path-ruby/)).to be_empty
+        end
+      end
+    end
+
+    it "falls back to the PATH ruby when Homebrew has no portable ruby" do
+      Dir.mktmpdir("rf-noportable-") do |prefix|
+        stubs = { "brew" => "#!/bin/sh\nprintf '#{prefix}\\n'\n", "ruby" => cmd_stub("path-ruby") }
+        with_lang_plugin(:ruby, { "lib/a.rb" => VALID_RB }, stubs: stubs) do |_o, _e, status|
+          expect(status).to be_success
+          expect(calls.grep(/^path-ruby/)).not_to be_empty
+        end
+      end
+    end
+
+    it "warns and skips when no ruby is available at all" do
+      with_lang_plugin(:ruby, { "lib/a.rb" => VALID_RB },
+                       stubs: bare_shims, base_path: "/nonexistent") do |_o, err, status|
+        expect(status).to be_success
+        expect(err).to include("ruby not found")
+        expect(err).to include("skipping")
       end
     end
   end

@@ -1,0 +1,62 @@
+#!/bin/sh
+
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Ruby syntax pre-commit plugin. Run by .githooks/pre-commit via the
+# run-parts-style pre-commit.d/ runner. Self-contained on purpose: plugins
+# run in a subprocess and do not inherit the base hook's shell functions.
+# Filename has no extension by the run-parts classicalre rule (see the base
+# hook and scripts/lint-perms.sh); disable by adding a dot suffix (20-ruby.off).
+#
+# Syntax only -- `ruby -c`, no RuboCop, no Sorbet, no gems. A parse error is
+# unambiguous, needs no configuration, and is the one Ruby defect worth
+# catching before the commit rather than in CI. Style is a separate decision
+# and would bring a dependency this plugin deliberately does not have.
+#
+# Not mapped to the Homebrew-aligned repositories: `brew style` (20-brew)
+# already runs RuboCop over their Ruby, which subsumes a syntax check.
+
+set -e
+
+# Staged paths (NUL-safe), filtered to an ERE. ACMRT mirrors the base hook.
+staged_z() {
+  git diff --cached --name-only --diff-filter=ACMRT -z |
+    /usr/bin/grep --extended-regexp --null-data "$1" || true
+}
+has_files() { [ "$(staged_z "$1" | wc -c)" -gt 0 ]; }
+
+RUBY_RE='\.rb$'
+
+has_files "$RUBY_RE" || exit 0
+
+# Homebrew's portable Ruby first. On macOS a bare `ruby` resolves through PATH
+# to the frozen system 2.6, whose parser rejects syntax every current Ruby
+# accepts -- so checking with it would fail a file that is perfectly valid.
+# Portable Ruby ships with Homebrew, which every contributor here already has,
+# and is the same Ruby the suite and CI run (ADR 0011).
+ruby_bin=""
+if command -v brew > /dev/null 2>&1; then
+  portable="$(brew --repository)/Library/Homebrew/vendor/portable-ruby/current/bin/ruby"
+  if [ -x "$portable" ]; then
+    ruby_bin="$portable"
+  fi
+fi
+if [ -z "$ruby_bin" ]; then
+  ruby_bin="$(command -v ruby || true)"
+fi
+
+if [ -z "$ruby_bin" ]; then
+  printf 'warning: ruby not found -- skipping Ruby syntax check (brew install ruby)\n' >&2
+  exit 0
+fi
+
+# -n1 is load-bearing, not a missed batching optimization: `ruby -c a.rb b.rb`
+# checks only a.rb and puts the rest in ARGV, so a batched call would exit 0
+# over a broken second file -- a guard that cannot fire. "Syntax OK" goes to
+# stdout and is noise; the diagnostics that matter go to stderr.
+if ! staged_z "$RUBY_RE" | xargs -0 -r -n1 "$ruby_bin" -c > /dev/null; then
+  printf '20-ruby: Ruby syntax check failed (%s).\n' "$ruby_bin" >&2
+  exit 1
+fi
