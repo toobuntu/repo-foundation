@@ -141,9 +141,17 @@ clang_re='(^|/)\.clang-(format|tidy)$'
 clang_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${clang_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${clang_re}" || true)
 
-# 3. Generated completion files: keep verbatim, use sidecar.
-#    Covers fish (.fish), bash (no-extension), zsh (_-prefixed) under completions/.
-compl_re='(^|/)completions/'
+# 3. Generated completion files: keep verbatim, use sidecar. An inline header
+#    would be destroyed the next time the generator runs -- in the Homebrew
+#    taps that is `brew generate-tap-man-completions`, which rewrites
+#    completions/{bash,fish,zsh}/ wholesale.
+#    Matched by PATH, which is the org convention and what the taps actually
+#    ship (completions/fish/*.fish beside its .license), AND by the .fish
+#    EXTENSION, so a generated fish file written outside completions/ still
+#    gets a sidecar rather than an inline # header. bash completions are
+#    extension-less and zsh ones are _-prefixed, so path is the only handle
+#    on those two.
+compl_re='(^|/)completions/|\.fish$'
 compl_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${compl_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${compl_re}" || true)
 
