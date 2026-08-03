@@ -98,3 +98,7 @@ The maintainer's coordination tier migrated on 2026-08-02 from a plain directory
 Every TRACKED repo-foundation file that meant the tier now says `tb-coordination/` — the two session-continuity bullets in `docs/agent-principles.md` (which is org canonical, so the rule reaches every consumer), the `tb-session-close` skill's `cp -p` step, and three rows of `docs/workflow.md`. The local mirror directory moved with them: `.ai/scratchpad/workspace/` → `.ai/scratchpad/tb-coordination/`.
 
 Deliberately NOT swept, and a future session should not "finish the job": `docs/handoff/**`, ADR 0022's body, and the existing memory entries above. Those are records of what was true when written, and rewriting them would falsify a point-in-time account — the same rule that keeps this file append-only. ADR 0022 § "the maintainer's private workspace" is the one arguable case; changing it wants an amendment, not a find-and-replace.
+
+## 2026-08-03 — rumdl counts lines inside fenced code blocks
+
+`MD013` (line length, 118 here) applies to fenced code content, not only to prose — a shell recipe in a ```` ```sh ```` block failed the gate at 122 characters. So a long literal inside a documented command is a real constraint on the literal, not something to suppress: the marker string in the pull-request recipe was shortened to fit rather than the rule disabled. Worth knowing before writing a recipe with a long one-liner in it; `rumdl fmt` will not fix this one, because it cannot reflow code.
