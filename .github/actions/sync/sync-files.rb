@@ -81,12 +81,31 @@ require "json"
 require "open3"
 require "optparse"
 require "pathname"
+require "rbconfig"
 require "tempfile"
 require "yaml"
 
 # Treat every file as UTF-8 regardless of the runner's locale, so reading a
 # UTF-8 source under a C/US-ASCII LANG does not raise an invalid-byte error.
 Encoding.default_external = Encoding::UTF_8
+
+# The floor, enforced rather than assumed. --audit is the one mode an operator
+# runs locally against sibling clones, and on macOS a bare `ruby` resolves
+# through PATH to the frozen system 2.6 -- which would otherwise fail somewhere
+# downstream with a NoMethodError that says nothing about the cause. Stating it
+# here means a wrong Ruby is reported at the boundary, once, with the fix.
+# 3.0 rather than 2.7 (where filter_map arrived) because that is the floor CI
+# exercises: Homebrew's portable Ruby, via Homebrew/actions/setup-ruby.
+if RUBY_VERSION < "3.0"
+  abort <<~MSG
+    error: sync-files.rb needs Ruby 3.0 or newer; this is #{RUBY_VERSION} (#{RbConfig.ruby}).
+      On macOS a bare `ruby` is the frozen system 2.6. Run it under Homebrew's
+      portable Ruby instead:
+
+        "$(brew --repository)/Library/Homebrew/vendor/portable-ruby/current/bin/ruby" \\
+          .github/actions/sync/sync-files.rb <consumer-slug> <target-path> --audit
+  MSG
+end
 
 # repo-foundation checkout root: this file lives at .github/actions/sync/.
 # SYNC_SOURCE_ROOT overrides it for the test suite (fixture sources); production
@@ -684,12 +703,7 @@ end
 def run_audit(components, target_root, consumer_slug, excludes, header_template,
               merge_label_begin, merge_label_end, fragments_by_target)
   mtime = ->(path) { path.exist? ? path.mtime.strftime("%Y-%m-%d %H:%M") : "-" }
-  # map + compact rather than filter_map: this mode is the one an operator runs
-  # LOCALLY against sibling clones (the pre-sync freshness audit), where on
-  # macOS a bare `ruby` is the frozen system 2.6 -- and filter_map arrived in
-  # 2.7. The other modes only ever run on a runner with a current Ruby. Nothing
-  # else in the engine needs newer than 2.6, so keeping it there costs one call.
-  rows = components.map do |component|
+  rows = components.filter_map do |component|
     next if component["mode"] == "fragment"
 
     target_rel = component.fetch("target")
@@ -719,7 +733,7 @@ def run_audit(components, target_root, consumer_slug, excludes, header_template,
     else
       row.merge(status: "same")
     end
-  end.compact
+  end
 
   puts "Audit: #{consumer_slug} -> #{target_root} (#{rows.length} pairs)"
   width = rows.map { |r| r[:target].length }.max.to_i.clamp(6, 60)
