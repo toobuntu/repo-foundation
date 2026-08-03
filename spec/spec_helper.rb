@@ -7,6 +7,16 @@
 # already-initialized-constant warning under config.warnings.
 REPO_ROOT = File.expand_path("..", __dir__)
 
+# Read files as UTF-8 whatever the ambient locale is. Ruby derives
+# Encoding.default_external from LANG/LC_ALL, and a shell with neither set —
+# the Claude Code sandbox is one — leaves it US-ASCII, so `File.read` on any
+# repository file containing a non-ASCII byte raises `invalid byte sequence in
+# US-ASCII`. The codepoint-table specs read `scripts/lint-unicode.sh`, which by
+# its nature holds such bytes. UTF-8 is not a guess here: CONTRIBUTING requires
+# every tracked file to be valid UTF-8 without a BOM, and the unicode gate
+# enforces it. Specs that mean to inspect raw bytes use `File.binread`.
+Encoding.default_external = Encoding::UTF_8
+
 RSpec.configure do |config|
   config.expect_with :rspec do |expectations|
     expectations.include_chain_clauses_in_custom_matcher_descriptions = true
