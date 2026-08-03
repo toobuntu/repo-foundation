@@ -179,15 +179,25 @@ Prefer language with a positivity bias in all output — docs, prompts, summarie
   ```sh
   mkdir -p .ai/scratchpad
   {
+    printf '%s\n' '<!-- pr-body:begin - managed by pr-body-update.sh; text outside is preserved -->'
     git log --reverse --format='## %s%n%n%b' main..HEAD |
       grep -v '^Co-Authored-By: '
     printf '%s\n' '' '---' '' 'Created with AI assistance; manually reviewed.'
+    printf '%s\n' '<!-- pr-body:end -->'
   } | rumdl fmt --silent - > .ai/scratchpad/pr-body.md
   gh pr create --base main --title "$(git log -1 --format=%s)" \
     --body-file .ai/scratchpad/pr-body.md && rm -f .ai/scratchpad/pr-body.md
   ```
 
   Drop the `##` heading form for a single-commit branch, and drop the assistance note when no commit carries an agent trailer. The derived form suits short branches; past roughly three commits the concatenated bodies outgrow a pull-request description — hand-write a curated summary body instead (what changed by area, verification performed, anything the reviewer must know), still drafted under `.ai/scratchpad/` and closed with the same assistance note.
+- **Update a pull-request body with `scripts/pr-body-update.sh <N> <draft>`, never a bare `gh pr edit --body-file`.** `gh pr edit` replaces the whole description, and the GitHub API offers nothing narrower — so refreshing a body silently deletes whatever a review bot appended to it, which for CodeRabbit is its summary. The script does the read-modify-write around the two markers above: it replaces only what sits between them and carries everything outside through untouched.
+
+  ```sh
+  scripts/pr-body-update.sh 42 .ai/scratchpad/pr-body-<slug>.md &&
+    rm -f .ai/scratchpad/pr-body-<slug>.md
+  ```
+
+  `--dry-run` prints the merged body instead of writing it. One draft shape serves both paths: the script drops marker lines carried in the replacement rather than nesting a second pair. A body with **no** markers is refused, not wrapped — only the author knows where their text ends and a bot's begins, and guessing would pull the bot's section inside the managed region for the next run to delete. Add the pair by hand once, on descriptions that predate this; anything opened with the recipe above already has it. A `gh pr comment` is for saying something new, and is not a substitute: bots review the description, so a stale one is what they read.
 - No verbose AI commentary in PR descriptions. Note AI assistance and what manual verification was performed.
 - Merge commits, never squash or rebase, on PR merge (unless the project ADRs say otherwise).
 - en_US spelling everywhere (`labeling` not `labelling`, `color` not `colour`).
