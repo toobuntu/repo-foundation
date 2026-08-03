@@ -134,7 +134,7 @@ The `invisible-allow:` annotation is unaffected and remains the only exemption m
 
 The opt-out annotation was spelled `bidi-allow:` from this ADR's acceptance until now. The name described one member of the blocked set rather than the set itself: the detector flags every Cf and Cc character, so `bidi-allow: U+001B` — exempting ESC, a Cc control with no bidirectional meaning at all — read as a contradiction the moment the Cc extension landed. `invisible-allow:` names the hazard class the gate actually enforces.
 
-**The old token is no longer recognized**, in either layer. That is deliberate and is why the rename happens now: it lands before the first sync to consumers, so no consumer carries a file whose exemption silently stops working. A file still carrying `bidi-allow:` is treated as having no annotation and fails the gate, which is the safe direction — the failure names the file and prints the new spelling.
+**The old token is no longer recognized**, in either layer. That is deliberate and is why the rename happens now: it lands before the first sync to consumers, so no consumer carries a file whose exemption silently stops working. A file still carrying `bidi-allow:` is treated as having no annotation at all — so it fails the gate if, and only if, it also holds one of the blocked codepoints. That is the safe direction: an exemption that has stopped being parsed surfaces as a refusal naming the file, never as a silently narrower scan. A file whose annotation was precautionary simply keeps passing.
 
 ### Per-file opt-out
 

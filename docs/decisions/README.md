@@ -12,4 +12,4 @@ This directory holds **this repository's own** decision records, numbered from `
 [toobuntu/repo-foundation](https://github.com/toobuntu/repo-foundation/tree/main/docs/decisions),
 and the files they govern reference them by that URL. An ADR's identity is its number in a single sequence, so a per-repository copy would fork the numbering contract `adrs doctor` enforces — the reasoning is ADR 0004 there.
 
-So: look here for why *this* repository is built the way it is, and there for why *every* repository is.
+In short: this directory explains why *this* repository is built the way it is; repo-foundation's explains why *every* repository is.

@@ -34,8 +34,8 @@ This split kills staleness (docs stop trying to track progress) and kills supers
 | Roadmap | repo-foundation `docs/roadmap.md` — **one**, living (migration from the maintainer's master-plan is queued) | edited in place |
 | Live opening prompts and plans | `<repo>/docs/handoff/` | live items only; executed prompts move to `docs/handoff/completed/` or are deleted once `.ai/memory.md` records the outcome |
 | Reusable prompt template | repo-foundation `prompts/` | edited in place |
-| Maintainer coordination (dispatch, org progress) | the maintainer's private `tb-coordination` repository — outside the sync, machine-specific by design | per-machine; the durable half of the old coordination-tier org state now lives in `.ai/org/memory.md` |
-| Scratch / thinking, message drafts | `tb-coordination`, or the session scratchpad directory (`.ai/scratchpad/`, gitignored; named commit/PR drafts live here per agent-principles) | ephemeral, delete freely — a leftover draft signals an unfinished commit |
+| Maintainer coordination (dispatch, org progress) | the maintainer's private `toobuntu/tb-coordination` repository — outside the sync, machine-specific by design | per-machine; the durable half of the old coordination-tier org state now lives in `.ai/org/memory.md` |
+| Scratch / thinking, message drafts | `toobuntu/tb-coordination`, or the session scratchpad directory (`.ai/scratchpad/`, gitignored; named commit/PR drafts live here per agent-principles) | ephemeral, delete freely — a leftover draft signals an unfinished commit |
 | Dated snapshots | **banned** (use git history) | — |
 
 ## Task tracking: three tiers, files as the local atoms
@@ -74,4 +74,4 @@ Do not suggest a new session mid-task, for minor refinements, or when the mainta
 
 - Rehome docs opportunistically: when you touch one, move it to its home above.
 - Collapse per-repo handoff/next sprawl into `.ai/progress.md` + registers; executed prompts to `docs/handoff/completed/` or deletion (history keeps them).
-- The roadmap migration and the `tb-coordination` drain proceed at the maintainer's pace.
+- The roadmap migration and the `toobuntu/tb-coordination` drain proceed at the maintainer's pace.
