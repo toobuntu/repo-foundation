@@ -114,6 +114,27 @@ RSpec.describe "pr-body-update.sh" do
     end
   end
 
+  it "ignores a marker mentioned in prose rather than standing alone" do
+    # This repository documents these markers, so a pull request describing
+    # them would otherwise be refused as carrying two pairs — the tool broken
+    # by its own documentation.
+    prose = "#{bot_body}\nThe `#{BEGIN_MARK}` line goes first, then `#{END_MARK}`.\n"
+    with_pr_body(prose, "Fresh.\n") do |_o, err, status|
+      expect(status).to be_success, "stderr=#{err.inspect}"
+      expect(edited).to include("Fresh.")
+      expect(edited).to include("line goes first") # the prose survives
+    end
+  end
+
+  it "keeps a marker mentioned mid-sentence inside the replacement" do
+    inline = "We write #{BEGIN_MARK} at the top.\n"
+    with_pr_body(bot_body, inline) do |_o, _e, status|
+      expect(status).to be_success
+      expect(edited).to include("We write")
+      expect(edited).to include("at the top.")
+    end
+  end
+
   it "matches markers under CRLF line endings" do
     # GitHub returns CRLF for a description edited in the web UI, which an
     # equality test on the marker line would silently fail to match.

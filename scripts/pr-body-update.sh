@@ -90,10 +90,27 @@ trap 'rm -f "$current" "$merged"' EXIT INT TERM
 gh pr view "$pr" --json body --jq .body > "$current" ||
   die "could not read the body of pull request #$pr"
 
-# Count with --fixed-strings: the markers contain regex metacharacters, and
-# grep -c prints 0 while exiting 1 when nothing matches.
-n_begin=$(grep --count --fixed-strings "$BEGIN_MARK" "$current" || true)
-n_end=$(grep --count --fixed-strings "$END_MARK" "$current" || true)
+# ONE definition of "this line IS a marker", shared by the validation below and
+# the splice further down. A marker must STAND ALONE on its line: a body that
+# merely mentions the token in prose or inside a fenced example is not carrying
+# a second marker pair, and counting substring hits would refuse it. That case
+# is not hypothetical here -- this repository documents these markers, so a
+# pull request describing them would break its own tool. Leading whitespace is
+# tolerated and a trailing CR is stripped, because GitHub returns CRLF for a
+# description edited in the web UI.
+IS_MARK='function ismark(s, m,  t) { t = s; sub(/\r$/, "", t); sub(/^[ \t]+/, "", t); return index(t, m) == 1 }'
+
+# One pass reports both counts and both line numbers, so the file is read once
+# and the two answers cannot disagree.
+marks=$(PB_BEGIN="$BEGIN_MARK" PB_END="$END_MARK" awk "$IS_MARK"' BEGIN{b=ENVIRON["PB_BEGIN"];e=ENVIRON["PB_END"]} ismark($0,b){nb++; if(!lb)lb=NR} ismark($0,e){ne++; if(!le)le=NR} END{printf "%d %d %d %d\n", nb, ne, lb, le}' "$current")
+
+# Word splitting is the point: four integers, no whitespace inside any of them.
+# shellcheck disable=SC2086  # deliberate word splitting of a known 4-field line
+set -- $marks
+n_begin=$1
+n_end=$2
+line_begin=$3
+line_end=$4
 
 if [ "$n_begin" -ne 1 ] || [ "$n_end" -ne 1 ]; then
   printf 'error: pull request #%s needs exactly one marker pair (found %s begin, %s end).\n' \
@@ -106,23 +123,20 @@ if [ "$n_begin" -ne 1 ] || [ "$n_end" -ne 1 ]; then
   exit 3
 fi
 
-line_begin=$(grep --line-number --fixed-strings --max-count=1 "$BEGIN_MARK" "$current" | cut -d: -f1)
-line_end=$(grep --line-number --fixed-strings --max-count=1 "$END_MARK" "$current" | cut -d: -f1)
 [ "$line_begin" -lt "$line_end" ] ||
   die "the end marker precedes the begin marker in pull request #$pr" 3
 
-# Splice. The markers themselves are reprinted verbatim, so the maintainer's
-# exact wording survives. The replacement is READ AS DATA (getline from a
-# file), never interpolated into the program, so no quoting or backslash in it
-# can change what awk executes. Markers are matched with index() rather than
-# == because GitHub returns CRLF line endings for a body edited in the web UI,
-# which would defeat an equality test.
+# Splice, using the same standalone-marker predicate. The markers themselves
+# are reprinted verbatim, so the maintainer's exact wording survives. The
+# replacement is READ AS DATA (getline from a file), never interpolated into
+# the program, so no quoting or backslash in it can change what awk executes.
 #
-# A marker line inside the replacement is dropped rather than copied through.
-# That is what lets ONE draft file serve both `gh pr create` (which needs the
-# markers in the body it uploads) and this script; copying them through would
-# nest a second pair and break the next run.
-PB_BEGIN="$BEGIN_MARK" PB_END="$END_MARK" PB_FILE="$replacement" awk 'BEGIN{b=ENVIRON["PB_BEGIN"];e=ENVIRON["PB_END"];f=ENVIRON["PB_FILE"]} index($0,b){print;while((getline l<f)>0){if(index(l,b)||index(l,e))continue;print l}s=1;next} index($0,e){s=0} !s{print}' "$current" > "$merged"
+# A standalone marker line inside the replacement is dropped rather than copied
+# through. That is what lets ONE draft file serve both `gh pr create` (which
+# needs the markers in the body it uploads) and this script; copying them
+# through would nest a second pair and break the next run. A marker mentioned
+# mid-sentence in the replacement is content, and survives.
+PB_BEGIN="$BEGIN_MARK" PB_END="$END_MARK" PB_FILE="$replacement" awk "$IS_MARK"' BEGIN{b=ENVIRON["PB_BEGIN"];e=ENVIRON["PB_END"];f=ENVIRON["PB_FILE"]} ismark($0,b){print;while((getline l<f)>0){if(ismark(l,b)||ismark(l,e))continue;print l}s=1;next} ismark($0,e){s=0} !s{print}' "$current" > "$merged"
 
 if [ -n "$dry_run" ]; then
   cat "$merged"
