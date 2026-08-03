@@ -16,7 +16,7 @@ require "tmpdir"
 #   - scripts/lint-unicode.sh, the shared repo-wide scanner that the CI
 #     lint-unicode job and `make lint` both invoke
 #
-# Both layers also support a per-file `bidi-allow:` opt-out annotation
+# Both layers also support a per-file `invisible-allow:` opt-out annotation
 # placed anywhere in the file.
 #
 # The hook is exercised by setting up a throwaway git repository, staging
@@ -216,9 +216,9 @@ RSpec.describe "pre-commit hook: invisible Unicode detection" do
     end
   end
 
-  describe "per-file opt-out via bidi-allow annotation" do
-    it "passes a file with bidi-allow: U+200E and a real LRM character" do
-      content = "// bidi-allow: U+200E\n" \
+  describe "per-file opt-out via invisible-allow annotation" do
+    it "passes a file with invisible-allow: U+200E and a real LRM character" do
+      content = "// invisible-allow: U+200E\n" \
                 "package main\n" \
                 "var rtl = \"#{LRM}time\"\n"
       with_git_repo("rtl.go" => content) do
@@ -228,7 +228,7 @@ RSpec.describe "pre-commit hook: invisible Unicode detection" do
     end
 
     it "passes a file allowing two codepoints" do
-      content = "// bidi-allow: U+200E,U+200F\n" \
+      content = "// invisible-allow: U+200E,U+200F\n" \
                 "var s = \"#{LRM}#{RLM}\"\n"
       with_git_repo("rtl.go" => content) do
         _stdout, stderr, status = run_hook
@@ -238,12 +238,25 @@ RSpec.describe "pre-commit hook: invisible Unicode detection" do
 
     it "still rejects codepoints not in the allow list" do
       # U+200E is allowed but U+202E (RLO) is not.
-      content = "// bidi-allow: U+200E\n" \
+      content = "// invisible-allow: U+200E\n" \
                 "// hidden: #{BIDI_OVERRIDE_RLO} payload\n"
       with_git_repo("evil.go" => content) do
         _stdout, stderr, status = run_hook
         expect(status.success?).to eq(false), "should fail; stderr=#{stderr.inspect}"
         expect(stderr).to include("evil.go")
+      end
+    end
+
+    it "does not recognize the retired bidi-allow spelling" do
+      # Renamed 2026-08-03 (ADR 0006 amendment). The old token grants
+      # nothing, so a file still carrying it fails rather than silently
+      # keeping an exemption the gate no longer parses.
+      content = "// bidi-allow: U+200E\n" \
+                "var rtl = \"#{LRM}time\"\n"
+      with_git_repo("stale.go" => content) do
+        _stdout, stderr, status = run_hook
+        expect(status.success?).to eq(false), "should fail; stderr=#{stderr.inspect}"
+        expect(stderr).to include("stale.go")
       end
     end
 
@@ -258,7 +271,7 @@ RSpec.describe "pre-commit hook: invisible Unicode detection" do
                 "#\n" \
                 "# SPDX-License-Identifier: GPL-3.0-or-later\n" \
                 "\n" \
-                "# bidi-allow: U+200E\n" \
+                "# invisible-allow: U+200E\n" \
                 "x = \"#{LRM}content\"\n"
       with_git_repo("deep.rb" => content) do
         _stdout, stderr, status = run_hook
@@ -366,14 +379,14 @@ RSpec.describe "CI lint-unicode scanner" do
       end
     end
 
-    it "reads the bidi-allow annotation from the blob, not the worktree" do
+    it "reads the invisible-allow annotation from the blob, not the worktree" do
       in_fixture_repo do
         # Blob has the codepoint and no annotation; the worktree adds the
         # annotation AFTER staging. Exempting from the worktree copy would
         # let an unstaged edit waive a staged finding.
         File.write("f.txt", "mark #{LRM} here\n")
         run!("git", "add", "f.txt")
-        File.write("f.txt", "// bidi-allow: U+200E\nmark #{LRM} here\n")
+        File.write("f.txt", "// invisible-allow: U+200E\nmark #{LRM} here\n")
         _out, err, status = Open3.capture3(LINT_UNICODE_PATH, "--scope=staged")
         expect(status.success?).to eq(false), "stderr=#{err.inspect}"
       end
@@ -583,20 +596,20 @@ RSpec.describe "CI lint-unicode scanner" do
       end
     end
 
-    it "honors the bidi-allow opt-out" do
+    it "honors the invisible-allow opt-out" do
       Dir.mktmpdir("rf-ci-test-") do |dir|
         File.write(File.join(dir, "rtl.go"),
-                   "// bidi-allow: U+200E\nvar rtl = \"#{LRM}time\"\n")
+                   "// invisible-allow: U+200E\nvar rtl = \"#{LRM}time\"\n")
         _out, err, status = run_scanner_in(dir, "LINT_UNICODE_NO_PYTHON" => "1")
         expect(status.success?).to eq(true), "stderr=#{err.inspect}"
       end
     end
   end
 
-  describe "per-file opt-out via bidi-allow annotation" do
-    it "passes a file with bidi-allow: U+200E and a real LRM character" do
+  describe "per-file opt-out via invisible-allow annotation" do
+    it "passes a file with invisible-allow: U+200E and a real LRM character" do
       Dir.mktmpdir("rf-ci-test-") do |dir|
-        content = "// bidi-allow: U+200E\n" \
+        content = "// invisible-allow: U+200E\n" \
                   "package main\n" \
                   "var rtl = \"#{LRM}time\"\n"
         File.write(File.join(dir, "rtl.go"), content)
@@ -607,7 +620,7 @@ RSpec.describe "CI lint-unicode scanner" do
 
     it "still rejects codepoints not in the allow list" do
       Dir.mktmpdir("rf-ci-test-") do |dir|
-        content = "// bidi-allow: U+200E\n" \
+        content = "// invisible-allow: U+200E\n" \
                   "// hidden: #{BIDI_OVERRIDE_RLO} payload\n"
         File.write(File.join(dir, "evil.go"), content)
         _out, err, status = run_scanner_in(dir)
@@ -625,7 +638,7 @@ RSpec.describe "CI lint-unicode scanner" do
                   "#\n" \
                   "# SPDX-License-Identifier: GPL-3.0-or-later\n" \
                   "\n" \
-                  "# bidi-allow: U+200E\n" \
+                  "# invisible-allow: U+200E\n" \
                   "x = \"#{LRM}content\"\n"
         File.write(File.join(dir, "deep.rb"), content)
         _out, err, status = run_scanner_in(dir)

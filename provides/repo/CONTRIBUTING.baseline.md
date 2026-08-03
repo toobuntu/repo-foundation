@@ -82,11 +82,11 @@ Judging a finding, and excusing a deliberate example without weakening the rule,
 All source, documentation, and configuration files must be valid **UTF-8** and contain **no BOM** (U+FEFF anywhere, including a leading byte-order mark); UTF-16/UTF-32 are rejected. This is enforced automatically: the pre-commit hook scans each staged blob for invisible bidi/zero-width control characters (RedHat's [RHSB-2021-007](https://access.redhat.com/security/vulnerabilities/RHSB-2021-007) approach, in POSIX `/bin/sh`), and the CI `lint-unicode` job rejects any Unicode Cf/Cc-category character on the Ubuntu runner. Rationale, full codepoint coverage, and alternatives considered live in repo-foundation
 [ADR 0006](https://github.com/toobuntu/repo-foundation/blob/main/docs/decisions/0006-trojan-source-detection-strategy.md).
 
-A file that legitimately needs a blocked codepoint (for example an i18n library, or an iCalendar writer emitting LRM in an RTL string) can opt out with a `bidi-allow:` annotation anywhere in it:
+A file that legitimately needs a blocked codepoint (for example an i18n library, or an iCalendar writer emitting LRM in an RTL string) can opt out with an `invisible-allow:` annotation anywhere in it:
 
 ```go
-// bidi-allow: U+200E
+// invisible-allow: U+200E
 package icalwriter
 ```
 
-The annotation lists comma-separated `U+XXXX` codepoints from the blocked set; both the pre-commit hook and the CI scanner honor it, and it is reviewable in the PR diff and grep-able (`grep -r bidi-allow:`). Use it sparingly — each exemption widens the attack surface.
+The annotation lists comma-separated `U+XXXX` codepoints from the blocked set; both the pre-commit hook and the CI scanner honor it, and it is reviewable in the PR diff and grep-able (`grep -r invisible-allow:`). Use it sparingly — each exemption widens the attack surface.
