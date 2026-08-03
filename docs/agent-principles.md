@@ -98,6 +98,12 @@ When unsure, say so explicitly: "I'm not sure whether this failed because of the
 
 Changes that touch unrelated subsystems should land in separate commits, ideally separate sessions. If a session needs to fix a bug, update docs, AND test a new script — propose those as three commits and ask which to do first. Don't bundle.
 
+## Incidental cleanup travels with the change
+
+Where a session is already editing a file — or already addressing a review finding in it — a marginal adjacent improvement belongs in the same commit and does not need deferring. A typo on the line above the one being fixed, a stale comment the edit just falsified, an inconsistent spelling of the same term two lines apart: fix it, and say so in the commit body. Deferring a two-word fix costs a round trip, a second commit, and usually a second review, and the improvement typically never happens at all.
+
+This does not loosen "one change at a time," which is about unrelated *subsystems*. The test is whether the reviewer of this commit is already reading the lines in question. If they are, the cleanup is in scope. If explaining the cleanup requires explaining a second subsystem, it is a separate commit — and if it changes behavior, needs its own decision, or touches project configuration, the rules above still govern regardless of how small the diff is.
+
 ## Silent state changes are forbidden
 
 If something requires altering project configuration (`.bundle/config`, `.gitignore`, `.clang-format`, `.claude/settings.json`, etc.) to do a task, that configuration change is a separate proposal and gets its own approval. Don't slip configuration mutations into a task that's ostensibly about something else.
