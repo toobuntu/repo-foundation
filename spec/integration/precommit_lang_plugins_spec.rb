@@ -43,7 +43,9 @@ module LangPluginHelpers
         files.each do |relpath, content|
           FileUtils.mkdir_p(File.dirname(relpath))
           File.write(relpath, content)
-          run!("git", "add", relpath)
+          # `--`: a fixture path may itself look like an option (`-e.rb`),
+          # which is one of the cases 20-ruby exists to survive.
+          run!("git", "add", "--", relpath)
         end
         unstaged.each { |relpath, content| File.write(relpath, content) }
         env = { "PATH" => "#{bindir}:#{base_path}" }
@@ -303,6 +305,45 @@ RSpec.describe "language pre-commit plugins" do
         expect(status).to be_success
         expect(err).to include("ruby not found")
         expect(err).to include("skipping")
+      end
+    end
+
+    it "warns and skips when the only ruby predates the floor" do
+      # The PATH fallback can find macOS system Ruby 2.6, whose parser rejects
+      # syntax every current Ruby accepts -- so it would fail a valid file and
+      # block a correct commit. The stub fails the version probe (-e) the way
+      # a pre-3 interpreter does, and passes anything else.
+      old = "#!/bin/sh\n[ \"$1\" = -e ] && exit 1\nprintf 'old-ruby\\n' >> \"$PWD/calls.log\"\nexit 0\n"
+      Dir.mktmpdir("rf-oldruby-") do |prefix|
+        stubs = { "brew" => "#!/bin/sh\nprintf '#{prefix}\\n'\n", "ruby" => old }
+        with_lang_plugin(:ruby, { "lib/a.rb" => VALID_RB }, stubs: stubs) do |_o, err, status|
+          expect(status).to be_success
+          expect(err).to include("predates Ruby 3")
+          expect(calls).to be_empty # never reached the syntax check
+        end
+      end
+    end
+
+    it "treats an option-looking filename as a path, not a flag" do
+      # Without `--`, `ruby -c -e.rb` is parsed as `-e .rb`: ruby evaluates the
+      # string ".rb" and reports a syntax error in a file that is fine.
+      with_lang_plugin(:ruby, { "-e.rb" => VALID_RB }) do |_o, err, status|
+        expect(status).to be_success, "stderr=#{err.inspect}"
+      end
+    end
+
+    it "checks the extension-less Ruby files too" do
+      with_lang_plugin(:ruby, { "Gemfile" => BROKEN_RB }) do |_o, err, status|
+        expect(status).not_to be_success
+        expect(err).to include("Gemfile")
+      end
+    end
+
+    it "skips vendored trees" do
+      # A dependency's syntax is upstream's business, and a vendor directory
+      # can hold thousands of files.
+      with_lang_plugin(:ruby, { "vendor/bundle/dep.rb" => BROKEN_RB }) do |_o, err, status|
+        expect(status).to be_success, "stderr=#{err.inspect}"
       end
     end
   end
