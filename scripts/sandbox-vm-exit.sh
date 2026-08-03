@@ -15,13 +15,13 @@
 #   --mode=status   Show VM state without modifying.
 #
 # Environment:
-#   BLACKOUTD_VM_NAME      VM name        (default: blackoutd-sandbox)
-#   BLACKOUTD_GOLDEN_NAME  Golden image   (default: blackoutd-golden)
+#   SANDBOX_VM_NAME    VM name       (default: sandbox-vm)
+#   SANDBOX_VM_GOLDEN  Golden image  (default: sandbox-vm-golden)
 
 set -eu
 
-VM_NAME="${BLACKOUTD_VM_NAME:-blackoutd-sandbox}"
-GOLDEN_NAME="${BLACKOUTD_GOLDEN_NAME:-blackoutd-golden}"
+VM_NAME="${SANDBOX_VM_NAME:-sandbox-vm}"
+GOLDEN_NAME="${SANDBOX_VM_GOLDEN:-sandbox-vm-golden}"
 
 mode="stop"
 
@@ -35,8 +35,8 @@ Usage:
   sandbox-vm-exit.sh --help             This message.
 
 Environment:
-  BLACKOUTD_VM_NAME      VM name        (default: blackoutd-sandbox)
-  BLACKOUTD_GOLDEN_NAME  Golden image   (default: blackoutd-golden)
+  SANDBOX_VM_NAME    VM name       (default: sandbox-vm)
+  SANDBOX_VM_GOLDEN  Golden image  (default: sandbox-vm-golden)
 EOF
 }
 

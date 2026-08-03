@@ -38,15 +38,15 @@
 #   sandbox-vm-enter.sh --mode=status         # Show VM state.
 #
 # Environment:
-#   BLACKOUTD_VM_NAME      VM name        (default: blackoutd-sandbox)
-#   BLACKOUTD_GOLDEN_NAME  Golden image   (default: blackoutd-golden)
-#   BLACKOUTD_VM_TIMEOUT   SSH wait sec   (default: 120)
+#   SANDBOX_VM_NAME     VM name       (default: sandbox-vm)
+#   SANDBOX_VM_GOLDEN   Golden image  (default: sandbox-vm-golden)
+#   SANDBOX_VM_TIMEOUT  SSH wait sec  (default: 120)
 
 set -eu
 
-VM_NAME="${BLACKOUTD_VM_NAME:-blackoutd-sandbox}"
-GOLDEN_NAME="${BLACKOUTD_GOLDEN_NAME:-blackoutd-golden}"
-SSH_TIMEOUT="${BLACKOUTD_VM_TIMEOUT:-120}"
+VM_NAME="${SANDBOX_VM_NAME:-sandbox-vm}"
+GOLDEN_NAME="${SANDBOX_VM_GOLDEN:-sandbox-vm-golden}"
+SSH_TIMEOUT="${SANDBOX_VM_TIMEOUT:-120}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd -P)"
 BOOTSTRAP_SCRIPT="${SCRIPT_DIR}/sandbox-vm-bootstrap.sh"
 
@@ -62,9 +62,9 @@ Usage:
   sandbox-vm-enter.sh --help                This message.
 
 Environment:
-  BLACKOUTD_VM_NAME      VM name        (default: blackoutd-sandbox)
-  BLACKOUTD_GOLDEN_NAME  Golden image   (default: blackoutd-golden)
-  BLACKOUTD_VM_TIMEOUT   SSH wait sec   (default: 120)
+  SANDBOX_VM_NAME     VM name       (default: sandbox-vm)
+  SANDBOX_VM_GOLDEN   Golden image  (default: sandbox-vm-golden)
+  SANDBOX_VM_TIMEOUT  SSH wait sec  (default: 120)
 
 Pattern B (this script): Claude Code runs IN the VM. Preferred for
 adversarial-capability work. Pattern A is in
@@ -265,8 +265,8 @@ print_session_instructions() {
   │  INSIDE the VM:
   │    1. export ANTHROPIC_API_KEY=<your-key-here>
   │       (Or use 'claude /login' for OAuth on first run.)
-  │    2. cd ~ && git clone https://github.com/toobuntu/blackoutd.git
-  │    3. cd blackoutd
+  │    2. cd ~ && git clone https://github.com/<owner>/<repo>.git
+  │    3. cd <repo>
   │    4. claude
   │
   │  Claude Code runs INSIDE the VM. Prompt-injection that

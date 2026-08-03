@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # sandbox-vm-bootstrap.sh — runs INSIDE the Lume macOS VM during first-run
-# to install the tooling needed for blackoutd development.
+# to install the tooling a development session needs.
 #
 # This script is copied into the VM by sandbox-vm-enter.sh --mode=first-run
 # and executed via SSH as user 'lume'. It installs Xcode Command Line Tools,
@@ -138,7 +138,7 @@ main() {
   [ "$(uname -s)" = "Darwin" ] || die "This bootstrap targets macOS only"
   [ "$(id -un)" = "lume" ] || log "WARNING: expected user 'lume', got '$(id -un)'"
 
-  log "Starting blackoutd VM bootstrap on $(uname -srv)"
+  log "Starting sandbox VM bootstrap on $(uname -srv)"
 
   ensure_xcode_clt
   ensure_homebrew
