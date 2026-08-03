@@ -182,8 +182,15 @@ component_sets:
   # each already receives adrs.toml (repo_config) and keeps repo-specific ADRs
   # (ADR 0004), and the staged-file gate makes it a no-op elsewhere. CI backstop
   # is the lint-adrs job in lint.yml (ci_core). See ADR 0018.
+  # The unnumbered README travels with the plugin: it is ADR 0004's discoverability
+  # pointer, so a reader landing in a consumer's docs/decisions/ learns that the
+  # org-wide records are not missing but deliberately elsewhere. Unnumbered on
+  # purpose — a numbered pointer would burn the consumer's own 0001 — and
+  # org-neutral, since it syncs byte-identical and must read correctly in every
+  # repository including this one.
   adrs_plugin:
     - { source: .githooks/pre-commit.d/50-adrs, target: .githooks/pre-commit.d/50-adrs, mode: canonical }
+    - { source: docs/decisions/README.md,       target: docs/decisions/README.md,       mode: canonical }
   # Prose plugin: vale on staged Markdown — the same error-level gate as the
   # prose.yml CI job (one policy, two triggers; ADR 0019). Mastered at the
   # NATURAL path (RF runs it on its own commits). Maps to the hook-carrying
