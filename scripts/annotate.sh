@@ -88,11 +88,14 @@ set -euo pipefail
 # Without this, a missing `reuse` makes the pipeline below exit 0 with
 # an empty result (the `|| true` swallows the failure), so the script
 # silently no-ops while the user believes annotation ran.
+#
+# 127 is the shell's own "command not found" status, so a caller can tell
+# a missing dependency from an annotation run that failed on its merits.
 require_tool() {
   command -v "$1" > /dev/null 2>&1 && return 0
   printf 'error: %s not found; required by %s\n' "$1" "${0##*/}" >&2
   printf '  Install: brew install %s\n' "$1" >&2
-  exit 1
+  exit 127
 }
 
 require_tool reuse
