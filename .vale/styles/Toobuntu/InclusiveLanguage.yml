@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# Provenance: after GitLab's gitlab_base InclusiveLanguage.yml (rule name matched; content curated here).
 # Flag a small, curated set of non-inclusive terms. Warning, and curated to
 # avoid false positives: Git's "master" branch ref is NOT flagged (bare "master"
 # is absent below); only the "master/slave" pairing is. Promote/extend per

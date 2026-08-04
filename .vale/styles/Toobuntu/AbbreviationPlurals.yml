@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# Provenance: adapted from Elastic's PluralAbbreviations.yml (elastic/vale-rules).
 # Flag apostrophe-pluralized abbreviations: write "PRs"/"APIs", never
 # "PR's"/"API's".
 #

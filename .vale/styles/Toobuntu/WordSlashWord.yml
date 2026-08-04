@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# Provenance: after GitLab's gitlab_base WordSlashWord.yml, narrowed to the and/or construct.
 # Flag "and/or" specifically — pick "and", pick "or", or rephrase. Scoped to
 # this one construct; the general x/y slash form is left alone because it is
 # usually legitimate (TCP/IP, read/write, input/output).

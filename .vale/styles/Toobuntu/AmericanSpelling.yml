@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# Provenance: absorbed from zman-didan's Didan style (ADR 0014); same genre as GitLab's British.yml and Elastic's BritishSpellings.yml.
 # Reject en_GB spellings deterministically.
 #
 # Vale.Spelling only flags tokens absent from its en_US-web dictionary; that
