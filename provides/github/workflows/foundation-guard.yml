@@ -57,7 +57,7 @@ jobs:
           # pin is bumped in repo-foundation (this file is canonical) and
           # delivered by the next sync. The pinned commit must carry the
           # engine's --guard mode.
-          ref: 4d1c6560d99f99c30ae46cf789be416c471c34ee
+          ref: 085948986118d8524eff3a21e4554b7a0a31dead
           path: foundation-canon
           persist-credentials: false
 
