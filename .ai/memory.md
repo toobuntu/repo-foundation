@@ -134,6 +134,19 @@ This changes the shape of the queued `annotate.sh --verify` work, so it is recor
 
 A newly authored file should match the tool's output: shebang, blank line, then the SPDX block. `scripts/main-guard.sh` does.
 
+## 2026-08-04 — The 13 headers are fixed; the strip is where `--verify` will break
+
+All 34 shebang-bearing tracked files now round-trip: strip the SPDX block, re-annotate with the arguments `annotate.sh` passes, and the result is byte-identical to what is committed. Done pre-first-sync deliberately — eleven of the thirteen are canonical or plugin masters, so the same change after the first sync would rewrite a header in every consumer instead of only here. `scripts/annotate.sh` was the odd one out twice over: its block sat 78 lines down at the foot of the documentation header, and without the `#` spacer.
+
+**The strip is the dangerous part, and it failed twice before it worked.** Recorded because `--verify` has to implement exactly this and will meet both:
+
+- A greedy "all leading comment lines after the shebang" match ate **198 lines of documentation across five files** — the SPDX block is not always the first comment, so the pattern must terminate at the block rather than consume everything up to it. Nothing was committed: the damage was caught by `git diff --stat` and reverted with `git restore`. A whitespace-only assertion added afterwards then refused `annotate.sh` correctly instead of mangling it.
+- The strip must also remove the blank padding around the block. Leaving it makes every re-annotated file gain a stray blank, so a first check reported **all 34 files as divergent** — a verifier that says everything is broken is as useless as one that says nothing is.
+
+The maintainer's standing requirement is the same lesson from the other side: verify on a BACKUP COPY, never in place, because `reuse annotate` writes.
+
+`--verify` itself is NOT built. The shell case is proven, but the categories that carry the subtle placement bugs — Markdown with YAML frontmatter, and every `--force-dot-license` sidecar case, where "strip and re-annotate" means removing and regenerating a second file — are not, and a verifier with partial coverage gives false confidence exactly where the risk is.
+
 ## 2026-08-03 — The synced header had never met YAML frontmatter
 
 `insert_point` in the sync engine already skipped a frontmatter block, so the header landed immediately after the closing `---`. Correct for the loader and wrong for the Markdown gate: the rendered file fails MD071 (no blank line after frontmatter) and then MD012, because the blank line that used to follow the fence ends up under the header's own trailing blank. Latent for as long as it existed — no canonical Markdown source carried frontmatter until the `claude_skills` set (ADR 0025) — and it would have failed the `markdownlint` job in all six consumers at once on the first sync that shipped a skill.
