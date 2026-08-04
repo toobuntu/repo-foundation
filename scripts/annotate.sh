@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Annotates non-REUSE-compliant files with SPDX copyright and license headers.
 # Requires: reuse (pip install reuse OR brew install reuse), jq.
 #
@@ -7,28 +12,32 @@
 #
 #   1. C / Objective-C / Swift source (.m/.h/.c/.swift) → --style=c    (// comments)
 #   2. Go source (.go)                                  → --style=c    (// comments)
-#   2b. Clang tool configs (.clang-format, .clang-tidy) → --style=python (# comments)
+#   3. Clang tool configs (.clang-format, .clang-tidy)  → --style=python (# comments)
 #      reuse-tool has no built-in comment style for these
-#      dotfiles, so the catch-all (category 9) would force
+#      dotfiles, so the catch-all (category 11) would force
 #      a sidecar. The established form is an inline hash
 #      header, and a synced config must carry its own SPDX
 #      (a consumer receives the file, not this repo's
 #      REUSE.toml), so route them to inline # here.
-#   3. Generated completion files (completions/**)      → sidecar       (--force-dot-license)
-#   4. Man pages (.[1-9], .[1-9][a-z]*, with optional   → sidecar       (--force-dot-license)
+#   4. Generated completion files (completions/**)      → sidecar       (--force-dot-license)
+#   5. Vale vocabularies                                 → sidecar       (--force-dot-license)
+#      (.vale/styles/config/vocabularies/**)
+#      Every line is a match pattern, so an inline header
+#      becomes a rule rather than an annotation.
+#   6. Man pages (.[1-9], .[1-9][a-z]*, with optional   → sidecar       (--force-dot-license)
 #      .md suffix; e.g. progname.1, progname.3p,
 #      progname.1ssl, progname.1.md)
 #      Matched BEFORE markup so ronn/md2man source
 #      (.1.md) is treated as a man page rather than
 #      as Markdown.
-#   5. Property lists (.plist, optional .template)       → sidecar       (--force-dot-license)
+#   7. Property lists (.plist, optional .template)       → sidecar       (--force-dot-license)
 #      PlistBuddy / plutil / Xcode rewrite plists and do
 #      not preserve XML comments, so an inline header is
 #      stripped by the next programmatic edit (e.g. a
 #      scripts/bump.sh version bump) and the file fails
 #      REUSE again. Matched BEFORE markup, which would
 #      otherwise claim .plist for inline comments.
-#   6. Markup / structured-text family (.md, .markdown,  → --style=html  (<!-- ... --> comments)
+#   8. Markup / structured-text family (.md, .markdown,  → --style=html  (<!-- ... --> comments)
 #      .html, .htm, .xhtml, .xml, .xsl, .xslt, .svg,
 #      with optional .template suffix)
 #      reuse-tool's auto-detection on these has been
@@ -42,9 +51,9 @@
 #      line 1 and stays parseable by tools such as
 #      adrs doctor and Claude Code skills
 #      (.claude/skills/<name>/SKILL.md).
-#   7. Files with no extension (Makefile, Dockerfile,   → --style=python (# comments)
+#   9. Files with no extension (Makefile, Dockerfile,   → --style=python (# comments)
 #      Gemfile, hook scripts)                              with --fallback-dot-license safety
-#   8. Hash-checksum files (.md5/.sha1/.sha224/.sha256/  → sidecar       (--force-dot-license)
+#   10. Hash-checksum files (.md5/.sha1/.sha224/.sha256/ → sidecar       (--force-dot-license)
 #      .sha384/.sha512). The SHA256SUMS-style format
 #      verified by `shasum -c` is positional; introducing
 #      a comment line either breaks parsing or works
@@ -54,7 +63,7 @@
 #      handling for these extensions in the future, but
 #      forcing the sidecar removes the dependency on its
 #      behavior staying compatible.
-#   9. Everything else                                   → --fallback-dot-license
+#   11. Everything else                                  → --fallback-dot-license
 #      Relies on reuse-tool's auto-detection for .yml,
 #      .toml, .json, .rb, .sh, .py, .css, .lua, .tex,
 #      etc. Falls back to a sidecar .license file if
@@ -76,8 +85,6 @@
 #   ANNOTATE_COPYRIGHT="<name>"   default: Todd Schulman
 #   ANNOTATE_LICENSE="<spdx-id>"  default: GPL-3.0-or-later
 #
-# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
-# SPDX-License-Identifier: GPL-3.0-or-later
 
 set -euo pipefail
 
@@ -133,15 +140,15 @@ go_re='\.go$'
 go_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${go_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${go_re}" || true)
 
-# 2b. Clang tool configs (.clang-format, .clang-tidy): reuse-tool has no
-#     built-in comment style for these dotfiles, so category 9 would force a
-#     sidecar. A synced config must carry its own inline SPDX (the consumer
-#     receives the file, not this repo's REUSE.toml), so force hash style.
+# 3. Clang tool configs (.clang-format, .clang-tidy): reuse-tool has no
+#    built-in comment style for these dotfiles, so category 11 would force a
+#    sidecar. A synced config must carry its own inline SPDX (the consumer
+#    receives the file, not this repo's REUSE.toml), so force hash style.
 clang_re='(^|/)\.clang-(format|tidy)$'
 clang_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${clang_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${clang_re}" || true)
 
-# 3. Generated completion files: keep verbatim, use sidecar. An inline header
+# 4. Generated completion files: keep verbatim, use sidecar. An inline header
 #    would be destroyed the next time the generator runs -- in the Homebrew
 #    taps that is `brew generate-tap-man-completions`, which rewrites
 #    completions/{bash,fish,zsh}/ wholesale.
@@ -156,7 +163,18 @@ compl_re='(^|/)completions/'
 compl_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${compl_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${compl_re}" || true)
 
-# 4. Man pages — must run BEFORE markup category so ronn/md2man source
+# 5. Vale vocabularies: sidecar, never inline, and for a harder reason than
+#    the categories around it. EVERY line of an accept.txt or reject.txt is a
+#    match pattern, so an inline "# SPDX-..." comment does not annotate the
+#    file -- it silently becomes a rule that accepts the word "SPDX". Matched
+#    by PATH, like completions: the .txt extension alone says nothing, and the
+#    catch-all would otherwise hand these to reuse's auto-detection, which
+#    knows a comment style for .txt and would write one in.
+vocab_re='(^|/)\.vale/styles/config/vocabularies/'
+vocab_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${vocab_re}" || true)
+remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${vocab_re}" || true)
+
+# 6. Man pages — must run BEFORE markup category so ronn/md2man source
 #    (.1.md) is treated as a man page, not as Markdown. Matches any
 #    section [1-9], optionally with subsection letter suffix
 #    (.3p for POSIX, .1ssl for OpenSSL, etc.), and optionally with a
@@ -170,7 +188,7 @@ man_re='\.[1-9][a-zA-Z]*(\.md)?$'
 man_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${man_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${man_re}" || true)
 
-# 5. Property lists: sidecar, never inline. PlistBuddy / plutil / Xcode
+# 7. Property lists: sidecar, never inline. PlistBuddy / plutil / Xcode
 #    rewrite plists without preserving XML comments, so an inline header
 #    is stripped by the next programmatic edit (e.g. a scripts/bump.sh
 #    version bump). Must run BEFORE the markup category, which would
@@ -179,7 +197,7 @@ plist_re='\.plist(\.template)?$'
 plist_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${plist_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${plist_re}" || true)
 
-# 6. Markup / structured-text family that uses HTML-style comments.
+# 8. Markup / structured-text family that uses HTML-style comments.
 #    Covers Markdown (where # is a header marker, NOT a comment),
 #    HTML and XHTML, XML and XSL/XSLT transforms, and SVG.
 #    Each may optionally have a .template suffix (e.g. doc.html.template).
@@ -187,17 +205,17 @@ markup_re='\.(md|markdown|html|htm|xhtml|xml|xsl|xslt|svg)(\.template)?$'
 markup_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${markup_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${markup_re}" || true)
 
-# 7. Files with no extension (Makefile, Dockerfile, Gemfile, hook
+# 9. Files with no extension (Makefile, Dockerfile, Gemfile, hook
 #    scripts, etc.) typically use hash comments. --style=python is
 #    reuse-tool's hash-comment style alias.
 #    Note: dotfiles like .gitignore have a leading dot and therefore
 #    contain a `.`, so they do NOT match this pattern; they fall
-#    through to category 9.
+#    through to category 11.
 no_ext_re='(^|/)[^./]+$'
 no_ext_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${no_ext_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${no_ext_re}" || true)
 
-# 8. Hash-checksum files (SHA256SUMS-style): the format verified by
+# 10. Hash-checksum files (SHA256SUMS-style): the format verified by
 #    `shasum -c` is positional, so a comment line breaks (or accidentally
 #    survives) parsing. Force a sidecar to keep the file content
 #    mechanically untouched, independent of whether reuse-tool ever grows
@@ -206,7 +224,7 @@ hash_re='\.(md5|sha1|sha224|sha256|sha384|sha512)$'
 hash_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${hash_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${hash_re}" || true)
 
-# 9. Everything else: rely on reuse-tool's auto-detection. Falls back
+# 11. Everything else: rely on reuse-tool's auto-detection. Falls back
 #    to a sidecar .license file if the comment style is unknown for
 #    the extension.
 other_files=$(printf '%s\n' "${remaining}" || true)
@@ -215,6 +233,7 @@ other_files=$(printf '%s\n' "${remaining}" || true)
 [[ -n ${go_files} ]] && printf '%s\n' "${go_files}" | annotate --style=c
 [[ -n ${clang_files} ]] && printf '%s\n' "${clang_files}" | annotate --style=python
 [[ -n ${compl_files} ]] && printf '%s\n' "${compl_files}" | annotate --force-dot-license
+[[ -n ${vocab_files} ]] && printf '%s\n' "${vocab_files}" | annotate --force-dot-license
 [[ -n ${man_files} ]] && printf '%s\n' "${man_files}" | annotate --force-dot-license
 [[ -n ${plist_files} ]] && printf '%s\n' "${plist_files}" | annotate --force-dot-license
 [[ -n ${markup_files} ]] && printf '%s\n' "${markup_files}" | annotate --style=html

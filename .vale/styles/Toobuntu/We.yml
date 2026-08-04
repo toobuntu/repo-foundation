@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# Provenance: absorbed from zman-didan's Didan style (ADR 0014); Google and Microsoft ship a same-named We.yml.
 # Flag first-person plural ("we ask", "our cache") in prose and code comments.
 #
 # Comments and docs should describe the code, not narrate a team. This enforces

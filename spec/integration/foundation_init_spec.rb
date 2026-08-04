@@ -68,6 +68,103 @@ RSpec.describe "foundation-init.sh" do
     end
   end
 
+  # The seeded .vale.ini names two vocabularies, and vale treats a vocabulary
+  # it cannot find as a runtime error (E100) that lints nothing at all — so the
+  # local one has to arrive as a TRACKED file, not just a directory: git does
+  # not track an empty directory, and the layer would evaporate on the next
+  # clone, turning the prose gate into a config failure.
+  it "seeds a tracked local vocabulary for the .vale.ini it writes" do
+    Dir.mktmpdir("rf-init-tgt-") do |target|
+      sh!("git", "init", "--quiet", "--initial-branch=main", target)
+      out, err, status = Dir.mktmpdir("rf-init-bin-") do |bindir|
+        Open3.capture3({ "PATH" => restricted_path(bindir) }, script, target)
+      end
+      expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+
+      vocab = "#{target}/.vale/styles/config/vocabularies/Local/accept.txt"
+      expect(File.exist?(vocab)).to eq(true)
+      # Seeded with the repository's own name, not left empty: `reuse lint`
+      # does not report an empty file, so annotate.sh would never give it the
+      # sidecar it needs.
+      expect(File.read(vocab)).to eq("#{File.basename(target)}\n")
+
+      config = File.read("#{target}/.vale.ini")
+      expect(config).to match(/^Vocab = Toobuntu, Local$/)
+
+      # The .license sidecar is annotate.sh's job, and this run has no `reuse`
+      # on its restricted PATH — so the file being TRACKED is what matters
+      # here. The sidecar's content is asserted in the --license example below,
+      # which needs the real tool.
+      sh!("git", "-C", target, "add", "-A")
+      staged = sh!("git", "-C", target, "diff", "--cached", "--name-only").split("\n")
+      expect(staged).to include(".vale/styles/config/vocabularies/Local/accept.txt")
+    end
+  end
+
+  # --license governs the consumer's OWN files, and the Local vocabulary is one
+  # of them. A vocabulary file cannot carry an inline header: every line in it is a
+  # match pattern, so "# SPDX-..." would become a rule accepting the word
+  # SPDX rather than an annotation. annotate.sh routes this path to a sidecar,
+  # and because foundation-init hands it ANNOTATE_LICENSE, a consumer that
+  # passed --license gets ITS license rather than repo-foundation's.
+  #
+  # Needs the real `reuse`, so it runs on the full PATH and skips where the
+  # tool is absent — the same shape as the vale-style spec.
+  it "stamps the local vocabulary sidecar with --license, not repo-foundation's" do
+    skip "reuse not installed" unless system("reuse", "--version", out: File::NULL, err: File::NULL)
+
+    Dir.mktmpdir("rf-init-tgt-") do |target|
+      sh!("git", "init", "--quiet", "--initial-branch=main", target)
+      out, err, status = Open3.capture3(script, "--license", "MIT", target)
+      expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+
+      vocab_dir = "#{target}/.vale/styles/config/vocabularies/Local"
+      expect(File.read("#{vocab_dir}/accept.txt")).to eq("#{File.basename(target)}\n")
+
+      sidecar = File.read("#{vocab_dir}/accept.txt.license")
+      # REUSE-IgnoreStart -- assertion strings, not this file's own license.
+      expect(sidecar).to include("SPDX-License-Identifier: MIT")
+      expect(sidecar).to include("SPDX-FileCopyrightText")
+      # REUSE-IgnoreEnd
+      expect(sidecar).not_to include("GPL-3.0-or-later")
+    end
+  end
+
+  # A vocabulary entry is a regular expression. An unescaped repository name
+  # containing `.` matches any character there; one containing `+` or `(` is
+  # not a valid pattern at all. `toobuntu/.github` is the live example.
+  it "regex-escapes the repository name it seeds into the local vocabulary" do
+    { ".github" => '\.github', "a+b(c)" => 'a\+b\(c\)', "plain-name" => "plain-name" }
+      .each do |dirname, expected|
+      Dir.mktmpdir("rf-init-outer-") do |outer|
+        target = File.join(outer, dirname)
+        FileUtils.mkdir_p(target)
+        sh!("git", "init", "--quiet", "--initial-branch=main", target)
+        _out, err, status = Dir.mktmpdir("rf-init-bin-") do |bindir|
+          Open3.capture3({ "PATH" => restricted_path(bindir) }, script, target)
+        end
+        expect(status.success?).to eq(true), err
+
+        vocab = "#{target}/.vale/styles/config/vocabularies/Local/accept.txt"
+        expect(File.read(vocab)).to eq("#{expected}\n"), "for directory #{dirname.inspect}"
+      end
+    end
+  end
+
+  it "refuses when the local vocabulary path exists but is not a regular file" do
+    Dir.mktmpdir("rf-init-tgt-") do |target|
+      sh!("git", "init", "--quiet", "--initial-branch=main", target)
+      FileUtils.mkdir_p("#{target}/.vale/styles/config/vocabularies/Local/accept.txt")
+
+      _out, err, status = Dir.mktmpdir("rf-init-bin-") do |bindir|
+        Open3.capture3({ "PATH" => restricted_path(bindir) }, script, target)
+      end
+
+      expect(status.success?).to eq(false)
+      expect(err).to include("not a regular file")
+    end
+  end
+
   it "inserts the seeded lines into the appended region of a pre-existing .gitignore" do
     Dir.mktmpdir("rf-init-tgt-") do |target|
       sh!("git", "init", "--quiet", "--initial-branch=main", target)

@@ -1,8 +1,9 @@
 #!/bin/sh
+
 # SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-#
+
 # sandbox-vm-enter.sh — set up a Lume macOS VM for Tier 4 agent isolation.
 # The layered sandbox-tier model is recorded in the forthcoming isolate-cli
 # ADR (W6); until it lands, the sandbox-*.sh scripts are the reference.

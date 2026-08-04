@@ -1,8 +1,9 @@
 #!/bin/sh
+
 # SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-#
+
 # sign-push.sh -- sign the unpushed, unsigned commits a sandboxed agent
 # left behind, then push what was just signed. For each repo argument
 # (default: the current repo):

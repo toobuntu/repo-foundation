@@ -20,13 +20,44 @@ Vale has no `.gitignore` support, so a bare `vale .` also scans whatever vendore
 
 The same command runs in the `prose` CI job and, over the staged files, in the `15-prose` pre-commit plugin. One policy, three triggers.
 
-## The rule that never gates
+## The rules that never gate
 
-`.vale.ini` sets `MinAlertLevel = error`, so warning-level rules are evaluated and then discarded. Two rules ride at warning: `Vale.Spelling`, until the accept vocabulary matures, and `Toobuntu.AbbreviationPluralsAmbiguous`, permanently.
+`.vale.ini` sets `MinAlertLevel = error`, so warning-level rules are evaluated and then discarded. Two rules ride at warning in repo-foundation: `Toobuntu.AbbreviationPluralsAmbiguous` permanently, and `Toobuntu.Acronyms` until the rule itself is redesigned. `Vale.Spelling` was a third until 2026-08-03 and now gates — see [the vocabulary](#the-vocabulary) for what that costs and why it was worth it.
 
-That second one flags an abbreviation followed by `'s` in a position where a possessive is perfectly legitimate (`RF's existing calls`) and a plural would be wrong (`the PR's merged yesterday`). No linter can decide between those, so it is a prompt to read, never a build failure. Expect it to fire on correct prose; resolve each by reading, not by rewording.
+`Toobuntu.AbbreviationPluralsAmbiguous` flags an abbreviation followed by `'s`, which in this org's prose is two different things. Usually it is a correct possessive and the alert is a false positive: `RF's existing calls` is right as written. Occasionally it is a plural typed with a stray apostrophe, where the apostrophe should simply come out: `the PR's merged yesterday` was meant to read `the PRs merged yesterday`. Only the second is a defect, and no linter can tell which one it is looking at — the grammar is identical and only the intended meaning differs. So the rule is a prompt to read, never a build failure. Expect it on correct prose, and resolve each by deciding which reading you meant.
 
-You do not have to remember to look for it. The `15-prose` plugin prints its findings when a commit contains any, and the `prose` workflow logs them in an informational step that neither annotates nor gates — the only exposure a contributor who never enabled the git hooks gets.
+`Toobuntu.Acronyms` flags an all-caps token used without ever being spelled out. Measured over the tracked Markdown on 2026-08-03 it produced **481 alerts across 186 distinct tokens**, and reading them turned up two defects in the rule that a review of its upstream ancestor fixed on 2026-08-04:
+
+- **The match had been widened from upstream's `[A-Z]{3,5}` to `[A-Z]{3,}`.** Unbounded, it claims every long all-caps token, so file names (`README`, `AGENTS`, `CONTRIBUTING`, `LICENSES`) and long emphasis words (`WITHOUT`, `REQUIRED`, `PROPOSED`) all read as undefined acronyms. Restoring the bound removed 180 alerts and cost nothing — an acronym longer than five characters is vanishingly rare.
+- **The definition pattern rejected a definition containing an apostrophe.** `(?:\b[A-Z][a-z]+[\s-]?)+` accepts "Architectural Decision Record (ADR)" and rejects "You Aren't Gonna Need It (YAGNI)", so a properly defined acronym was still reported. Accepting `[A-Z][A-Za-z'’]*` fixes it, and this is a divergence from upstream rather than a restoration — Google and Microsoft have the same limitation.
+
+Adopting upstream's curated `exceptions` list on top of that (it exempts `PATH`, `NOTE`, `GET`, `POST`, `DEBUG` and others) brings the total to **273**.
+
+What survives is not a rule defect and is the reason this one stays advisory: **60% of the remainder is ordinary English written in capitals for emphasis** — `NOT`, `DONE`, `AND`, `ONE`, `ONLY`, `NEW`, `OPEN` — which is this org's house style rather than a mistake. No pattern distinguishes emphasis from an acronym, and clearing it through `exceptions` would mean declaring common words to be acronyms that need no definition, which would also stop the rule firing on a genuine undefined acronym that happens to be a word. So `Toobuntu.Acronyms` is deliberately **off the ADR 0014 promotion path**, not merely waiting on it. The remaining 40% is a real signal worth reading by hand.
+
+You do not have to remember to look for `Toobuntu.AbbreviationPluralsAmbiguous`. The `15-prose` plugin prints that rule's findings when a commit contains any, and the `prose` workflow logs them in an informational step that neither annotates nor gates — the only exposure a contributor who never enabled the git hooks gets. `Toobuntu.Acronyms` gets no such treatment: at several hundred findings per full-tree run it would be noise rather than a prompt, so it surfaces only in a deliberate review pass.
+
+## The vocabulary
+
+Two lists, and vale reads both: `Toobuntu` is the canonical org-wide vocabulary under `.vale/styles/config/vocabularies/Toobuntu/accept.txt`, synced read-only from repo-foundation; `Local`, in the sibling directory, is the repository's own and is never synced. Every repository but this one seeds `Vocab = Toobuntu, Local` from `provides/vale/vale.ini.template`. repo-foundation carries only `Toobuntu`, deliberately — it owns the canonical list, so a local layer here would be a place for org-wide terms to hide from the consumers that need them. Everywhere else, a product name, a daemon, or a flag goes in `Local` first, and the canonical list is for terms that are genuinely org-wide.
+
+`.vale.ini` itself is per-repo and is not synced, because the scope-block relaxations at the bottom of it vary — one repository excuses `docs/handoff/*.md`, another will want its design notes. That has a consequence worth naming: the alert level of a rule lives in six independent files, so **promoting a rule is a per-repo decision taken against that repository's own corpus**, never one org-wide switch.
+
+What an entry matches, all measured against vale 3.17.0:
+
+- **Entries are regular expressions.** `frob(s|bed)?` accepts `frob`, `frobs` and `frobbed`, and nothing else.
+- **Matching is case-insensitive in both directions.** `repo` accepts `Repo` and `REPO`; `Quux` accepts `quux`. Natural casing in the file is therefore for the reader, not the matcher. (Canonical *casing* is enforced separately, by `Toobuntu.Terms`, which keeps its own swap list and does not read this file.)
+- **An entry covers the possessive but not the plural.** The apostrophe is a word boundary, so `repo` already accepts `repo's` — but `repos` needs `repo(s)?`. This is the single most common reason a term looks accepted and still fires.
+- **Ordinary English words sometimes need an entry, and that is not a mistake.** The dictionary licenses the possessive for most nouns — `dog's`, `system's`, `file's`, `user's`, `branch's` all pass unaided — but not for all of them: `commit's` and `maintainer's` are flagged until `commit` and `maintainer` are listed. That is why a domain vocabulary contains a few plain words.
+- **There are no comments.** Every line is a pattern, so `# like this` would be one. Rationale for a group of entries belongs here, not in the file.
+
+**Naming a vocabulary that does not exist is a hard failure, not a silent skip.** Vale reports `E100 [vocab] Runtime error — '<name>' vocabulary not found`, exits 2, and lints nothing at all — so the prose gate and the `15-prose` hook both fail with a config error rather than a finding. A vocabulary *directory* that exists but is empty is fine, and so is an empty `accept.txt` — but git does not track an empty directory, so seeding only the name in `.vale.ini` would hard-fail every prose run on the next clone. `foundation-init` therefore seeds `Local/accept.txt` as a real tracked file holding one entry: the repository's own name, regex-escaped, which is the term its own prose needs first. It is not seeded empty, and that is deliberate for a second reason — `reuse lint` does not report an empty file at all, so `annotate.sh` would never see it and the `.license` sidecar it writes would never appear.
+
+### Vale.Spelling was promoted on 2026-08-03
+
+It had ridden at warning since ADR 0014 "until the vocabulary matures". The review that closed that out measured 710 findings across 207 distinct terms in this repository — and **not one was a misspelling.** Every one was a domain term, an identifier, a proper noun, or a deliberate coinage; `repo`, `repos` and `repo's` alone accounted for 154. Adding them, mostly as plural-tolerant patterns, took the corpus to zero.
+
+The rule gates here now. The ongoing cost is one line in the canonical vocabulary in the commit that introduces a new term, and the benefit is that a genuine typo fails at the commit rather than never. Two things make that trade acceptable rather than merely defensible: the `Local` layer means a consumer's own domain terms never need a repo-foundation round trip, and promotion is per-repo, so each repository takes it when its own corpus reads clean. Consumers stay at warning until then.
 
 ## Reviewing warnings by hand
 
@@ -37,7 +68,7 @@ git ls-files -z '*.md' | xargs -0 -r vale --minAlertLevel=warning \
   --filter='.Name=="Toobuntu.AbbreviationPluralsAmbiguous"'
 ```
 
-The review forms on this page are deliberately short: they skip the readable-path filter the gate uses. That filter guards one narrow case — a tracked file deleted on disk without the deletion staged — which is worth handling silently in an automated gate and not worth carrying in a command you type, where the resulting `no such file` names the path and tells you exactly what to do. `--filter` takes a vale expression matching against the alert's fields; `.Name` is the rule. It is what keeps `Vale.Spelling` — which rides at warning against a still-maturing vocabulary — from burying the handful of results you asked for, and it does that without a `jq` pipeline. Chain it after the gate with `&&` for a full sweep in one line.
+The review forms on this page are deliberately short: they skip the readable-path filter the gate uses. That filter guards one narrow case — a tracked file deleted on disk without the deletion staged — which is worth handling silently in an automated gate and not worth carrying in a command you type, where the resulting `no such file` names the path and tells you exactly what to do. `--filter` takes a vale expression matching against the alert's fields; `.Name` is the rule. It is what keeps `Toobuntu.Acronyms` — which reports several hundred times per full-tree run, most of them not acronyms — from burying the handful of results you asked for, and it does that without a `jq` pipeline. Chain it after the gate with `&&` for a full sweep in one line.
 
 **One caveat, and it is the reason this is a second pass rather than a replacement for the first.** `--filter` drops non-matching alerts *before* vale computes its exit code, so a file with a real error exits 0 under a filtered run. Never let a filtered invocation stand in for the gate.
 
@@ -47,7 +78,7 @@ Without a filter, the level alone is safe to raise: **vale's exit code keys on e
 git ls-files -z '*.md' | xargs -0 -r vale --minAlertLevel=warning
 ```
 
-So that single unfiltered pass gates exactly as the default does while also showing every warning. Be ready for the volume: against an immature vocabulary `Vale.Spelling` routinely outnumbers everything else by two or three orders of magnitude, so this form is for a deliberate vocabulary review, not for finding the handful of alerts you came for. Day to day, run the plain gate and let the hook and CI raise the ambiguity rule when it applies.
+So that single unfiltered pass gates exactly as the default does while also showing every warning. Be ready for the volume: `Toobuntu.Acronyms` outnumbers everything else by two or three orders of magnitude, so this form is for a deliberate review pass, not for finding the handful of alerts you came for. Day to day, run the plain gate and let the hook and CI raise the ambiguity rule when it applies.
 
 ### Slicing one run with jq
 

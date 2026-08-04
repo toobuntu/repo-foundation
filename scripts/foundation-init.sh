@@ -102,6 +102,40 @@ if [ -e "$rf_root/provides/vale/vale.ini.template" ] && [ ! -e "$target/.vale.in
   cp "$rf_root/provides/vale/vale.ini.template" "$target/.vale.ini"
   printf 'copied: %s\n' "$target/.vale.ini"
 fi
+# The per-repo vocabulary the seeded .vale.ini names alongside the synced
+# Toobuntu one. It must exist as a TRACKED FILE before that config is used:
+# vale treats a missing vocabulary as a runtime error (E100) and lints nothing,
+# and git does not track an empty directory, so seeding the name without the
+# file would hard-fail the prose gate on the next clone. Empty is fine — vale
+# accepts an empty accept.txt — and the repository fills it with its own domain
+# terms, which never travel back to the canonical vocabulary.
+#
+# The .license sidecar is NOT written here — the annotate.sh run in step 4
+# writes it, already carrying ANNOTATE_LICENSE and a category that forces a
+# sidecar for this path. Hand-writing the SPDX would hardcode
+# repo-foundation's license into a consumer that passed --license.
+#
+# That hand-off has one requirement, and it is the reason this file is seeded
+# with a term rather than left empty: `reuse lint` does not report an EMPTY
+# file at all (measured — tracked or untracked, it is simply absent from
+# `.non_compliant`), and annotate.sh acts only on what that lint reports. An
+# empty accept.txt would therefore never receive its sidecar. The repository's
+# own name is the right first entry anyway: it is exactly the kind of term
+# Vale.Spelling flags, and every repository needs it.
+local_vocab="$target/.vale/styles/config/vocabularies/Local"
+mkdir -p "$local_vocab"
+if [ -e "$local_vocab/accept.txt" ] && [ ! -f "$local_vocab/accept.txt" ]; then
+  printf 'error: %s exists and is not a regular file\n' "$local_vocab/accept.txt" >&2
+  exit 1
+fi
+if [ ! -f "$local_vocab/accept.txt" ]; then
+  # A vocabulary entry is a REGULAR EXPRESSION, so the name is escaped before
+  # it becomes one. Unescaped, a repository directory named `.github` yields a
+  # pattern whose `.` matches any character, and a name holding `+` or `(`
+  # yields an invalid pattern rather than a term.
+  basename "$target" | sed 's/[][\.^$*+?(){}|]/\\&/g' > "$local_vocab/accept.txt"
+  printf 'seeded: %s\n' "$local_vocab/accept.txt"
+fi
 
 # 2. Seed the baseline-merge targets with an empty managed region. The first
 #    sync replaces the region between the sentinels with the canonical baseline.

@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# Provenance: after GitLab's gitlab_base NonStandardQuotes.yml (rule name matched; tokens curated here).
 # Prefer straight ASCII quotes over curly/smart quotes in prose. They are not
 # invisible (unlike the bidi characters ADR 0006 blocks), but a consistent
 # straight-quote house style keeps diffs, greps, and copy-paste into shells

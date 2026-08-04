@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# Provenance: seeded from Homebrew's Terms.yml (Homebrew/brew docs/vale-styles) plus toobuntu additions.
 # Canonical casing for common product and technology names. Each key is a
 # wrong-cased form; the value is the house spelling. ignorecase is OFF so the
 # correct form never matches itself, and an all-lowercase identifier inside a

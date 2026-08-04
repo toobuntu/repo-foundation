@@ -72,6 +72,29 @@ RSpec.describe "sync-manifest.yaml contract" do
                        "  #{missing.join("\n  ")}"
   end
 
+  # settings.baseline.json wires hooks that shell out to repo scripts — today
+  # ai-session.sh (SessionStart/SessionEnd) and main-guard.sh (SessionStart
+  # seed, PostToolUse check). scripts_core is what delivers those. Both hooks
+  # no-op when their script is missing, which is the reason to test it: the
+  # failure is a guard that silently never runs, not a visible error.
+  it "delivers every script the settings baseline's hooks invoke" do
+    baseline = File.read(File.join(REPO_ROOT, "provides/repo/settings.baseline.json"))
+    invoked = baseline.scan(%r{scripts/[A-Za-z0-9._-]+\.sh}).uniq
+    expect(invoked).not_to be_empty, "no scripts referenced — did the hook wiring change shape?"
+
+    shipped = sets.fetch("scripts_core").map { |c| c.fetch("target") }
+    expect(invoked - shipped).to be_empty,
+                                 "settings.baseline.json invokes scripts that scripts_core does not ship:\n" \
+                                 "  #{(invoked - shipped).join("\n  ")}"
+
+    orphaned = consumers.select { |c| c["sets"].include?("repo_baseline") }
+                        .reject { |c| c["sets"].include?("scripts_core") }
+                        .map { |c| c.fetch("repo") }
+    expect(orphaned).to be_empty,
+                        "repo_baseline without scripts_core (hooks would silently no-op):\n" \
+                        "  #{orphaned.join("\n  ")}"
+  end
+
   it "maps the homebrew_sandbox class fragment only to Homebrew-aligned consumers" do
     with_fragment = consumers.select { |c| c["sets"].include?("homebrew_sandbox") }.map { |c| c["repo"] }
     expect(with_fragment).to contain_exactly("toobuntu/homebrew-cask-tools", "toobuntu/homebrew-babble")
@@ -110,6 +133,27 @@ RSpec.describe "sync-manifest.yaml contract" do
     with_ai = consumers.select { |c| c["sets"].include?("ai_continuity") }.map { |c| c["repo"] }
     with_baseline = consumers.select { |c| c["sets"].include?("repo_baseline") }.map { |c| c["repo"] }
     expect(with_ai).to match_array(with_baseline)
+  end
+
+  # ADR 0025. The three org-generic skills go to the repo_baseline consumers and
+  # nowhere else: toobuntu/.github hosts served community-health files rather
+  # than development work, so a session-ritual skill there would document
+  # machinery it does not have. The `tb-` prefix is the marker, so a set member
+  # without it is either a repo-specific skill promoted by mistake or a rename
+  # that lost the signal.
+  it "sends the tb-* skills to exactly the repo_baseline consumers" do
+    sources = sets.fetch("claude_skills").map { |c| c.fetch("source") }
+    expect(sources).to contain_exactly(
+      ".claude/skills/tb-issue-draft/SKILL.md",
+      ".claude/skills/tb-review-triage/SKILL.md",
+      ".claude/skills/tb-session-close/SKILL.md",
+    )
+    expect(sources.all? { |s| s.include?("/skills/tb-") }).to eq(true)
+    expect(sets.fetch("claude_skills").map { |c| c.fetch("mode") }.uniq).to eq(["canonical"])
+
+    with_skills = consumers.select { |c| c["sets"].include?("claude_skills") }.map { |c| c["repo"] }
+    with_baseline = consumers.select { |c| c["sets"].include?("repo_baseline") }.map { |c| c["repo"] }
+    expect(with_skills).to match_array(with_baseline)
   end
 
   it "mirrors both continuity files at their natural .ai paths" do

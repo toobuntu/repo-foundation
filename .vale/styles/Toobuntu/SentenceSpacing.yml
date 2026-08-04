@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# Provenance: after GitLab's gitlab_base SentenceSpacing.yml; Homebrew's Spacing.yml carries the same second token.
 # One space after sentence-ending punctuation, not two. Warning first — aligned
 # tables and intentionally-spaced examples can trip it — then promote to error
 # after a clean corpus pass (ADR 0014).

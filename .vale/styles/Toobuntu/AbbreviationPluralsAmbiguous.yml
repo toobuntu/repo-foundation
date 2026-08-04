@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# Provenance: originated in toobuntu; the companion pass to AbbreviationPlurals, with no upstream ancestor.
 # A second LOOK at the contexts AbbreviationPlurals deliberately passes -- not a
 # second automated pass over everything. MinAlertLevel = error suppresses
 # warning-level alerts entirely, so this rule is invisible in an ordinary run
