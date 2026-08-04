@@ -1,8 +1,9 @@
 #!/bin/sh
+
 # SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-#
+
 # sandbox-vm-exit.sh — tear down or reset the Tier 4 Lume VM.
 # Companion to sandbox-vm-enter.sh.
 #

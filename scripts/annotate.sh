@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Annotates non-REUSE-compliant files with SPDX copyright and license headers.
 # Requires: reuse (pip install reuse OR brew install reuse), jq.
 #
@@ -76,8 +81,6 @@
 #   ANNOTATE_COPYRIGHT="<name>"   default: Todd Schulman
 #   ANNOTATE_LICENSE="<spdx-id>"  default: GPL-3.0-or-later
 #
-# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
-# SPDX-License-Identifier: GPL-3.0-or-later
 
 set -euo pipefail
 

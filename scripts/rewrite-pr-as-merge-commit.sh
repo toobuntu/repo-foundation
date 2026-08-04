@@ -4,7 +4,6 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-#
 # rewrite-pr-as-merge-commit.sh — v3
 #
 # Converts a "rebase and merge" PR into a true merge commit,
