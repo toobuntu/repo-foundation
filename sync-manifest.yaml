@@ -175,6 +175,16 @@ component_sets:
   # docs/agent-principles.md).
   swift_plugin:
     - { source: provides/githooks/pre-commit.d/20-swift, target: .githooks/pre-commit.d/20-swift, mode: canonical }
+  # Ruby syntax plugin: `ruby -c` on staged .rb, preferring Homebrew's portable
+  # Ruby (a bare `ruby` on macOS is the frozen system 2.6, whose parser rejects
+  # valid current syntax), warn-and-skip where no interpreter exists. Syntax
+  # only — no RuboCop, no gems, no new dependency. Mastered at the NATURAL path
+  # like 10-shell: repo-foundation is itself a Ruby repository (the sync engine
+  # and the suite) and runs this on its own commits. NOT mapped to the
+  # Homebrew-aligned consumers, where brew style (brew_plugin) already runs
+  # RuboCop over their Ruby and subsumes a parse check.
+  ruby_plugin:
+    - { source: .githooks/pre-commit.d/20-ruby, target: .githooks/pre-commit.d/20-ruby, mode: canonical }
   # ADR-health plugin: `adrs doctor` when docs/decisions/** or adrs.toml is
   # staged. Unlike the language plugins, this master lives at the NATURAL path —
   # repo-foundation authors most org-wide ADRs and runs it on its own commits
@@ -182,8 +192,15 @@ component_sets:
   # each already receives adrs.toml (repo_config) and keeps repo-specific ADRs
   # (ADR 0004), and the staged-file gate makes it a no-op elsewhere. CI backstop
   # is the lint-adrs job in lint.yml (ci_core). See ADR 0018.
+  # The unnumbered README travels with the plugin: it is ADR 0004's discoverability
+  # pointer, so a reader landing in a consumer's docs/decisions/ learns that the
+  # org-wide records are not missing but deliberately elsewhere. Unnumbered on
+  # purpose — a numbered pointer would burn the consumer's own 0001 — and
+  # org-neutral, since it syncs byte-identical and must read correctly in every
+  # repository including this one.
   adrs_plugin:
     - { source: .githooks/pre-commit.d/50-adrs, target: .githooks/pre-commit.d/50-adrs, mode: canonical }
+    - { source: docs/decisions/README.md,       target: docs/decisions/README.md,       mode: canonical }
   # Prose plugin: vale on staged Markdown — the same error-level gate as the
   # prose.yml CI job (one policy, two triggers; ADR 0019). Mastered at the
   # NATURAL path (RF runs it on its own commits). Maps to the hook-carrying
@@ -230,6 +247,10 @@ component_sets:
     - { source: scripts/annotate.sh,                   target: scripts/annotate.sh,                   mode: canonical }
     - { source: scripts/rewrite-pr-as-merge-commit.sh, target: scripts/rewrite-pr-as-merge-commit.sh, mode: canonical }
     - { source: scripts/sign-push.sh,           target: scripts/sign-push.sh,           mode: canonical }
+    # Surgical pull-request body updates. The recipe in docs/agent-principles.md
+    # (agent_docs, which every consumer receives) names this script, so it has to
+    # travel with it or the instruction points at nothing.
+    - { source: scripts/pr-body-update.sh,      target: scripts/pr-body-update.sh,      mode: canonical }
     # foundation-doctor runs in each consumer (the scaffold-drift workflow calls
     # it). foundation-init is RF-only — a consumer does not bootstrap others — so
     # it is intentionally NOT synced.
@@ -440,10 +461,10 @@ community_health_source:
 # ---------------------------------------------------------------------------
 consumers:
   - repo: toobuntu/blackoutd
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, objc_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, ruby_hook_tests, objc, repo_baseline, ai_continuity]
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, objc_plugin, ruby_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, ruby_hook_tests, objc, repo_baseline, ai_continuity]
 
   - repo: toobuntu/zman-didan
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, go_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline, ai_continuity]  # CONFIRM ruby_hook_tests? zman-didan drops its local Didan style for the synced Toobuntu (prose_lint).
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, go_plugin, ruby_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, repo_baseline, ai_continuity]  # CONFIRM ruby_hook_tests? zman-didan drops its local Didan style for the synced Toobuntu (prose_lint).
 
   - repo: toobuntu/homebrew-babble
     # Renamed from toobuntu/babble (2026-07-22): it becomes a Homebrew external
@@ -458,13 +479,13 @@ consumers:
     sets: [agent_docs, prose_lint, git_hooks, brew_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, sandbox, repo_config, ci_core, ci_templates, homebrew_tap, repo_baseline, ai_continuity, homebrew_sandbox]
 
   - repo: toobuntu/bob-book
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, repo_baseline, ai_continuity]  # CONFIRM sandbox?
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, ruby_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, repo_baseline, ai_continuity]  # CONFIRM sandbox?
 
   - repo: toobuntu/cert-automation
     # Ships Swift helper scripts (scripts/cert-notify/*.swift), so it takes the
     # swift_plugin. CONFIRM whether swiftformat/swiftlint should gate those
     # helpers, and CONFIRM sandbox.
-    sets: [agent_docs, prose_lint, git_hooks, shell_lint, swift_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, repo_baseline, ai_continuity]  # shell_lint handles cert-automation's ksh93 (.ksh) via lint-shell.sh's dialect split: shellcheck --shell=ksh + ksh -n where present, shfmt skipped. Its own lint.yml shellcheck/reuse jobs are now canonical.
+    sets: [agent_docs, prose_lint, git_hooks, shell_lint, swift_plugin, ruby_plugin, adrs_plugin, prose_plugin, markdown_lint, scripts_core, repo_config, ci_core, ci_templates, repo_baseline, ai_continuity]  # shell_lint handles cert-automation's ksh93 (.ksh) via lint-shell.sh's dialect split: shellcheck --shell=ksh + ksh -n where present, shfmt skipped. Its own lint.yml shellcheck/reuse jobs are now canonical.
 
   - repo: toobuntu/homebrew-cask-tools
     # Homebrew tap: canonical base hooks PLUS the brew-style plugin (brew_plugin)

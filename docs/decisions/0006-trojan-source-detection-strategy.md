@@ -44,13 +44,13 @@ Some files legitimately need bidi controls (e.g. an i18n library, a Unicode test
 
 The opt-out mechanism was independently considered:
 
-- **In-file `bidi-allow:` annotation, anywhere in the file** (chosen)
+- **In-file `invisible-allow:` annotation, anywhere in the file** (chosen)
 - **In-file annotation restricted to first N lines**
-- **Repo-root config file** (e.g. `.bidi-allow`) listing exempt paths
+- **Repo-root config file** (e.g. `.invisible-allow`) listing exempt paths
 
 ## Decision Outcome
 
-Chosen option: **`grep` in pre-commit + `python3` Unicode-category check in the repo-wide scanner**, with the hook's codepoint set following Red Hat's published RHSB-2021-007 grep recommendation and the scanner flagging every character in Unicode category Cf (Format) or Cc (Control) except a TAB/LF/CR allowlist — the same approach used by Red Hat's own `find_unicode_control2.py` script in its default mode. Both layers honor a per-file `bidi-allow:` annotation for legitimate use cases.
+Chosen option: **one detector, invoked at every layer.** `scripts/lint-unicode.sh` implements the scan and owns all three scopes; the `80-unicode` pre-commit plugin runs it with `--scope=staged`, and the CI jobs run the wider ones. It flags every character in Unicode category Cf (Format) or Cc (Control) except a TAB/LF/CR allowlist — the approach of Red Hat's own `find_unicode_control2.py` in its default mode — and where python3 is absent falls back to a fixed-string set of the sixteen codepoints from Red Hat's published RHSB-2021-007 grep recommendation. Every scope honors a per-file `invisible-allow:` annotation for legitimate use cases.
 
 ### Pre-commit hook
 
@@ -102,7 +102,7 @@ This does not reopen the hole the encoding check closed: `file(1)` identifies a 
 
 The three checks above had been described by the git event that ran them — hook, CI job, ad-hoc — which made the entry point look like the policy and left the widest check reachable only by someone who remembered to type it. Naming the scopes instead:
 
-1. **staged** — no staged change introduces a finding. `--scope=staged`, run by the `80-unicode` plugin. It scans the *index* content — what a commit records — never the possibly-dirty working-tree copy at the same path: `git checkout-index --prefix --stdin -z` materializes the staged blobs into a throwaway tree preserving relative paths, so findings report logical paths and the `bidi-allow:` annotation is read from the blob (an annotation edited but not staged exempts nothing). Non-regular entries (a staged symlink) are skipped — a link's target string is not scannable content — and checkout-index's checkout-time conversions are confined, in these repositories, to line endings, which the detector's TAB/LF/CR allowlist ignores.
+1. **staged** — no staged change introduces a finding. `--scope=staged`, run by the `80-unicode` plugin. It scans the *index* content — what a commit records — never the possibly-dirty working-tree copy at the same path: `git checkout-index --prefix --stdin -z` materializes the staged blobs into a throwaway tree preserving relative paths, so findings report logical paths and the `invisible-allow:` annotation is read from the blob (an annotation edited but not staged exempts nothing). Non-regular entries (a staged symlink) are skipped — a link's target string is not scannable content — and checkout-index's checkout-time conversions are confined, in these repositories, to line endings, which the detector's TAB/LF/CR allowlist ignores.
 2. **tracked** — the tracked repository is clean. `--scope=tracked`, the default, run by the `lint-unicode` CI job.
 3. **tree** — the whole working tree is clean, vendored and generated content included. `--scope=tree`.
 
@@ -112,7 +112,7 @@ Two limits, stated rather than papered over. The scan covers what CI installs, s
 
 #### Amendment (2026-07-29) — one detector; the plugin delegates, and the tree scan gets its own workflow
 
-The original decision split the implementation two ways: Red Hat's grep set in the hook, the python3 category check in the scanner. The stated reason for the hook's independence — no dependency on `scripts/` — was already false by the org's own pattern (`10-shell` and `80-perms` both call into `scripts/`), and its price was a second codepoint table, a spec whose only job was catching drift between the copies, and the weakest gate at exactly the layer closest to the attack. **The `80-unicode` plugin now runs `scripts/lint-unicode.sh --scope=staged`** and fails hard when the script is missing (a security gate fails closed; the `git_hooks` sync set relies on `scripts_core` for the pair). The commit-time gate is thereby promoted to the full Cf/Cc sweep plus UTF-8-without-BOM enforcement wherever python3 exists; the script's POSIX-sh fallback — the same sixteen codepoints the hook always had — is the floor, so the original behavior is now the worst case rather than the only case. What survives of the original two-artifact decision: the *fallback* is still Red Hat's grep approach, and the fixed-strings-under-`LC_ALL=C` matching rule is unchanged.
+The original decision split the implementation two ways: Red Hat's grep set in the hook, the python3 category check in the scanner. (The Decision Outcome above was rewritten on 2026-08-03 to state the unified design directly, so this amendment is now the only place that split is described.) The stated reason for the hook's independence — no dependency on `scripts/` — was already false by the org's own pattern (`10-shell` and `80-perms` both call into `scripts/`), and its price was a second codepoint table, a spec whose only job was catching drift between the copies, and the weakest gate at exactly the layer closest to the attack. **The `80-unicode` plugin now runs `scripts/lint-unicode.sh --scope=staged`** and fails hard when the script is missing (a security gate fails closed; the `git_hooks` sync set relies on `scripts_core` for the pair). The commit-time gate is thereby promoted to the full Cf/Cc sweep plus UTF-8-without-BOM enforcement wherever python3 exists; the script's POSIX-sh fallback — the same sixteen codepoints the hook always had — is the floor, so the original behavior is now the worst case rather than the only case. What survives of the original two-artifact decision: the *fallback* is still Red Hat's grep approach, and the fixed-strings-under-`LC_ALL=C` matching rule is unchanged.
 
 The tree scope also moves out from under the test suite: as a step in `spec.yml` it silently never ran when RSpec failed, and a security gate downstream of test health is the wrong dependency direction. The dedicated `unicode-audit` workflow runs scope 3 on its own, on **one** runner — ubuntu. A two-OS matrix was drafted first, on the theory that the BSD-censused MIME denylist needed validating against GNU `file` before trusting the cheaper runner. That was the wrong instrument for the question. Developers and the pre-commit hook exercise the BSD vocabulary on every commit; CI exercising the GNU one is a *second angle* on the same tree, so a disagreement between them is extra evidence rather than lost coverage — and the only direction that could matter, CI skipping what a local run scans, is already covered by the staged scope at commit time. Measuring the divergence is therefore an on-demand local `act` run against the job (the recipe is in the workflow header), not a permanent second runner. The job still writes `--classify-report` into its step summary, because that report is what makes the comparison possible whenever it is wanted. Promotion into `ci_core` wants a per-ecosystem dependency step first; the interim `spec.yml` step is what consumers run until then, and is removed in the same change.
 
@@ -128,15 +128,21 @@ Two measured facts about how that query is run, both of which corrected an earli
 - **Batching is safe, keyed on `--separator`.** The claim that a batch would desync at the first universal binary was wrong about the mechanism — `file(1)` emits exactly one separator-bearing line per *input* file and that line **carries the path**, so the mapping never depends on output position; a fat binary's extra per-architecture lines use a literal tab and are ignored. One batched pass costs ~1.3s against roughly 25s per-file over ~1000 files, chunked below `ARG_MAX`. The gate path stays lazy regardless — it classifies only files that already produced a finding, so a clean tree spawns nothing.
 - **`--mime` in one pass, not `--mime-type` and `--mime-encoding` in two.** The combined form halves the work, and the only wrinkle is that `file(1)` omits the charset from the summary line of a universal Mach-O binary (it appears on the per-architecture continuation lines instead, duplicated on the last of them). Rather than parse those continuation lines — which would reintroduce an ordering assumption for the one case that motivated avoiding it — a path whose charset came back empty gets one targeted `--mime-encoding` query. That is zero extra calls on a tree with no fat binaries, and it keeps a fat binary correctly suppressed instead of merely reported as noise.
 
-The `bidi-allow:` annotation is unaffected and remains the only exemption mechanism. A central exceptions registry keyed by path (with justifications and expiry dates) was considered and declined: it is the repo-root config file already rejected below under a new name, MIME confirmation removes the case that motivated it, expiry dates make a gate go red on a date a fixture did not change, and a path-keyed file cannot sync byte-identically to consumers.
+The `invisible-allow:` annotation is unaffected and remains the only exemption mechanism. A central exceptions registry keyed by path (with justifications and expiry dates) was considered and declined: it is the repo-root config file already rejected below under a new name, MIME confirmation removes the case that motivated it, expiry dates make a gate go red on a date a fixture did not change, and a path-keyed file cannot sync byte-identically to consumers.
+
+#### Amendment (2026-08-03) — the annotation token is `invisible-allow:`
+
+The opt-out annotation was spelled `bidi-allow:` from this ADR's acceptance until now. The name described one member of the blocked set rather than the set itself: the detector flags every Cf and Cc character, so `bidi-allow: U+001B` — exempting ESC, a Cc control with no bidirectional meaning at all — read as a contradiction the moment the Cc extension landed. `invisible-allow:` names the hazard class the gate actually enforces.
+
+**The old token is no longer recognized**, in either layer. That is deliberate and is why the rename happens now: it lands before the first sync to consumers, so no consumer carries a file whose exemption silently stops working. A file still carrying `bidi-allow:` is treated as having no annotation at all — so it fails the gate if, and only if, it also holds one of the blocked codepoints. That is the safe direction: an exemption that has stopped being parsed surfaces as a refusal naming the file, never as a silently narrower scan. A file whose annotation was precautionary simply keeps passing.
 
 ### Per-file opt-out
 
-A `bidi-allow: U+XXXX,U+YYYY` annotation **anywhere in the file** declares which codepoints from the blocked set the file is allowed to contain. Both layers honor it:
+An `invisible-allow: U+XXXX,U+YYYY` annotation **anywhere in the file** declares which codepoints from the blocked set the file is allowed to contain. Both layers honor it:
 
 ```go
 // SPDX-License-Identifier: GPL-3.0-or-later
-// bidi-allow: U+200E
+// invisible-allow: U+200E
 package icalwriter
 
 // rebuildHavdalaTitle constructs a SUMMARY where the LTR time is
@@ -146,19 +152,25 @@ package icalwriter
 
 Design properties:
 
-- **Visible at the point of use** — a reviewer reading the file sees the exemption next to the code that needs it, not in a separate `.bidiallow` config file that nobody reads.
-- **Anywhere in the file** — not restricted to a header window. Real files often start with multiple required headers (REUSE SPDX block, Ruby `# typed: true` / `# frozen_string_literal: true`, encoding declarations) that can push real code well past line 5. A line-count restriction would be brittle without a corresponding security gain: any new `bidi-allow:` line shows up in PR diff regardless of where it appears in the file, and is grep-able (`grep -r bidi-allow:`).
+- **Visible at the point of use** — a reviewer reading the file sees the exemption next to the code that needs it, not in a separate `.invisible-allow` config file that nobody reads.
+- **Anywhere in the file** — not restricted to a header window. Real files often start with multiple required headers (REUSE SPDX block, Ruby `# typed: true` / `# frozen_string_literal: true`, encoding declarations) that can push real code well past line 5. A line-count restriction would be brittle without a corresponding security gain: any new `invisible-allow:` line shows up in PR diff regardless of where it appears in the file, and is grep-able (`grep -r invisible-allow:`).
 - **Scoped to one file** — opting out of a codepoint in one file does not silently allow it elsewhere.
-- **Specific about codepoints** — `bidi-allow: U+200E` allows LRM only, not all bidi controls.
+- **Specific about codepoints** — `invisible-allow: U+200E` allows LRM only, not all bidi controls.
 - **Survives copy-paste** — the annotation travels with the file.
 
 The hook implements the opt-out by building a per-file grep pattern that omits the allowed codepoints from the bracket expression. The scanner parses the annotation in `parse_allow()` and skips the listed codepoints during the Cf/Cc check.
 
 #### File types that cannot carry an inline annotation
 
-Almost every common text format supports comments — `#` (shell, Python, Ruby, YAML, TOML, Makefile), `//` (C, Go, Rust, Swift, JavaScript), `<!-- -->` (HTML, XML, Markdown), `;` (INI), `--` (SQL, Lua), `%` (TeX, Erlang), `/* */` (CSS, Java). The annotation parser is comment-syntax-agnostic: it matches the literal token `bidi-allow:` regardless of what precedes it on the line.
+Almost every common text format supports comments — `#` (shell, Python, Ruby, YAML, TOML, Makefile), `//` (C, Go, Rust, Swift, JavaScript), `<!-- -->` (HTML, XML, Markdown), `;` (INI), `--` (SQL, Lua), `%` (TeX, Erlang), `/* */` (CSS, Java). The annotation parser is comment-syntax-agnostic: it matches the literal token `invisible-allow:` regardless of what precedes it on the line.
 
-The known exception is **JSON** (the standard, not JSON5/JSONC), which forbids comments. A JSON file legitimately requiring bidi controls in *raw form* (rather than escaped as `\u202E` per the JSON spec) is extraordinarily unlikely. No such file exists today across the maintainer's repositories. Per YAGNI, no second mechanism is implemented to handle this hypothetical. **If a JSON-class file ever needs raw bidi controls in the future**, the right move at that time is a sidecar allowlist file (`fixture.json` plus `fixture.json.bidi-allow` containing just the codepoint list), preserving the locality property: the exemption travels with the file in the same git tree node, can be inspected next to it in code review, and does not require a repo-wide config that hides exemptions from local readers. A repo-root config file was specifically rejected for this reason — see "Pros and Cons of the Options".
+**JSON** (the standard, not JSON5/JSONC) forbids comments, and this section previously concluded that a JSON file therefore cannot carry the annotation at all. **That was never true, and the claim is corrected here (2026-08-03).** Because the parser matches the literal token regardless of what precedes it on the line, an occurrence inside a *string value* grants the exemption exactly as a comment would. Measured: a `.json` holding `"note": "invisible-allow: U+200E"` beside a real LRM passes the gate, while the same file without that string fails it.
+
+The behavior is kept rather than changed, for the reason this ADR already gives about placement generally: the annotation is not a barrier against an author who controls the file \u2014 it is a *review surface*. Someone who can add a JSON string can equally add a comment in any other format, and either way the exemption stands in the diff and answers to `grep -r invisible-allow:`. Teaching the parser which languages have comments, and where, would buy no protection at the cost of the comment-syntax-agnostic property that makes it work everywhere.
+
+What the correction does change is which failure mode to watch, and it is **accidental rather than adversarial**: in a commented language the annotation sits in inert text, while in JSON it sits in data some program will read. A config or fixture that legitimately contains the token as a *value* \u2014 documentation of this mechanism, or a test case for it \u2014 exempts itself silently. The audit is the same grep.
+
+A JSON file legitimately requiring bidi controls in *raw form* (rather than escaped as `\u202E` per the JSON spec) remains extraordinarily unlikely, and none exists today across these repositories. So the sidecar below stays unimplemented per YAGNI \u2014 but it is the **preferred** form where the case arises, because it says what it means instead of relying on a string that reads as data. **If a JSON-class file ever needs raw bidi controls**, the right move is a sidecar allowlist file (`fixture.json` plus `fixture.json.invisible-allow` containing just the codepoint list), preserving the locality property: the exemption travels with the file in the same git tree node, can be inspected next to it in code review, and does not require a repo-wide config that hides exemptions from local readers. A repo-root config file was specifically rejected for this reason — see "Pros and Cons of the Options".
 
 ### Consequences
 
@@ -168,7 +180,7 @@ The known exception is **JSON** (the standard, not JSON5/JSONC), which forbids c
 - Good, because legitimate bidi use cases (i18n libraries, Unicode test fixtures, RTL/LTR-mixing iCalendar writers) can opt in to specific codepoints with a one-line, locally-visible, codepoint-specific annotation that is not constrained by required-header pile-up at the top of the file.
 - Bad, because contributors who edit the hook may not realize the scanner catches a superset of characters; the hook's comment block explicitly points to this ADR to prevent accidental "alignment" of the two lists.
 - Bad, because **homoglyph attacks (CVE-2021-42694) are out of scope**. Homoglyphs are visible characters from non-ASCII scripts — Cyrillic 'а' (U+0430) versus Latin 'a' (U+0061), for example. The codepoint-blocklist and Cf/Cc category approaches used here cannot catch them: they are category Lo or Ll (legitimate letters). Detection requires either an ASCII-only-identifier policy or comparison against the [Unicode CLDR confusables table][cldr] (~10,000 entries). A separate ADR will address homoglyph mitigation if the project adopts it. Note: the `lirantal/anti-trojan-source` README implies homoglyph support but its source code does not actually implement confusables-table comparison.
-- Neutral, because the per-file opt-out widens the attack surface by the exact codepoints listed. The annotation is reviewable in PR diff and in source; reviewers must justify each new `bidi-allow:` line just as they would justify any other security-relevant change. There is no meaningful additional protection from a header-only restriction: an attacker who controls the file can place the annotation anywhere, including the top, so the restriction would only inconvenience legitimate use without raising the bar against attack.
+- Neutral, because the per-file opt-out widens the attack surface by the exact codepoints listed. The annotation is reviewable in PR diff and in source; reviewers must justify each new `invisible-allow:` line just as they would justify any other security-relevant change. There is no meaningful additional protection from a header-only restriction: an attacker who controls the file can place the annotation anywhere, including the top, so the restriction would only inconvenience legitimate use without raising the bar against attack.
 - Neutral, because **PUA character ranges are not currently scanned**. GlassWorm's PUA payload smuggling could be detected by adding U+E000-U+F8FF, U+F0000-U+FFFFD, and U+100000-U+10FFFD to the scanner. PUA characters are category Co (Private Use), not Cf/Cc, so the category-based approach does not cover them. Tracked as a follow-up; see "More Information".
 - Neutral, because comment-less file formats (JSON in particular) cannot carry an inline annotation. The use case is hypothetical for this project; a sidecar allowlist file is the documented escape hatch if it materializes.
 
@@ -178,7 +190,7 @@ Behavioral tests in `spec/integration/precommit_unicode_spec.rb` exercise both l
 
 - The pre-commit hook is invoked via its shebang in a throwaway git repo with planted content; bidi, zero-width, BOM, opt-out, and clean files are each verified.
 - The repo-wide scanner `scripts/lint-unicode.sh` is run against planted directory trees verifying bidi, BOM, UTF-16, non-UTF-8, and opt-out behavior — both its python3 path and its POSIX-sh fallback (forced with `LINT_UNICODE_NO_PYTHON=1`).
-- Opt-out tests verify that (a) `bidi-allow: U+200E` plus a real LRM character passes; (b) codepoints not in the allow list still fail; and (c) annotations placed deep in the file (after a realistic pile-up of required headers) are honored.
+- Opt-out tests verify that (a) `invisible-allow: U+200E` plus a real LRM character passes; (b) codepoints not in the allow list still fail; and (c) annotations placed deep in the file (after a realistic pile-up of required headers) are honored.
 
 ## Pros and Cons of the Options
 
@@ -219,9 +231,9 @@ Behavioral tests in `spec/integration/precommit_unicode_spec.rb` exercise both l
 ### Opt-out: in-file annotation, anywhere in the file (chosen)
 
 - Good, exemption travels with the file; a reviewer reading the source sees the annotation next to the code that needs it.
-- Good, no separate parser is required to handle different comment syntaxes (`#`, `//`, `<!-- -->`, etc.) — the parser matches the literal token `bidi-allow:` regardless of what precedes it on the line.
+- Good, no separate parser is required to handle different comment syntaxes (`#`, `//`, `<!-- -->`, etc.) — the parser matches the literal token `invisible-allow:` regardless of what precedes it on the line.
 - Good, "anywhere" is one rule with no edge cases. Real headers (REUSE SPDX, Ruby magic comments, encoding declarations) can push real code past any reasonable line-count limit; "anywhere" sidesteps the question entirely.
-- Good, grep-able across the repo (`grep -r bidi-allow:`) for periodic audits of the total exemption surface.
+- Good, grep-able across the repo (`grep -r invisible-allow:`) for periodic audits of the total exemption surface.
 - Bad, files in formats that forbid comments (standard JSON) cannot carry the annotation. Mitigated by the sidecar-file escape hatch documented above; not implemented until a real example arises.
 
 ### Opt-out: in-file annotation, restricted to first N lines
@@ -231,14 +243,14 @@ Behavioral tests in `spec/integration/precommit_unicode_spec.rb` exercise both l
 - Bad, brittle for real headers. REUSE adds 3 lines (SPDX-FileCopyrightText, blank, SPDX-License-Identifier). Ruby magic comments add 2 more (`# typed: true`, `# frozen_string_literal: true`). HTML/Markdown comment delimiters add 2. A 5-line limit is exhausted before the first line of project content; a 10-line limit is *probably* enough but introduces a magic number with no principled boundary.
 - Bad, no real security benefit. The threat model is "an attacker hides the annotation deep in the file so reviewers don't see it." But the annotation appears in the PR diff regardless of position; a reviewer who misses it in a deep position would also miss it at the top (especially since the attack itself relies on invisible characters). The line-count restriction would impose a real cost on legitimate use without raising the bar against attack.
 
-### Opt-out: repo-root config file (e.g. `.bidi-allow`)
+### Opt-out: repo-root config file (e.g. `.invisible-allow`)
 
 - Good, works for files that cannot carry comments (JSON, certain binary fixtures interpreted as text).
 - Good, exemptions are centrally listed and easy to audit at one path.
 - Bad, **violates locality**. A reviewer reading a single file that contains bidi controls has no way to know it's exempted without cross-referencing a separate config. A copy of the file into another repo loses the exemption silently.
 - Bad, two parsers required (in-file annotation grammar plus config file grammar) for one feature. Adds maintenance cost and surface area for inconsistency.
 - Bad, the use case is hypothetical for this project — no file currently in scope across the active repositories needs an opt-out that an inline annotation cannot satisfy.
-- **Verdict per YAGNI**: deferred. If a real example arises, prefer a per-file sidecar (`fixture.json.bidi-allow`) over a repo-root config, to preserve locality.
+- **Verdict per YAGNI**: deferred. If a real example arises, prefer a per-file sidecar (`fixture.json.invisible-allow`) over a repo-root config, to preserve locality.
 
 ## More Information
 

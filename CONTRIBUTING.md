@@ -33,7 +33,7 @@ The `.githooks/pre-push` hook checks that every commit a push introduces carries
 
 ## Encoding and invisible Unicode
 
-All source, documentation, and configuration must be valid UTF-8 with no BOM; UTF-16/UTF-32 are rejected. The pre-commit hook scans each staged blob for invisible bidi/zero-width control characters and the CI `lint-unicode` job scans the whole tree ([ADR 0006](docs/decisions/0006-trojan-source-detection-strategy.md)). A file that legitimately needs a blocked codepoint can opt out with a `bidi-allow:` annotation listing the `U+XXXX` codepoints; use it sparingly.
+All source, documentation, and configuration must be valid UTF-8 with no BOM; UTF-16/UTF-32 are rejected. The pre-commit hook scans each staged blob for invisible bidi/zero-width control characters and the CI `lint-unicode` job scans the whole tree ([ADR 0006](docs/decisions/0006-trojan-source-detection-strategy.md)). A file that legitimately needs a blocked codepoint can opt out with an `invisible-allow:` annotation listing the `U+XXXX` codepoints; use it sparingly.
 
 ## Working on the sync hub
 

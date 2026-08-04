@@ -1,0 +1,84 @@
+#!/bin/sh
+
+# SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Ruby syntax pre-commit plugin. Run by .githooks/pre-commit via the
+# run-parts-style pre-commit.d/ runner. Self-contained on purpose: plugins
+# run in a subprocess and do not inherit the base hook's shell functions.
+# Filename has no extension by the run-parts classicalre rule (see the base
+# hook and scripts/lint-perms.sh); disable by adding a dot suffix (20-ruby.off).
+#
+# Syntax only -- `ruby -c`, no RuboCop, no Sorbet, no gems. A parse error is
+# unambiguous, needs no configuration, and is the one Ruby defect worth
+# catching before the commit rather than in CI. Style is a separate decision
+# and would bring a dependency this plugin deliberately does not have.
+#
+# Not mapped to the Homebrew-aligned repositories: `brew style` (20-brew)
+# already runs RuboCop over their Ruby, which subsumes a syntax check.
+
+set -e
+
+# Ruby this repository AUTHORS. The extension-less names are Ruby too and a
+# parse error in one breaks every later command, so they belong here; vendored
+# trees are excluded because a dependency's syntax is upstream's business and a
+# vendor directory can hold thousands of files. `/vendor/` is gitignored here,
+# but a consumer may vendor at another path, and the exclusion costs one pass.
+RUBY_RE='\.rb$|(^|/)Gemfile$|(^|/)Rakefile$|\.gemspec$'
+VENDOR_RE='(^|/)vendor/'
+
+# Staged paths (NUL-safe), filtered to an ERE. ACMRT mirrors the base hook.
+staged_z() {
+  git diff --cached --name-only --diff-filter=ACMRT -z |
+    /usr/bin/grep --extended-regexp --null-data "$1" |
+    /usr/bin/grep --extended-regexp --null-data --invert-match "$VENDOR_RE" || true
+}
+has_files() { [ "$(staged_z "$1" | wc -c)" -gt 0 ]; }
+
+has_files "$RUBY_RE" || exit 0
+
+# Homebrew's portable Ruby first. On macOS a bare `ruby` resolves through PATH
+# to the frozen system 2.6, whose parser rejects syntax every current Ruby
+# accepts -- so checking with it would fail a file that is perfectly valid.
+# Portable Ruby ships with Homebrew, which every contributor here already has,
+# and is the same Ruby the suite and CI run (ADR 0011).
+ruby_bin=""
+if command -v brew > /dev/null 2>&1; then
+  portable="$(brew --repository)/Library/Homebrew/vendor/portable-ruby/current/bin/ruby"
+  if [ -x "$portable" ]; then
+    ruby_bin="$portable"
+  fi
+fi
+if [ -z "$ruby_bin" ]; then
+  ruby_bin="$(command -v ruby || true)"
+fi
+
+if [ -z "$ruby_bin" ]; then
+  printf 'warning: ruby not found -- skipping Ruby syntax check (brew install ruby)\n' >&2
+  exit 0
+fi
+
+# An interpreter below the org's floor is worse than none, and the fallback
+# above can find one: macOS system Ruby is 2.6, whose parser REJECTS syntax
+# every current Ruby accepts (`def ok = 1`), so it would fail a valid file and
+# block a correct commit. Ask the interpreter rather than parsing a version
+# string -- RUBY_VERSION.to_i is 2 for "2.6.10" and 10 for a future "10.x",
+# where a string comparison would put "10" below "3".
+if ! "$ruby_bin" -e 'exit(RUBY_VERSION.to_i >= 3)' 2> /dev/null; then
+  printf 'warning: %s predates Ruby 3 -- skipping Ruby syntax check\n' "$ruby_bin" >&2
+  printf '  Its parser rejects current syntax; install Homebrew for its portable Ruby.\n' >&2
+  exit 0
+fi
+
+# -n1 is load-bearing, not a missed batching optimization: `ruby -c a.rb b.rb`
+# checks only a.rb and puts the rest in ARGV, so a batched call would exit 0
+# over a broken second file -- a guard that cannot fire. The trailing `--`
+# terminates ruby's options, so a staged file named `-e.rb` is a filename and
+# not an inline-script flag (measured: without it, ruby evaluates `.rb` and
+# reports a syntax error in a file that is fine). "Syntax OK" goes to stdout
+# and is noise; the diagnostics that matter go to stderr.
+if ! staged_z "$RUBY_RE" | xargs -0 -r -n1 "$ruby_bin" -c -- > /dev/null; then
+  printf '20-ruby: Ruby syntax check failed (%s).\n' "$ruby_bin" >&2
+  exit 1
+fi

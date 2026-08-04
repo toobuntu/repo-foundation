@@ -98,6 +98,12 @@ When unsure, say so explicitly: "I'm not sure whether this failed because of the
 
 Changes that touch unrelated subsystems should land in separate commits, ideally separate sessions. If a session needs to fix a bug, update docs, AND test a new script — propose those as three commits and ask which to do first. Don't bundle.
 
+## Incidental cleanup travels with the change
+
+Where a session is already editing a file — or already addressing a review finding in it — a marginal adjacent improvement belongs in the same commit and does not need deferring. A typo on the line above the one being fixed, a stale comment the edit just falsified, an inconsistent spelling of the same term two lines apart: fix it, and say so in the commit body. Deferring a two-word fix costs a round trip, a second commit, and usually a second review, and the improvement typically never happens at all.
+
+This does not loosen "one change at a time," which is about unrelated *subsystems*. The test is whether the reviewer of this commit is already reading the lines in question. If they are, the cleanup is in scope. If explaining the cleanup requires explaining a second subsystem, it is a separate commit — and if it changes behavior, needs its own decision, or touches project configuration, the rules above still govern regardless of how small the diff is.
+
 ## Silent state changes are forbidden
 
 If something requires altering project configuration (`.bundle/config`, `.gitignore`, `.clang-format`, `.claude/settings.json`, etc.) to do a task, that configuration change is a separate proposal and gets its own approval. Don't slip configuration mutations into a task that's ostensibly about something else.
@@ -173,15 +179,25 @@ Prefer language with a positivity bias in all output — docs, prompts, summarie
   ```sh
   mkdir -p .ai/scratchpad
   {
+    printf '%s\n' '<!-- pr-body:begin - managed by pr-body-update.sh; text outside is preserved -->' ''
     git log --reverse --format='## %s%n%n%b' main..HEAD |
       grep -v '^Co-Authored-By: '
-    printf '%s\n' '' '---' '' 'Created with AI assistance; manually reviewed.'
+    printf '%s\n' '' '---' '' 'Created with AI assistance; manually reviewed.' ''
+    printf '%s\n' '<!-- pr-body:end -->'
   } | rumdl fmt --silent - > .ai/scratchpad/pr-body.md
   gh pr create --base main --title "$(git log -1 --format=%s)" \
     --body-file .ai/scratchpad/pr-body.md && rm -f .ai/scratchpad/pr-body.md
   ```
 
   Drop the `##` heading form for a single-commit branch, and drop the assistance note when no commit carries an agent trailer. The derived form suits short branches; past roughly three commits the concatenated bodies outgrow a pull-request description — hand-write a curated summary body instead (what changed by area, verification performed, anything the reviewer must know), still drafted under `.ai/scratchpad/` and closed with the same assistance note.
+- **Update a pull-request body with `scripts/pr-body-update.sh <N> <draft>`, never a bare `gh pr edit --body-file`.** `gh pr edit` replaces the whole description, and the GitHub API offers nothing narrower — so refreshing a body silently deletes whatever a review bot appended to it, which for CodeRabbit is its summary. The script does the read-modify-write around the two markers above: it replaces only what sits between them and carries everything outside through untouched.
+
+  ```sh
+  scripts/pr-body-update.sh 42 .ai/scratchpad/pr-body-<slug>.md &&
+    rm -f .ai/scratchpad/pr-body-<slug>.md
+  ```
+
+  `--dry-run` prints the merged body instead of writing it. One draft shape serves both paths: the script drops marker lines carried in the replacement rather than nesting a second pair. A body with **no** markers is refused, not wrapped — only the author knows where their text ends and a bot's begins, and guessing would pull the bot's section inside the managed region for the next run to delete. Add the pair by hand once, on descriptions that predate this; anything opened with the recipe above already has it. A `gh pr comment` is for saying something new, and is not a substitute: bots review the description, so a stale one is what they read.
 - No verbose AI commentary in PR descriptions. Note AI assistance and what manual verification was performed.
 - Merge commits, never squash or rebase, on PR merge (unless the project ADRs say otherwise).
 - en_US spelling everywhere (`labeling` not `labelling`, `color` not `colour`).
@@ -403,8 +419,8 @@ Every org repository that hosts development work carries a top-level `.ai/` dire
 - **The append-only rule is enforced**, not merely stated: the `40-memory` pre-commit plugin rejects any commit that removes a line from `.ai/memory.md` or `.ai/org/memory.md`. Append freely; to correct, add a new dated entry naming what it supersedes. `AI_MEMORY_ALLOW_REWRITE=1` overrides, and exists for the periodic consolidation pass — merging entries, pruning superseded ones, graduating durable material out — not for routine editing.
 - **Graduation rules** keep `.ai/memory.md` bounded: a decision graduates to an ADR; a fact the code can carry graduates into code or a comment; an org-wide rule of conduct graduates to this file; per-session "what shipped" does not go in at all — git history and PR descriptions own that.
 - **Org-wide facts**: `.ai/org/memory.md` is edited only in repo-foundation. A session in any other repo that learns an org-wide fact writes it to `.ai/org/relay.md` — a **tracked** file since the ADR 0022 amendment of 2026-07-26, so commit it with the session's work and it travels with pushes rather than stranding on one machine — and says so in its handoff report; the maintainer or the next repo-foundation-rooted session promotes it. The promoting session does not `rm` the relay — it runs `scripts/ai-session.sh relay-consume`, which renames it to a dated, gitignored `.ai/org/relay.consumed-*.md`, so a relay consumed too eagerly stays recoverable, and commits the relay's deletion together with the promotion, making the consumption reviewable. That file is a holding copy, never the record. Delete it by hand once every entry has landed somewhere TRACKED (`.ai/org/memory.md`, an ADR, a dispatch row) or been declined in writing — that condition, never an age. Nothing sweeps it on a timer: `ai-session.sh start` names any lingering consumed relay every session, because a maintainer away for weeks must return to the same prompt rather than to a tidied-away file.
-- **Coordination-tier changes**: a session that cannot write the maintainer's `workspace/` coordination files (sandboxed to the repo tree) does not leave those updates as prose in the relay alone — it mirrors the intended changes as ready-to-apply files under the gitignored `.ai/scratchpad/workspace/`, at the same relative paths they hold under `workspace/` (a full replacement file where the whole file changes; exact old/new edit text otherwise), and points at them from the relay, so the maintainer can diff and `cp -p` rather than transcribe.
-- **The handoff report ends with a runnable closing recipe, every time.** The last thing a session prints is not a summary but a sequence the maintainer can execute without reconstructing anything: the exact commands to close this session and to set up and start the next one. That means — as applicable — `scripts/sign-push.sh`; the `gh pr create` invocation with its title and a `--body-file` whose body has already been written to `.ai/scratchpad/`; any `cp -p` of mirrored `workspace/` files with the `git -C … commit --file …` that lands them and the `rm -f` of the spent draft; the `git branch --move … merged/prNN/…` parking command; the relocation of any executed opening prompt; and the path to the next session's opening prompt with the model to run it under. Written out in full, not described. A report that says "then open a PR" has moved work back onto the maintainer that the session was supposed to have finished; this is the most common way an otherwise complete session ends incomplete.
+- **Coordination-tier changes**: a session that cannot write the maintainer's coordination repository, `toobuntu/tb-coordination` (the sandbox is scoped to the repo tree), does not leave those updates as prose in the relay alone — it mirrors the intended changes as ready-to-apply files under the gitignored `.ai/scratchpad/tb-coordination/`, at the same relative paths they hold in that repository (a full replacement file where the whole file changes; exact old/new edit text otherwise), and points at them from the relay, so the maintainer can diff and `cp -p` rather than transcribe.
+- **The handoff report ends with a runnable closing recipe, every time.** The last thing a session prints is not a summary but a sequence the maintainer can execute without reconstructing anything: the exact commands to close this session and to set up and start the next one. That means — as applicable — `scripts/sign-push.sh`; the `gh pr create` invocation with its title and a `--body-file` whose body has already been written to `.ai/scratchpad/`; any `cp -p` of files mirrored for `toobuntu/tb-coordination` with the `git -C … commit --file …` that lands them and the `rm -f` of the spent draft; the `git branch --move … merged/prNN/…` parking command; the relocation of any executed opening prompt; and the path to the next session's opening prompt with the model to run it under. Written out in full, not described. A report that says "then open a PR" has moved work back onto the maintainer that the session was supposed to have finished; this is the most common way an otherwise complete session ends incomplete.
 - **Boundary with the agent's own memory**: project knowledge belongs in the repo (`.ai/` files, ADRs, code) — an agent's per-machine memory is invisible to contributors and dies with a retired clone, so it holds only personal agent-workflow preferences, never project facts.
 
 ## Session economy

@@ -28,7 +28,7 @@
 #            -- what will actually be committed -- not the possibly-dirty
 #            working-tree copy at the same path: the staged blobs are
 #            materialized with `git checkout-index` into a throwaway tree and
-#            scanned there, so the bidi-allow annotation is read from the blob
+#            scanned there, so the invisible-allow annotation is read from the blob
 #            and an annotation edited but not staged exempts nothing.
 #   tracked  The tracked repository is clean. The default, and what CI runs.
 #   tree     The whole working tree is clean, vendored and generated content
@@ -142,9 +142,9 @@ build_patterns() {
   printf '%s' "$_out"
 }
 
-# First bidi-allow annotation in the file, or empty.
-read_bidi_allow() {
-  LC_ALL=C sed -n 's/.*bidi-allow:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$1" | head -n 1
+# First invisible-allow annotation in the file, or empty.
+read_invisible_allow() {
+  LC_ALL=C sed -n 's/.*invisible-allow:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$1" | head -n 1
 }
 
 # Internal mode: scan the paths given as arguments, appending each finding
@@ -160,7 +160,7 @@ scan_batch_main() {
   _default_patterns=$(build_patterns "")
   for _f in "$@"; do
     [ -f "$_f" ] || continue
-    _allow=$(read_bidi_allow "$_f")
+    _allow=$(read_invisible_allow "$_f")
     if [ -n "$_allow" ]; then
       _patterns=$(build_patterns "$_allow") || continue
     else
@@ -249,7 +249,7 @@ trap cleanup EXIT INT TERM
 
 # The staged scope scans INDEX content. `git checkout-index` materializes the
 # staged blobs into a throwaway tree preserving relative paths, so findings
-# report the logical path and the bidi-allow annotation is read from the blob a
+# report the logical path and the invisible-allow annotation is read from the blob a
 # commit would actually record. The runner's PRE_COMMIT_STAGED_LIST (a
 # NUL-delimited file of ACMRT paths, computed once per commit) is honored when
 # present; standalone runs derive the same list. Non-regular entries (a staged
@@ -346,6 +346,6 @@ if [ -s "$_found_tmp" ]; then
     printf '  %s\n' "$_bf" >&2
   done
   printf '\nA file may opt out of specific codepoints with an in-file\n' >&2
-  printf 'annotation, e.g.:  // bidi-allow: U+200E,U+200F\n' >&2
+  printf 'annotation, e.g.:  // invisible-allow: U+200E,U+200F\n' >&2
   exit 1
 fi

@@ -88,11 +88,14 @@ set -euo pipefail
 # Without this, a missing `reuse` makes the pipeline below exit 0 with
 # an empty result (the `|| true` swallows the failure), so the script
 # silently no-ops while the user believes annotation ran.
+#
+# 127 is the shell's own "command not found" status, so a caller can tell
+# a missing dependency from an annotation run that failed on its merits.
 require_tool() {
   command -v "$1" > /dev/null 2>&1 && return 0
   printf 'error: %s not found; required by %s\n' "$1" "${0##*/}" >&2
   printf '  Install: brew install %s\n' "$1" >&2
-  exit 1
+  exit 127
 }
 
 require_tool reuse
@@ -138,8 +141,17 @@ clang_re='(^|/)\.clang-(format|tidy)$'
 clang_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${clang_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${clang_re}" || true)
 
-# 3. Generated completion files: keep verbatim, use sidecar.
-#    Covers fish (.fish), bash (no-extension), zsh (_-prefixed) under completions/.
+# 3. Generated completion files: keep verbatim, use sidecar. An inline header
+#    would be destroyed the next time the generator runs -- in the Homebrew
+#    taps that is `brew generate-tap-man-completions`, which rewrites
+#    completions/{bash,fish,zsh}/ wholesale.
+#    Matched by PATH, deliberately, and NOT by the .fish extension. The
+#    generator writes where this project tells it to, so the path is reliable;
+#    an extension rule would also claim hand-written fish -- a script, or a
+#    config.fish -- which is ordinary source and wants an inline # header like
+#    any other shell file. A sidecar there is harmless but is noise. bash
+#    completions are extension-less and zsh ones are _-prefixed, so path is
+#    the only handle on those two regardless.
 compl_re='(^|/)completions/'
 compl_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${compl_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${compl_re}" || true)

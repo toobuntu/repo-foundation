@@ -18,7 +18,7 @@
 # category Cf (Format), extended to Cc (Control) minus a TAB/LF/CR allowlist.
 # Invisible characters added to Cf/Cc in later Unicode revisions are caught
 # as the runner's python3 updates. Per-file opt-out via a
-# `bidi-allow: U+XXXX,U+YYYY` annotation anywhere in the file.
+# `invisible-allow: U+XXXX,U+YYYY` annotation anywhere in the file.
 #
 # A finding is confirmed against file(1) before it is reported, because the Cc
 # extension reaches ordinary binary content: a fixture holding a NUL decodes as
@@ -40,7 +40,7 @@ import sys
 import unicodedata
 
 ALLOWED = {0x09, 0x0A, 0x0D}  # TAB, LF, CR
-ALLOW_RE = re.compile(r'bidi-allow:\s*([U+0-9A-Fa-f,]+)')
+ALLOW_RE = re.compile(r'invisible-allow:\s*([U+0-9A-Fa-f,]+)')
 
 # Separator for `file --mime`, so the answer can be taken as the field after
 # the LAST occurrence rather than by splitting on ':' (paths contain colons).
@@ -337,7 +337,7 @@ def main():
         print('', file=sys.stderr)
         print('A file may opt out of specific codepoints with an in-file',
               file=sys.stderr)
-        print('annotation, e.g.:  // bidi-allow: U+200E,U+200F',
+        print('annotation, e.g.:  // invisible-allow: U+200E,U+200F',
               file=sys.stderr)
         ok = False
     if not ok:
