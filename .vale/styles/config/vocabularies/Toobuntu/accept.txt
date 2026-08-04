@@ -6,6 +6,7 @@ Codex
 Copilot
 GitHub
 GitLab
+Codeberg
 Homebrew
 macOS
 Xcode
