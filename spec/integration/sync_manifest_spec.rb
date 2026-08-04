@@ -84,7 +84,7 @@ RSpec.describe "sync-manifest.yaml contract" do
 
     shipped = sets.fetch("scripts_core").map { |c| c.fetch("target") }
     expect(invoked - shipped).to be_empty,
-                                 "settings.baseline.json invokes scripts scripts_core does not ship:\n" \
+                                 "settings.baseline.json invokes scripts that scripts_core does not ship:\n" \
                                  "  #{(invoked - shipped).join("\n  ")}"
 
     orphaned = consumers.select { |c| c["sets"].include?("repo_baseline") }

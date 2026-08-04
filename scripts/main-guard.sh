@@ -64,13 +64,18 @@ record="$git_dir/claude-main-guard"
 # is one path and `cut` cannot be fooled by an embedded newline. Dropping the
 # two status columns is deliberate: a path that merely moves from unstaged to
 # staged is the same finding, not a new one.
+# `--untracked-files=normal` is passed explicitly rather than relied on as the
+# default: `status.showUntrackedFiles=no` in any config would hide new files,
+# and a new file written through a shell is the exact bypass this guard exists
+# to catch. `normal` rather than `all` because a directory's first new file
+# already fires the report, and `all` walks every untracked tree.
 dirty_paths() {
-  git status --porcelain | cut -c4-
+  git status --porcelain --untracked-files=normal | cut -c4-
 }
 
 case "${1:-}" in
 seed)
-  dirty_paths | sort > "$record"
+  dirty_paths | LC_ALL=C sort > "$record"
   ;;
 
 check)
@@ -78,7 +83,7 @@ check)
 
   now=$(mktemp "${TMPDIR:-/tmp}/main-guard.XXXXXX")
   trap 'rm -f "$now"' EXIT INT TERM
-  dirty_paths | sort > "$now"
+  dirty_paths | LC_ALL=C sort > "$now"
 
   if [ ! -f "$record" ]; then
     # No seed: SessionStart never fired, or the repository appeared mid-session.
@@ -88,7 +93,7 @@ check)
     exit 0
   fi
 
-  new=$(comm -13 "$record" "$now")
+  new=$(LC_ALL=C comm -13 "$record" "$now")
   [ -n "$new" ] || exit 0
 
   # Fold the finding into the record so the next Bash call does not repeat a

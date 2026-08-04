@@ -76,6 +76,23 @@ reviews:
         or other sensitive data inadvertently captured in transcripts. Files
         not in the manifest are repo-local and the neutrality rule does not
         apply to them at all.
+    - path: ".vale/styles/config/vocabularies/Toobuntu/accept.txt"
+      instructions: |
+        This is a spelling accept list, and it is scoped to the SYNCED CORPUS
+        rather than to this repository. Do NOT flag a consumer repository's
+        name here (blackoutd, lume, rumdl, pipx, newsyslog and the like) as a
+        consumer-specific identifier leaking into a canonical file — that
+        reading is backwards, and it was ruled on 2026-08-04 with counts.
+        repo-foundation pushes .ai/org/memory.md, docs/agent-principles.md and
+        docs/testing-github-workflows-locally.md to every consumer, and those
+        files name blackoutd, lume and rumdl (148 occurrences of lume in one of
+        them). A term the hub SENDS to a consumer must be accepted there, or
+        the consumer's own prose gate fails on content it did not write and
+        cannot edit. The rule that does apply: a term used only in this
+        repository's unsynced files belongs in a consumer's unsynced `Local`
+        vocabulary instead, which foundation-init seeds for exactly this split.
+        Entries are regular expressions, matched case-insensitively; one covers
+        the possessive but NOT the plural, so `word(s)?` is normal and correct.
     - path: "**/*.{sh,bash,ksh}"
       instructions: |
         These repositories target macOS, which ships the BSD userland. Do NOT flag

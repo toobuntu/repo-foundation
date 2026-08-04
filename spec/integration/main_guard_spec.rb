@@ -70,6 +70,22 @@ RSpec.describe "scripts/main-guard.sh" do
     end
   end
 
+  # `git status --porcelain` honors status.showUntrackedFiles, so a repository
+  # configured to hide untracked files would hide the exact bypass this guard
+  # exists to catch. The flag is passed explicitly; this proves it wins.
+  it "still reports a new file when the repository hides untracked files" do
+    with_repo do |dir|
+      sh!(dir, "git", "config", "status.showUntrackedFiles", "no")
+      guard(dir, "seed")
+      File.write(File.join(dir, "created.txt"), "written through a shell\n")
+
+      _out, err, status = guard(dir, "check")
+
+      expect(status.exitstatus).to eq(2)
+      expect(err).to include("created.txt")
+    end
+  end
+
   it "stays silent about changes that were already there at the seed" do
     with_repo do |dir|
       File.write(File.join(dir, "tracked.txt"), "the maintainer's own work in progress\n")
@@ -147,8 +163,8 @@ RSpec.describe "scripts/main-guard.sh" do
       guard(dir, "seed")
 
       expect(File).to exist(File.join(dir, ".git", "claude-main-guard"))
-      status, = Open3.capture3("git", "status", "--porcelain", chdir: dir)
-      expect(status).to be_empty
+      porcelain, = Open3.capture3("git", "status", "--porcelain", chdir: dir)
+      expect(porcelain).to be_empty
     end
   end
 

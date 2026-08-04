@@ -109,13 +109,28 @@ fi
 # file would hard-fail the prose gate on the next clone. Empty is fine — vale
 # accepts an empty accept.txt — and the repository fills it with its own domain
 # terms, which never travel back to the canonical vocabulary.
+#
+# The sidecar is derived from the canonical one rather than written here, so
+# the SPDX format stays whatever reuse produces, with only the license line
+# substituted for --license. A vocabulary file cannot carry an inline header:
+# every line in it is a match pattern, so a comment would become one.
+# Each half is seeded independently — a repository that already has an
+# accept.txt but no sidecar is exactly the half-seeded state to repair, not to
+# skip past.
 local_vocab="$target/.vale/styles/config/vocabularies/Local"
+mkdir -p "$local_vocab"
 if [ ! -e "$local_vocab/accept.txt" ]; then
-  mkdir -p "$local_vocab"
   : > "$local_vocab/accept.txt"
-  cp "$rf_root/.vale/styles/config/vocabularies/Toobuntu/accept.txt.license" \
-    "$local_vocab/accept.txt.license"
   printf 'seeded: %s\n' "$local_vocab/accept.txt"
+fi
+if [ ! -e "$local_vocab/accept.txt.license" ]; then
+  # REUSE-IgnoreStart -- the pattern below is a substitution target, not this
+  # file's own license declaration; reuse parses the bare string otherwise.
+  sed "s|^SPDX-License-Identifier:.*|SPDX-License-Identifier: $license|" \
+    "$rf_root/.vale/styles/config/vocabularies/Toobuntu/accept.txt.license" \
+    > "$local_vocab/accept.txt.license"
+  # REUSE-IgnoreEnd
+  printf 'seeded: %s\n' "$local_vocab/accept.txt.license"
 fi
 
 # 2. Seed the baseline-merge targets with an empty managed region. The first
