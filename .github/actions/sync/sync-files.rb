@@ -217,7 +217,17 @@ def insert_point(lines, style)
   if lines[i]&.match?(/\A---\s*$/)
     j = i + 1
     j += 1 while lines[j] && !lines[j].match?(/\A---\s*$/)
-    i = j + 1 if lines[j]
+    if lines[j]
+      i = j + 1
+      # In Markdown, land BELOW the blank line a frontmatter fence must be
+      # followed by, not between the two. Inserting directly after `---`
+      # renders a file that fails the org's own markdown gate in every
+      # consumer: MD071 (missing blank line after frontmatter), and MD012
+      # once the original blank becomes a second consecutive one. Scoped to
+      # :html because a hash-comment file whose first line is `---` is YAML,
+      # where the blank carries no such rule.
+      i += 1 if style == :html && lines[i]&.strip&.empty?
+    end
   end
   if style == :html
     if lines[i]&.lstrip&.start_with?("<!--")

@@ -422,6 +422,76 @@ RSpec.describe "sync-files.rb engine" do
     end
   end
 
+  # Claude Code skills are the first canonical target whose YAML frontmatter is
+  # load-bearing: the loader reads it only at file position 1, and its SPDX
+  # block sits INSIDE that frontmatter (org memory, 2026-07-30, measured both
+  # directions). A synced header prepended above the fence would make every
+  # consumer's copy stop loading, silently — so the placement is asserted here
+  # rather than inferred from the insert-point code.
+  it "keeps YAML frontmatter first and puts the synced header below it" do
+    Dir.mktmpdir("rf-sync-src-") do |source|
+      FileUtils.mkdir_p("#{source}/.claude/skills/tb-example")
+      File.write("#{source}/.claude/skills/tb-example/SKILL.md", <<~MD)
+        ---
+        # SPDX-FileCopyrightText: Copyright 2026 Todd Schulman
+        #
+        # SPDX-License-Identifier: GPL-3.0-or-later
+
+        name: tb-example
+        description: A skill whose frontmatter must survive the sync.
+        ---
+
+        # Example skill
+
+        The body a session reads.
+      MD
+      File.write("#{source}/sync-manifest.yaml", <<~YML)
+        version: 1
+        defaults:
+          synced_header: >-
+            This file is synced from toobuntu/repo-foundation (%<source>s) by
+            sync-to-consumers.yml; do not modify it directly.
+        component_sets:
+          claude_skills:
+            - { source: .claude/skills/tb-example/SKILL.md, target: .claude/skills/tb-example/SKILL.md, mode: canonical }
+        consumers:
+          - repo: toobuntu/test-consumer
+            sets: [claude_skills]
+      YML
+      Dir.mktmpdir("rf-sync-tgt-") do |target|
+        init_target(target)
+        out, err, status = run_engine(source, target)
+        expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+
+        synced = File.read("#{target}/.claude/skills/tb-example/SKILL.md")
+        lines = synced.lines
+
+        expect(lines.first).to eq("---\n")
+        expect(lines[1]).to include("SPDX-FileCopyrightText")
+
+        fence_end = lines.each_index.select { |i| lines[i] == "---\n" }[1]
+        comment_start = lines.index { |l| l.start_with?("<!--") }
+        expect(fence_end).not_to be_nil
+        expect(comment_start).to be > fence_end
+
+        # The wrap position moves with the source path's length, so match
+        # across every space in the sentence rather than the one that
+        # happened to wrap when this was written.
+        header = /do\s+not\s+modify\s+it\s+directly/
+        expect(synced.scan(header).length).to eq(1)
+        expect(synced).to include("name: tb-example")
+        expect(synced).to include("The body a session reads.")
+
+        # What the org's markdown gate requires of the rendered file, asserted
+        # structurally so the spec needs no rumdl: a blank line after the
+        # frontmatter fence (MD071), and no two blank lines in a row (MD012).
+        expect(lines[fence_end + 1]).to eq("\n")
+        doubled = lines.each_cons(2).any? { |a, b| a == "\n" && b == "\n" }
+        expect(doubled).to eq(false), "rendered skill has consecutive blank lines:\n#{synced}"
+      end
+    end
+  end
+
   it "writes nothing under --dry-run" do
     Dir.mktmpdir("rf-sync-src-") do |source|
       write_source(source)
