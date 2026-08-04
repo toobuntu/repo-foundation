@@ -29,6 +29,12 @@ Review-bot output is a set of claims to verify, not a task list to execute. Bots
    gh api "/repos/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/pulls/<N>/comments" --paginate
    ```
 
+   **Those two are commands the maintainer runs, not the agent.** Every org repository's settings put `~/.config/gh` in `sandbox.filesystem.denyRead`, so inside the agent sandbox `gh` dies at config load before it parses an argument — a sandbox denial, which no permission entry can grant. The agent's own read-only fallback for a PUBLIC repository is unauthenticated `curl` against `api.github.com`, which is on the network allowlist and needs no credentials; anything private or authenticated is a maintainer step.
+
+   ```sh
+   curl -sS "https://api.github.com/repos/<owner>/<repo>/pulls/<N>/comments"
+   ```
+
    Where a check is failing, read the log rather than the check name (`gh run view <id> --log-failed`); a check name rarely says what broke. Treat a comment whose `in_reply_to_id` is set as possibly already answered, and report "the bots have not posted yet" rather than presenting an empty list as a clean review. Stopping after this step is a legitimate outcome when the maintainer only asked for the state.
 1. **Enumerate** every finding with its source (which bot, or which reviewer) and the file and line it names. Include findings the maintainer forwarded without comment.
 2. **Verify each against the current code.** Read the file at that line. Do not trust the quoted snippet: bots review a commit that may already have moved, and a finding can be stale rather than wrong. A claim about behavior gets tested, not reasoned about — if the finding says a guard fires, make it fire.
