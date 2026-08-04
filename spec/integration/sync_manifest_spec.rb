@@ -72,6 +72,29 @@ RSpec.describe "sync-manifest.yaml contract" do
                        "  #{missing.join("\n  ")}"
   end
 
+  # settings.baseline.json wires hooks that shell out to repo scripts — today
+  # ai-session.sh (SessionStart/SessionEnd) and main-guard.sh (SessionStart
+  # seed, PostToolUse check). scripts_core is what delivers those. Both hooks
+  # no-op when their script is missing, which is the reason to test it: the
+  # failure is a guard that silently never runs, not a visible error.
+  it "delivers every script the settings baseline's hooks invoke" do
+    baseline = File.read(File.join(REPO_ROOT, "provides/repo/settings.baseline.json"))
+    invoked = baseline.scan(%r{scripts/[A-Za-z0-9._-]+\.sh}).uniq
+    expect(invoked).not_to be_empty, "no scripts referenced — did the hook wiring change shape?"
+
+    shipped = sets.fetch("scripts_core").map { |c| c.fetch("target") }
+    expect(invoked - shipped).to be_empty,
+                                 "settings.baseline.json invokes scripts scripts_core does not ship:\n" \
+                                 "  #{(invoked - shipped).join("\n  ")}"
+
+    orphaned = consumers.select { |c| c["sets"].include?("repo_baseline") }
+                        .reject { |c| c["sets"].include?("scripts_core") }
+                        .map { |c| c.fetch("repo") }
+    expect(orphaned).to be_empty,
+                        "repo_baseline without scripts_core (hooks would silently no-op):\n" \
+                        "  #{orphaned.join("\n  ")}"
+  end
+
   it "maps the homebrew_sandbox class fragment only to Homebrew-aligned consumers" do
     with_fragment = consumers.select { |c| c["sets"].include?("homebrew_sandbox") }.map { |c| c["repo"] }
     expect(with_fragment).to contain_exactly("toobuntu/homebrew-cask-tools", "toobuntu/homebrew-babble")

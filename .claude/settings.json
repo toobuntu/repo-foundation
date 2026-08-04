@@ -417,6 +417,29 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/main-guard.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" check",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/main-guard.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" seed",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
