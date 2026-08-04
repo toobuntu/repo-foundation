@@ -110,27 +110,27 @@ fi
 # accepts an empty accept.txt — and the repository fills it with its own domain
 # terms, which never travel back to the canonical vocabulary.
 #
-# The sidecar is derived from the canonical one rather than written here, so
-# the SPDX format stays whatever reuse produces, with only the license line
-# substituted for --license. A vocabulary file cannot carry an inline header:
-# every line in it is a match pattern, so a comment would become one.
-# Each half is seeded independently — a repository that already has an
-# accept.txt but no sidecar is exactly the half-seeded state to repair, not to
-# skip past.
+# The .license sidecar is NOT written here — the annotate.sh run in step 4
+# writes it, already carrying ANNOTATE_LICENSE and a category that forces a
+# sidecar for this path. Hand-writing the SPDX would hardcode
+# repo-foundation's license into a consumer that passed --license.
+#
+# That hand-off has one requirement, and it is the reason this file is seeded
+# with a term rather than left empty: `reuse lint` does not report an EMPTY
+# file at all (measured — tracked or untracked, it is simply absent from
+# `.non_compliant`), and annotate.sh acts only on what that lint reports. An
+# empty accept.txt would therefore never receive its sidecar. The repository's
+# own name is the right first entry anyway: it is exactly the kind of term
+# Vale.Spelling flags, and every repository needs it.
 local_vocab="$target/.vale/styles/config/vocabularies/Local"
 mkdir -p "$local_vocab"
-if [ ! -e "$local_vocab/accept.txt" ]; then
-  : > "$local_vocab/accept.txt"
-  printf 'seeded: %s\n' "$local_vocab/accept.txt"
+if [ -e "$local_vocab/accept.txt" ] && [ ! -f "$local_vocab/accept.txt" ]; then
+  printf 'error: %s exists and is not a regular file\n' "$local_vocab/accept.txt" >&2
+  exit 1
 fi
-if [ ! -e "$local_vocab/accept.txt.license" ]; then
-  # REUSE-IgnoreStart -- the pattern below is a substitution target, not this
-  # file's own license declaration; reuse parses the bare string otherwise.
-  sed "s|^SPDX-License-Identifier:.*|SPDX-License-Identifier: $license|" \
-    "$rf_root/.vale/styles/config/vocabularies/Toobuntu/accept.txt.license" \
-    > "$local_vocab/accept.txt.license"
-  # REUSE-IgnoreEnd
-  printf 'seeded: %s\n' "$local_vocab/accept.txt.license"
+if [ ! -f "$local_vocab/accept.txt" ]; then
+  basename "$target" > "$local_vocab/accept.txt"
+  printf 'seeded: %s\n' "$local_vocab/accept.txt"
 fi
 
 # 2. Seed the baseline-merge targets with an empty managed region. The first

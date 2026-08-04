@@ -20,6 +20,10 @@
 #      (a consumer receives the file, not this repo's
 #      REUSE.toml), so route them to inline # here.
 #   3. Generated completion files (completions/**)      → sidecar       (--force-dot-license)
+#   3b. Vale vocabularies                                → sidecar       (--force-dot-license)
+#      (.vale/styles/config/vocabularies/**)
+#      Every line is a match pattern, so an inline header
+#      becomes a rule rather than an annotation.
 #   4. Man pages (.[1-9], .[1-9][a-z]*, with optional   → sidecar       (--force-dot-license)
 #      .md suffix; e.g. progname.1, progname.3p,
 #      progname.1ssl, progname.1.md)
@@ -159,6 +163,17 @@ compl_re='(^|/)completions/'
 compl_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${compl_re}" || true)
 remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${compl_re}" || true)
 
+# 3b. Vale vocabularies: sidecar, never inline, and for a harder reason than
+#    the categories around it. EVERY line of an accept.txt or reject.txt is a
+#    match pattern, so an inline "# SPDX-..." comment does not annotate the
+#    file -- it silently becomes a rule that accepts the word "SPDX". Matched
+#    by PATH, like completions: the .txt extension alone says nothing, and the
+#    catch-all would otherwise hand these to reuse's auto-detection, which
+#    knows a comment style for .txt and would write one in.
+vocab_re='(^|/)\.vale/styles/config/vocabularies/'
+vocab_files=$(printf '%s\n' "${remaining}" | grep --extended-regexp "${vocab_re}" || true)
+remaining=$(printf '%s\n' "${remaining}" | grep --invert-match --extended-regexp "${vocab_re}" || true)
+
 # 4. Man pages — must run BEFORE markup category so ronn/md2man source
 #    (.1.md) is treated as a man page, not as Markdown. Matches any
 #    section [1-9], optionally with subsection letter suffix
@@ -218,6 +233,7 @@ other_files=$(printf '%s\n' "${remaining}" || true)
 [[ -n ${go_files} ]] && printf '%s\n' "${go_files}" | annotate --style=c
 [[ -n ${clang_files} ]] && printf '%s\n' "${clang_files}" | annotate --style=python
 [[ -n ${compl_files} ]] && printf '%s\n' "${compl_files}" | annotate --force-dot-license
+[[ -n ${vocab_files} ]] && printf '%s\n' "${vocab_files}" | annotate --force-dot-license
 [[ -n ${man_files} ]] && printf '%s\n' "${man_files}" | annotate --force-dot-license
 [[ -n ${plist_files} ]] && printf '%s\n' "${plist_files}" | annotate --force-dot-license
 [[ -n ${markup_files} ]] && printf '%s\n' "${markup_files}" | annotate --style=html

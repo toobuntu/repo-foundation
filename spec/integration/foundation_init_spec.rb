@@ -83,49 +83,64 @@ RSpec.describe "foundation-init.sh" do
 
       vocab = "#{target}/.vale/styles/config/vocabularies/Local/accept.txt"
       expect(File.exist?(vocab)).to eq(true)
-      expect(File.read(vocab)).to be_empty
-      expect(File.exist?("#{vocab}.license")).to eq(true)
-      expect(File.read("#{vocab}.license")).to include("SPDX-License-Identifier")
+      # Seeded with the repository's own name, not left empty: `reuse lint`
+      # does not report an empty file, so annotate.sh would never give it the
+      # sidecar it needs.
+      expect(File.read(vocab)).to eq("#{File.basename(target)}\n")
 
       config = File.read("#{target}/.vale.ini")
       expect(config).to match(/^Vocab = Toobuntu, Local$/)
 
-      # The sidecar is derived from the canonical one, so it must not carry
-      # repo-foundation's license into a consumer that chose another.
-      expect(File.read("#{vocab}.license")).to include("GPL-3.0-or-later")
-
+      # The .license sidecar is annotate.sh's job, and this run has no `reuse`
+      # on its restricted PATH — so the file being TRACKED is what matters
+      # here. The sidecar's content is asserted in the --license example below,
+      # which needs the real tool.
       sh!("git", "-C", target, "add", "-A")
       staged = sh!("git", "-C", target, "diff", "--cached", "--name-only").split("\n")
       expect(staged).to include(".vale/styles/config/vocabularies/Local/accept.txt")
-      expect(staged).to include(".vale/styles/config/vocabularies/Local/accept.txt.license")
     end
   end
 
   # --license governs the consumer's OWN files, and the Local vocabulary is one
-  # of them. Copying repo-foundation's sidecar verbatim would stamp a consumer
-  # under another license with GPL-3.0-or-later, and the later annotate.sh run
-  # cannot correct it: the copied sidecar is already REUSE-compliant, so
-  # nothing reports it.
-  it "stamps the local vocabulary sidecar with --license, and repairs a half-seeded pair" do
+  # of them. A vocabulary file cannot carry an inline header: every line in it is a
+  # match pattern, so "# SPDX-..." would become a rule accepting the word
+  # SPDX rather than an annotation. annotate.sh routes this path to a sidecar,
+  # and because foundation-init hands it ANNOTATE_LICENSE, a consumer that
+  # passed --license gets ITS license rather than repo-foundation's.
+  #
+  # Needs the real `reuse`, so it runs on the full PATH and skips where the
+  # tool is absent — the same shape as the vale-style spec.
+  it "stamps the local vocabulary sidecar with --license, not repo-foundation's" do
+    skip "reuse not installed" unless system("reuse", "--version", out: File::NULL, err: File::NULL)
+
     Dir.mktmpdir("rf-init-tgt-") do |target|
       sh!("git", "init", "--quiet", "--initial-branch=main", target)
-      # Pre-create only the accept.txt, so the sidecar is the missing half.
-      vocab_dir = "#{target}/.vale/styles/config/vocabularies/Local"
-      FileUtils.mkdir_p(vocab_dir)
-      File.write("#{vocab_dir}/accept.txt", "consumerterm\n")
-
-      out, err, status = Dir.mktmpdir("rf-init-bin-") do |bindir|
-        Open3.capture3({ "PATH" => restricted_path(bindir) }, script, "--license", "MIT", target)
-      end
+      out, err, status = Open3.capture3(script, "--license", "MIT", target)
       expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
 
-      expect(File.read("#{vocab_dir}/accept.txt")).to eq("consumerterm\n")
+      vocab_dir = "#{target}/.vale/styles/config/vocabularies/Local"
+      expect(File.read("#{vocab_dir}/accept.txt")).to eq("#{File.basename(target)}\n")
+
       sidecar = File.read("#{vocab_dir}/accept.txt.license")
-      # REUSE-IgnoreStart -- an assertion string, not this file's own license.
+      # REUSE-IgnoreStart -- assertion strings, not this file's own license.
       expect(sidecar).to include("SPDX-License-Identifier: MIT")
+      expect(sidecar).to include("SPDX-FileCopyrightText")
       # REUSE-IgnoreEnd
       expect(sidecar).not_to include("GPL-3.0-or-later")
-      expect(sidecar).to include("SPDX-FileCopyrightText")
+    end
+  end
+
+  it "refuses when the local vocabulary path exists but is not a regular file" do
+    Dir.mktmpdir("rf-init-tgt-") do |target|
+      sh!("git", "init", "--quiet", "--initial-branch=main", target)
+      FileUtils.mkdir_p("#{target}/.vale/styles/config/vocabularies/Local/accept.txt")
+
+      _out, err, status = Dir.mktmpdir("rf-init-bin-") do |bindir|
+        Open3.capture3({ "PATH" => restricted_path(bindir) }, script, target)
+      end
+
+      expect(status.success?).to eq(false)
+      expect(err).to include("not a regular file")
     end
   end
 

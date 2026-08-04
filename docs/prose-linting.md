@@ -35,7 +35,7 @@ Adopting upstream's curated `exceptions` list on top of that (it exempts `PATH`,
 
 What survives is not a rule defect and is the reason this one stays advisory: **60% of the remainder is ordinary English written in capitals for emphasis** — `NOT`, `DONE`, `AND`, `ONE`, `ONLY`, `NEW`, `OPEN` — which is this org's house style rather than a mistake. No pattern distinguishes emphasis from an acronym, and clearing it through `exceptions` would mean declaring common words to be acronyms that need no definition, which would also stop the rule firing on a genuine undefined acronym that happens to be a word. So `Toobuntu.Acronyms` is deliberately **off the ADR 0014 promotion path**, not merely waiting on it. The remaining 40% is a real signal worth reading by hand.
 
-You do not have to remember to look for it. The `15-prose` plugin prints its findings when a commit contains any, and the `prose` workflow logs them in an informational step that neither annotates nor gates — the only exposure a contributor who never enabled the git hooks gets.
+You do not have to remember to look for `Toobuntu.AbbreviationPluralsAmbiguous`. The `15-prose` plugin prints that rule's findings when a commit contains any, and the `prose` workflow logs them in an informational step that neither annotates nor gates — the only exposure a contributor who never enabled the git hooks gets. `Toobuntu.Acronyms` gets no such treatment: at several hundred findings per full-tree run it would be noise rather than a prompt, so it surfaces only in a deliberate review pass.
 
 ## The vocabulary
 
