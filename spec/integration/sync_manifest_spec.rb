@@ -135,6 +135,27 @@ RSpec.describe "sync-manifest.yaml contract" do
     expect(with_ai).to match_array(with_baseline)
   end
 
+  # ADR 0025. The three org-generic skills go to the repo_baseline consumers and
+  # nowhere else: toobuntu/.github hosts served community-health files rather
+  # than development work, so a session-ritual skill there would document
+  # machinery it does not have. The `tb-` prefix is the marker, so a set member
+  # without it is either a repo-specific skill promoted by mistake or a rename
+  # that lost the signal.
+  it "sends the tb-* skills to exactly the repo_baseline consumers" do
+    sources = sets.fetch("claude_skills").map { |c| c.fetch("source") }
+    expect(sources).to contain_exactly(
+      ".claude/skills/tb-issue-draft/SKILL.md",
+      ".claude/skills/tb-review-triage/SKILL.md",
+      ".claude/skills/tb-session-close/SKILL.md",
+    )
+    expect(sources.all? { |s| s.include?("/skills/tb-") }).to eq(true)
+    expect(sets.fetch("claude_skills").map { |c| c.fetch("mode") }.uniq).to eq(["canonical"])
+
+    with_skills = consumers.select { |c| c["sets"].include?("claude_skills") }.map { |c| c["repo"] }
+    with_baseline = consumers.select { |c| c["sets"].include?("repo_baseline") }.map { |c| c["repo"] }
+    expect(with_skills).to match_array(with_baseline)
+  end
+
   it "mirrors both continuity files at their natural .ai paths" do
     components = sets.fetch("ai_continuity")
     expect(components.map { |c| c.values_at("source", "target", "mode") }).to contain_exactly(
