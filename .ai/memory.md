@@ -140,7 +140,7 @@ All 34 shebang-bearing tracked files now round-trip: strip the SPDX block, re-an
 
 **The strip is the dangerous part, and it failed twice before it worked.** Recorded because `--verify` has to implement exactly this and will meet both:
 
-- A greedy "all leading comment lines after the shebang" match ate **198 lines of documentation across five files** — the SPDX block is not always the first comment, so the pattern must terminate at the block rather than consume everything up to it. Nothing was committed: the damage was caught by `git diff --stat` and reverted with `git restore`. A whitespace-only assertion added afterwards then refused `annotate.sh` correctly instead of mangling it.
+- A greedy "all leading comment lines after the shebang" match ate **198 lines of documentation across five files** — the SPDX block is not always the first comment, so the pattern must terminate at the block rather than consume everything up to it. Nothing was committed: the damage was caught by `git diff --stat` and reverted with `git restore`. A whitespace-only assertion added afterward then refused `annotate.sh` correctly instead of mangling it.
 - The strip must also remove the blank padding around the block. Leaving it makes every re-annotated file gain a stray blank, so a first check reported **all 34 files as divergent** — a verifier that says everything is broken is as useless as one that says nothing is.
 
 The maintainer's standing requirement is the same lesson from the other side: verify on a BACKUP COPY, never in place, because `reuse annotate` writes.
@@ -149,11 +149,29 @@ The maintainer's standing requirement is the same lesson from the other side: ve
 
 ## 2026-08-04 — `--verify` needs no strip at all, and two reuse behaviors that decide its shape
 
+> **RETRACTED in part, same day — see "The `--verify` no-strip claim was wrong" below.** The headline is false: re-annotating in place does NOT detect a misplaced header. The two `reuse` behaviors recorded here are correct and still hold.
+
 Supersedes the strip design in the entry above, on the maintainer's hint toward `find_and_replace_header` / `_find_first_spdx_comment` in reuse's `header.py`. **`reuse annotate` replaces its own header in place when `--no-replace` is NOT passed, and on an already-canonical file it returns the file byte-identical.** Measured both hard cases at once: `scripts/lint-perms.sh` (shebang) and `docs/decisions/0025-*.md` (SPDX inside YAML frontmatter) each came back unchanged. So `--verify` is: copy to a temp, re-annotate the COPY, diff against the original. No pattern has to find the block, which deletes the entire class of bug that ate 198 lines of documentation and then reported all 34 files as divergent. The backup remains essential for the reason the maintainer gave — `reuse annotate` writes — but it protects the original rather than powering the check.
 
-**`reuse lint` does not report an EMPTY file at all** — measured tracked and untracked; a zero-byte file is simply absent from `.non_compliant`, while a one-line untracked file is listed. This is load-bearing wherever a file is seeded for a tool to stamp later: `annotate.sh` derives its worklist from `reuse lint --json`, so an empty seeded file never receives its header. `foundation-init` therefore seeds the `Local` vocabulary with the repository's own name rather than creating it empty — which is the right first entry anyway.
+**`reuse lint` does not report an EMPTY file at all** — measured tracked and untracked; a zero-byte file is simply absent from `.non_compliant`, while a one-line untracked file is listed. This is load-bearing wherever a file is seeded for a tool to stamp later: `annotate.sh` derives its work list from `reuse lint --json`, so an empty seeded file never receives its header. `foundation-init` therefore seeds the `Local` vocabulary with the repository's own name rather than creating it empty — which is the right first entry anyway.
 
 Two smaller facts from the same pass. A **Vale vocabulary can never carry an inline header**: every line of `accept.txt` is a match pattern, so `# SPDX-…` becomes a rule accepting the word SPDX. `annotate.sh` now has a by-PATH category forcing a sidecar there, for the same reason completions have one. And the agent sandbox **denies Bash writes to `.claude/settings.json`** — `Edit` reaches it, a python heredoc does not, which is worth knowing before writing a script to patch it.
+
+## 2026-08-04 — The `--verify` no-strip claim was wrong, and the test could not have caught it
+
+Supersedes the headline of the entry above. **Re-annotating a file in place does not detect a misplaced SPDX header**, so it cannot be the basis of `--verify`.
+
+What the maintainer demonstrated, and what a proper negative control then confirmed here:
+
+- `reuse annotate` **accumulates** rather than replaces when the copyright or license differs — a second run with a different `--license` leaves BOTH `SPDX-License-Identifier` lines in the file, and a third leaves three.
+- With the SPDX block in a **non-default position** (below the code), a re-annotation carrying the SAME copyright and license returns the file **byte-identical**: reuse finds the existing header, is satisfied, and leaves it exactly where it sits.
+- The narrower whitespace defect IS normalized — a file missing the blank line after its shebang gains it.
+
+So the technique catches the one defect I happened to test against (`lint-perms.sh`, missing blank line) and is blind to the one that matters most — placement, which is precisely what `annotate.sh`'s own block-78-lines-down was. Partial coverage presented as complete: the exact trap named two entries above and then walked into.
+
+**The methodological failure is the durable part.** My test ran `reuse annotate` with the same copyright and license already present, where merge is a no-op, so idempotence was indistinguishable from replacement. There was no case whose outcome could differ between the two hypotheses. **A test with no negative control cannot support the conclusion it appears to support** — before claiming a tool normalizes something, feed it something un-normalized and check that it changes.
+
+The maintainer's original hint stands and was never that reuse would do the work: read `_find_first_spdx_comment` and `find_and_replace_header` in reuse's `header.py` (now at codeberg.org/fsfe/reuse-tool) and consider reusing its DETECTION logic inside the strip this still needs. Whether that is feasible is open. `--single-line` and custom `--template`s exist and may matter. The strip is still needed, and the backup-and-diff discipline is what makes it safe.
 
 ## 2026-08-03 — The synced header had never met YAML frontmatter
 
