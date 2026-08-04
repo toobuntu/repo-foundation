@@ -8,12 +8,26 @@
 # at warning, runs over the corpus, and is promoted to error after a clean pass
 # (ADR 0014). Toobuntu.AmericanSpelling (en_US dialect) runs everywhere — it is
 # correctness, not voice. Vale.Spelling rides at warning until the repo's accept
-# vocabulary covers its domain terms.
+# vocabulary covers its domain terms; promotion is this repository's own call,
+# taken against its own corpus, because this file is not synced.
+#
+# Two vocabularies, and the order does not matter: Toobuntu is the canonical
+# org-wide list, synced read-only from repo-foundation; Local is this
+# repository's own, never synced, and the right home for its domain terms — a
+# product name, a daemon, a flag. Add to Local first and reach for the
+# canonical list only when a term is genuinely org-wide.
+#
+# Do not delete the Local entry without also deleting its directory, and do not
+# name a vocabulary that does not exist: vale treats that as a runtime error
+# (E100) and lints NOTHING, so the prose gate fails with a config error rather
+# than a finding. foundation-init seeds .vale/styles/config/vocabularies/Local/
+# with an empty accept.txt and its .license sidecar for exactly this reason —
+# git does not track an empty directory, so the file has to be real.
 #
 # Install: brew install vale
 StylesPath = .vale/styles
 MinAlertLevel = error
-Vocab = Toobuntu
+Vocab = Toobuntu, Local
 
 [*.md]
 BasedOnStyles = Vale, Toobuntu

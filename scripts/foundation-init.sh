@@ -102,6 +102,21 @@ if [ -e "$rf_root/provides/vale/vale.ini.template" ] && [ ! -e "$target/.vale.in
   cp "$rf_root/provides/vale/vale.ini.template" "$target/.vale.ini"
   printf 'copied: %s\n' "$target/.vale.ini"
 fi
+# The per-repo vocabulary the seeded .vale.ini names alongside the synced
+# Toobuntu one. It must exist as a TRACKED FILE before that config is used:
+# vale treats a missing vocabulary as a runtime error (E100) and lints nothing,
+# and git does not track an empty directory, so seeding the name without the
+# file would hard-fail the prose gate on the next clone. Empty is fine — vale
+# accepts an empty accept.txt — and the repository fills it with its own domain
+# terms, which never travel back to the canonical vocabulary.
+local_vocab="$target/.vale/styles/config/vocabularies/Local"
+if [ ! -e "$local_vocab/accept.txt" ]; then
+  mkdir -p "$local_vocab"
+  : > "$local_vocab/accept.txt"
+  cp "$rf_root/.vale/styles/config/vocabularies/Toobuntu/accept.txt.license" \
+    "$local_vocab/accept.txt.license"
+  printf 'seeded: %s\n' "$local_vocab/accept.txt"
+fi
 
 # 2. Seed the baseline-merge targets with an empty managed region. The first
 #    sync replaces the region between the sentinels with the canonical baseline.

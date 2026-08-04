@@ -68,6 +68,35 @@ RSpec.describe "foundation-init.sh" do
     end
   end
 
+  # The seeded .vale.ini names two vocabularies, and vale treats a vocabulary
+  # it cannot find as a runtime error (E100) that lints nothing at all — so the
+  # local one has to arrive as a TRACKED file, not just a directory: git does
+  # not track an empty directory, and the layer would evaporate on the next
+  # clone, turning the prose gate into a config failure.
+  it "seeds a tracked local vocabulary for the .vale.ini it writes" do
+    Dir.mktmpdir("rf-init-tgt-") do |target|
+      sh!("git", "init", "--quiet", "--initial-branch=main", target)
+      out, err, status = Dir.mktmpdir("rf-init-bin-") do |bindir|
+        Open3.capture3({ "PATH" => restricted_path(bindir) }, script, target)
+      end
+      expect(status.success?).to eq(true), "stdout=#{out}\nstderr=#{err}"
+
+      vocab = "#{target}/.vale/styles/config/vocabularies/Local/accept.txt"
+      expect(File.exist?(vocab)).to eq(true)
+      expect(File.read(vocab)).to be_empty
+      expect(File.exist?("#{vocab}.license")).to eq(true)
+      expect(File.read("#{vocab}.license")).to include("SPDX-License-Identifier")
+
+      config = File.read("#{target}/.vale.ini")
+      expect(config).to match(/^Vocab = Toobuntu, Local$/)
+
+      sh!("git", "-C", target, "add", "-A")
+      staged = sh!("git", "-C", target, "diff", "--cached", "--name-only").split("\n")
+      expect(staged).to include(".vale/styles/config/vocabularies/Local/accept.txt")
+      expect(staged).to include(".vale/styles/config/vocabularies/Local/accept.txt.license")
+    end
+  end
+
   it "inserts the seeded lines into the appended region of a pre-existing .gitignore" do
     Dir.mktmpdir("rf-init-tgt-") do |target|
       sh!("git", "init", "--quiet", "--initial-branch=main", target)
