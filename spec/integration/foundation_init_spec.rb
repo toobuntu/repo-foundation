@@ -130,6 +130,27 @@ RSpec.describe "foundation-init.sh" do
     end
   end
 
+  # A vocabulary entry is a regular expression. An unescaped repository name
+  # containing `.` matches any character there; one containing `+` or `(` is
+  # not a valid pattern at all. `toobuntu/.github` is the live example.
+  it "regex-escapes the repository name it seeds into the local vocabulary" do
+    { ".github" => '\.github', "a+b(c)" => 'a\+b\(c\)', "plain-name" => "plain-name" }
+      .each do |dirname, expected|
+      Dir.mktmpdir("rf-init-outer-") do |outer|
+        target = File.join(outer, dirname)
+        FileUtils.mkdir_p(target)
+        sh!("git", "init", "--quiet", "--initial-branch=main", target)
+        _out, err, status = Dir.mktmpdir("rf-init-bin-") do |bindir|
+          Open3.capture3({ "PATH" => restricted_path(bindir) }, script, target)
+        end
+        expect(status.success?).to eq(true), err
+
+        vocab = "#{target}/.vale/styles/config/vocabularies/Local/accept.txt"
+        expect(File.read(vocab)).to eq("#{expected}\n"), "for directory #{dirname.inspect}"
+      end
+    end
+  end
+
   it "refuses when the local vocabulary path exists but is not a regular file" do
     Dir.mktmpdir("rf-init-tgt-") do |target|
       sh!("git", "init", "--quiet", "--initial-branch=main", target)

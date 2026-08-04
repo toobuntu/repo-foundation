@@ -76,6 +76,17 @@ reviews:
         or other sensitive data inadvertently captured in transcripts. Files
         not in the manifest are repo-local and the neutrality rule does not
         apply to them at all.
+    - path: "docs/{prose-linting,testing-github-workflows-locally}.md"
+      instructions: |
+        These are operational how-tos and are written in the SECOND PERSON
+        throughout, deliberately — "you do not have to remember", "when you do
+        want to narrow", "never guess the key". Do NOT flag that as
+        direct-reader wording or ask for impersonal phrasing: the org's voice
+        rule is Toobuntu.We, which targets the FIRST-person plural ("we", "our")
+        and deliberately says nothing about "you". Rewriting one sentence would
+        also leave the document inconsistent with itself. Ruled 2026-08-04.
+        Reference material and decision records are a different genre and do
+        use impersonal phrasing; this instruction covers only these how-tos.
     - path: ".vale/styles/config/vocabularies/Toobuntu/accept.txt"
       instructions: |
         This is a spelling accept list, and it is scoped to the SYNCED CORPUS

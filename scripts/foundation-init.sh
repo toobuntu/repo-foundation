@@ -129,7 +129,11 @@ if [ -e "$local_vocab/accept.txt" ] && [ ! -f "$local_vocab/accept.txt" ]; then
   exit 1
 fi
 if [ ! -f "$local_vocab/accept.txt" ]; then
-  basename "$target" > "$local_vocab/accept.txt"
+  # A vocabulary entry is a REGULAR EXPRESSION, so the name is escaped before
+  # it becomes one. Unescaped, a repository directory named `.github` yields a
+  # pattern whose `.` matches any character, and a name holding `+` or `(`
+  # yields an invalid pattern rather than a term.
+  basename "$target" | sed 's/[][\.^$*+?(){}|]/\\&/g' > "$local_vocab/accept.txt"
   printf 'seeded: %s\n' "$local_vocab/accept.txt"
 fi
 
