@@ -298,9 +298,9 @@
       "Bash(curl --request POST:*)",
       "Bash(curl -X PATCH:*)",
       "Bash(curl --request PATCH:*)",
-      "Bash(curl:* | sh)",
-      "Bash(curl:* | bash)",
-      "Bash(curl:* | zsh)",
+      "Bash(curl * | sh)",
+      "Bash(curl * | bash)",
+      "Bash(curl * | zsh)",
       "Bash(wget:*)",
 
       "Read(./.env)",
