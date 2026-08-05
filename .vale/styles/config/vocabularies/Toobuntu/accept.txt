@@ -50,6 +50,7 @@ livecheck
 codesign
 codesigning
 namespaced
+namespacing
 hardcoded
 gitignored
 untracked
