@@ -428,7 +428,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/main-guard.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" check",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/guard-main.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" check",
             "timeout": 10
           }
         ]
@@ -439,7 +439,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/main-guard.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" seed",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/guard-main.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" seed",
             "timeout": 10
           }
         ]

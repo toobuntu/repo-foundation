@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai-session.sh\"; [ -x \"$s\" ] && \"$s\" start || true",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] && \"$s\" start || true",
             "timeout": 10
           }
         ]
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai-session.sh\"; [ -x \"$s\" ] && \"$s\" end || true",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] && \"$s\" end || true",
             "timeout": 10
           }
         ]

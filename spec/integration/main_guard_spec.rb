@@ -6,7 +6,7 @@ require "fileutils"
 require "open3"
 require "tmpdir"
 
-# scripts/main-guard.sh is the PostToolUse half of the main-branch guard: the
+# scripts/ai/guard-main.sh is the PostToolUse half of the main-branch guard: the
 # PreToolUse half matches Edit/Write/MultiEdit, so every shell write bypasses
 # it, and this one watches the EFFECT instead. A guard nobody has made fire is
 # a guard that may not fire at all (repo-foundation has shipped two that did
@@ -15,10 +15,10 @@ require "tmpdir"
 #
 # The script is run with the throwaway repository as its working directory
 # rather than copied into it — it resolves the repository from the CWD, the
-# same way scripts/ai-session.sh does, and running the committed file is what
+# same way scripts/ai/ai-session.sh does, and running the committed file is what
 # the hook will run.
-RSpec.describe "scripts/main-guard.sh" do
-  let(:script) { File.expand_path("../../scripts/main-guard.sh", __dir__) }
+RSpec.describe "scripts/ai/guard-main.sh" do
+  let(:script) { File.expand_path("../../scripts/ai/guard-main.sh", __dir__) }
 
   def sh!(dir, *cmd)
     out, err, status = Open3.capture3(*cmd, chdir: dir)

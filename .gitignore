@@ -17,7 +17,7 @@
 # it stranded that knowledge on whichever machine wrote it.
 .ai/progress.md
 .ai/scratchpad/
-# scripts/ai-session.sh bookkeeping: the session-start snapshot of
+# scripts/ai/ai-session.sh bookkeeping: the session-start snapshot of
 # progress.md, and relays retired after promotion (kept for a grace period,
 # never the record — see the script's header).
 .ai/.progress.session-start

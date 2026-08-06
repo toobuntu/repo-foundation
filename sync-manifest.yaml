@@ -237,14 +237,14 @@ component_sets:
     - { source: .githooks/pre-commit.d/10-shell,         target: .githooks/pre-commit.d/10-shell,  mode: canonical }
 
   scripts_core:
-    - { source: scripts/ai-session.sh,                 target: scripts/ai-session.sh,                 mode: canonical }
+    - { source: scripts/ai/ai-session.sh,              target: scripts/ai/ai-session.sh,              mode: canonical }
     # The main-branch dirty-tree guard the settings baseline wires as a
     # SessionStart seed and a PostToolUse check. repo_baseline delivers those
     # hooks, and every repo_baseline consumer takes scripts_core, so the two
     # arrive together; the hook commands still test for the script and no-op
     # without it, since a hook that errors on every Bash call is worse than a
     # missing guard.
-    - { source: scripts/main-guard.sh,                 target: scripts/main-guard.sh,                 mode: canonical }
+    - { source: scripts/ai/guard-main.sh,              target: scripts/ai/guard-main.sh,              mode: canonical }
     - { source: scripts/lint-perms.sh,                 target: scripts/lint-perms.sh,                 mode: canonical }
     - { source: scripts/lint-unicode.sh,               target: scripts/lint-unicode.sh,               mode: canonical }
     # The python3 detector lint-unicode.sh prefers. A separate file rather than
