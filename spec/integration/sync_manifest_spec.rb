@@ -165,8 +165,11 @@ RSpec.describe "sync-manifest.yaml contract" do
   end
 
   it "ignores the volatile .ai files in gitignore.baseline and RF's own .gitignore" do
+    # The snapshot line is a glob: the session-id sidecar
+    # (.progress.session-start.sid) rides the same prefix.
     volatile = [".ai/progress.md", ".ai/scratchpad/",
-                ".ai/.progress.session-start", ".ai/org/relay.consumed-*.md"]
+                ".ai/.progress.session-start*", ".ai/.session-closed",
+                ".ai/.close-check-state", ".ai/org/relay.consumed-*.md"]
     [File.join(REPO_ROOT, "provides/repo/gitignore.baseline"),
      File.join(REPO_ROOT, ".gitignore")].each do |path|
       lines = File.readlines(path, chomp: true)
