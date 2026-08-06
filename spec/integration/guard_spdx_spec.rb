@@ -25,6 +25,10 @@ RSpec.describe "scripts/ai/guard-spdx.sh" do
     Dir.mktmpdir("rf-guard-spdx-") { |dir| @dir = dir and example.run }
   end
 
+  # The fixture strings below are SPDX tags AS TEST DATA; without the ignore
+  # markers, reuse lint parses them as this file's own declarations and
+  # reports an invalid expression (the string's trailing escapes ride along).
+  # REUSE-IgnoreStart
   it "refuses a new file opening with a copyright tag" do
     _out, err, status = guard(@dir, "new.sh",
                               "#!/bin/sh\n# SPDX-FileCopyrightText: Copyright 2026 X\n")
@@ -69,6 +73,7 @@ RSpec.describe "scripts/ai/guard-spdx.sh" do
     _out, _err, status = guard(@dir, "docs.md", body)
     expect(status.exitstatus).to eq(0)
   end
+  # REUSE-IgnoreEnd
 
   it "stays silent on input with no file path" do
     _out, _err, status = guard(@dir, nil, nil)
