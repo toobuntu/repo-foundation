@@ -38,8 +38,19 @@
 # under the agent sandbox — unlike .git/config or .git/hooks/, which are not.
 #
 # Usage:
-#   scripts/main-guard.sh seed    # record the current dirty set
-#   scripts/main-guard.sh check   # report paths dirtied since; exit 2 if any
+#   scripts/ai/guard-main.sh seed    # record the current dirty set
+#   scripts/ai/guard-main.sh check   # report paths dirtied since; exit 2 if any
+#   scripts/ai/guard-main.sh pre     # PreToolUse half: refuse Edit/Write on
+#                                    # main — EXCEPT the volatile continuity
+#                                    # files, which are exempt, logged, and
+#                                    # reported at the close (hook JSON stdin)
+#
+# The exemption is a category fix, not a loosening: branches do not version
+# untracked files, so requiring a branch to edit .ai/progress.md protected
+# zero bytes of it while forcing a ceremonial branch at every close-on-main.
+# Tracked work stays refused. Each exempted write is appended to
+# .git/claude-exempt-writes; ai-session.sh close-check reports the list, so
+# the visibility the ceremony appeared to give becomes an explicit report.
 #
 # A no-op outside a git repository, so it is safe to wire into hooks that fire
 # everywhere.
@@ -49,7 +60,7 @@ set -eu
 BRANCH=main
 
 usage() {
-  printf 'Usage: %s seed|check\n' "${0##*/}" >&2
+  printf 'Usage: %s seed|check|pre\n' "${0##*/}" >&2
 }
 
 git_dir=$(git rev-parse --git-dir 2> /dev/null) || {
@@ -76,6 +87,44 @@ dirty_paths() {
 case "${1:-}" in
 seed)
   dirty_paths | LC_ALL=C sort > "$record"
+  ;;
+
+pre)
+  proj="${CLAUDE_PROJECT_DIR:-$PWD}"
+  fp=""
+  if command -v jq > /dev/null 2>&1; then
+    fp=$(jq -r '.tool_input.file_path // empty' 2> /dev/null || true)
+  fi
+  # An unparseable target is treated as a project file: without jq the guard
+  # cannot tell, and failing toward the refusal preserves the pre-existing
+  # inline guard's semantics.
+  [ -n "$fp" ] || fp="$proj/"
+  case "$fp" in
+  /*) ;;
+  *) fp="$proj/$fp" ;;
+  esac
+  on_main=0
+  [ "$(git branch --show-current 2> /dev/null)" = "$BRANCH" ] && on_main=1
+  case "$fp" in
+  "$proj/.ai/progress.md" | "$proj/.ai/scratchpad/"*)
+    # Volatile continuity files: exempt on every branch. On main the write
+    # is logged so close-check can report it — visibility by report, not by
+    # ceremony. The vault shim (a sibling hook on the same matcher) has
+    # already copied the pre-state.
+    if [ "$on_main" -eq 1 ]; then
+      printf '%s\n' "${fp#"$proj"/}" >> "$git_dir/claude-exempt-writes"
+    fi
+    exit 0
+    ;;
+  "$proj"/*)
+    if [ "$on_main" -eq 1 ]; then
+      printf 'Direct edits to main are not allowed. Create a feature branch (git switch -c feature/<topic>) before editing.\n' >&2
+      exit 2
+    fi
+    ;;
+  *) ;; # outside the project tree: not this guard's business
+  esac
+  exit 0
   ;;
 
 check)

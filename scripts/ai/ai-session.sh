@@ -43,6 +43,8 @@
 #   scripts/ai/ai-session.sh vault-gc         # remove REPORTED-expired copies
 #   scripts/ai/ai-session.sh close-check      # Stop-hook gate on the close
 #                                             # ritual (reads hook JSON stdin)
+#   scripts/ai/ai-session.sh vault-hook       # hook shim: vault the pre-write
+#                                             # state named by hook JSON stdin
 #
 # Every subcommand except init is a no-op in a directory with no .ai/ layer,
 # so the hooks that call them are safe to fire everywhere. A directory that
@@ -52,7 +54,7 @@
 set -eu
 
 usage() {
-  printf 'Usage: %s start|end|relay-consume|init|vault [args]|vault-gc|close-check\n' \
+  printf 'Usage: %s start|end|relay-consume|init|vault [args]|vault-hook|vault-gc|close-check\n' \
     "${0##*/}" >&2
 }
 
@@ -179,6 +181,14 @@ pr_parked() {
 
 json_escape() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+# Physical path of an existing file: macOS reaches the same tree as both
+# /var/... and /private/var/..., and git reports the physical form, so a
+# hook-supplied path must be canonicalized before any prefix comparison.
+canon() {
+  _cd=$(cd "$(dirname -- "$1")" 2> /dev/null && pwd -P) || return 1
+  printf '%s/%s\n' "$_cd" "$(basename -- "$1")"
 }
 
 drop_gone_record() {
@@ -445,12 +455,14 @@ vault)
   sid8=$(printf '%.8s' "$session")
   utc=$(date -u +%Y%m%dT%H%M%SZ)
   msg=""
+  _phys_root=$(cd "$root" 2> /dev/null && pwd -P) && root="$_phys_root"
   for f in "$@"; do
     case "$f" in
     /*) abs="$f" ;;
     *) abs="$root/$f" ;;
     esac
     [ -f "$abs" ] || continue
+    abs=$(canon "$abs") || continue
     case "$abs" in
     "$root/.ai/progress.md" | "$root/.ai/scratchpad/"*) ;;
     *) continue ;; # only the volatile continuity files are vault material
@@ -501,6 +513,40 @@ vault-gc)
     done
     drop_gone_record "$_name"
   done
+  ;;
+
+vault-hook)
+  # One shim for every vault wiring. Reads the hook JSON and decides what to
+  # copy: an Edit/Write's file_path; the .ai/scratchpad/ paths named by a
+  # Bash rm command; or — with no tool_input at all (SessionStart,
+  # PreCompact) — progress.md itself. Always exits 0: this hook only saves,
+  # never gates, and the vault subcommand scope-filters, so anything outside
+  # the volatile continuity set is skipped there.
+  command -v jq > /dev/null 2>&1 || exit 0
+  [ -d "$root/.ai" ] || exit 0
+  _in=$(cat)
+  [ -n "$_in" ] || exit 0
+  _sid=$(printf '%s' "$_in" | jq -r '.session_id // "unknown"')
+  _fp=$(printf '%s' "$_in" | jq -r '.tool_input.file_path // empty')
+  _cmd=$(printf '%s' "$_in" | jq -r '.tool_input.command // empty')
+  set --
+  if [ -n "$_fp" ]; then
+    set -- "$_fp"
+  elif [ -n "$_cmd" ]; then
+    case "$_cmd" in
+    rm\ * | *[\;\&\|]\ rm\ * | *[\;\&\|]rm\ * | */bin/rm\ *)
+      for _tok in $(printf '%s\n' "$_cmd" |
+        grep --only-matching '\.ai/scratchpad/[^ `"'"'"');]*' | sort -u); do
+        set -- "$@" "$root/$_tok"
+      done
+      ;;
+    *) ;; # not a deletion; nothing to save
+    esac
+  else
+    set -- "$root/.ai/progress.md"
+  fi
+  [ "$#" -gt 0 ] || exit 0
+  exec "$0" vault --json "--session=$_sid" "$@"
   ;;
 
 close-check)

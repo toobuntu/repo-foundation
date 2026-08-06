@@ -218,6 +218,9 @@
       "Bash(curl * | zsh)",
       "Bash(wget:*)",
 
+      "Edit(~/.local/state/ai-history/**)",
+      "Write(~/.local/state/ai-history/**)",
+
       "Read(./.env)",
       "Read(./.env.*)",
       "Read(~/.ssh/**)",
@@ -303,7 +306,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v jq >/dev/null 2>&1; then fp=$(jq -r '.tool_input.file_path // empty' 2>/dev/null || true); fi; if [ -z \"$fp\" ]; then fp=\"${CLAUDE_PROJECT_DIR:-$PWD}/\"; fi; case \"$fp\" in /*) ;; *) fp=\"${CLAUDE_PROJECT_DIR:-$PWD}/$fp\" ;; esac; case \"$fp\" in \"${CLAUDE_PROJECT_DIR:-$PWD}\"/*) if [ \"$(git -C \"${CLAUDE_PROJECT_DIR:-.}\" branch --show-current)\" = \"main\" ]; then echo 'Direct edits to main are not allowed. Create a feature branch (git switch -c feature/<topic>) before editing.' >&2; exit 2; fi ;; esac",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" vault-hook",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/guard-main.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" pre",
             "timeout": 5
           }
         ]
@@ -315,6 +323,11 @@
             "type": "command",
             "command": "command -v jq >/dev/null 2>&1 || { echo 'jq is required to inspect the command this guard protects; refusing rather than leaving scripts/annotate.sh ungated.' >&2; exit 2; }; cmd=$(jq -r '.tool_input.command // empty') || { echo 'could not parse the tool input; refusing rather than leaving scripts/annotate.sh ungated.' >&2; exit 2; }; case \"$cmd\" in *scripts/annotate.sh*) d=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; if ! git -C \"$d\" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then echo 'scripts/annotate.sh runs OUTSIDE the sandbox. Refusing: there is no origin/main to verify it against. Run it yourself.' >&2; exit 2; fi; if ! git -C \"$d\" diff --quiet origin/main -- scripts/annotate.sh; then { echo 'scripts/annotate.sh differs from origin/main and runs OUTSIDE the sandbox. Refusing.'; echo 'This guard matches the PATH anywhere in a command string, so git diff/restore naming that file are refused too.'; echo 'Diffstat below. Revert with the Edit tool, or with a pathspec that does not spell the path: git restore scripts/annot*.sh — `git restore scripts/` works too but discards every other change under scripts/. Or review this and run the script yourself.'; git -C \"$d\" --no-pager diff --stat origin/main -- scripts/annotate.sh; } >&2; exit 2; fi ;; esac",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" vault-hook",
+            "timeout": 10
           }
         ]
       }
@@ -336,13 +349,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR/scripts/ai/ai-session.sh\" start",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "hooks": [
+            "command": "in=$(cat); s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; sid=$(printf '%s' \"$in\" | jq -r '.session_id // empty' 2>/dev/null || true); \"$s\" start ${sid:+--session=$sid}; printf '%s' \"$in\" | \"$s\" vault-hook",
+            "timeout": 15
+          },
           {
             "type": "command",
             "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/guard-main.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" seed",
@@ -356,7 +365,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR/scripts/ai/ai-session.sh\" end",
+            "command": "in=$(cat); s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; sid=$(printf '%s' \"$in\" | jq -r '.session_id // empty' 2>/dev/null || true); exec \"$s\" end ${sid:+--session=$sid}",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" close-check",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" vault-hook",
             "timeout": 10
           }
         ]

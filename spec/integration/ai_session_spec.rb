@@ -171,6 +171,55 @@ RSpec.describe "scripts/ai/ai-session.sh" do
     end
   end
 
+  describe "vault-hook" do
+    def vault_hook(repo, state, payload)
+      run_ai(repo, state, "vault-hook", stdin: payload.to_json)
+    end
+
+    it "vaults an Edit/Write target from the hook JSON" do
+      with_repo do |repo, state|
+        File.write(File.join(repo, ".ai", "scratchpad", "pr-body-h.md"), "body\n")
+        out, _err, status = vault_hook(repo, state,
+                                       { session_id: "abcd1234-x", tool_name: "Write",
+                                         tool_input: { file_path: File.join(repo, ".ai", "scratchpad", "pr-body-h.md") } })
+        expect(status.exitstatus).to eq(0)
+        expect(JSON.parse(out)["systemMessage"]).to include("Snapshotting")
+        expect(vault_files(state).any? { |f| f.include?("pr-body-h") }).to be(true)
+      end
+    end
+
+    it "vaults the scratchpad paths named by a Bash rm command" do
+      with_repo do |repo, state|
+        File.write(File.join(repo, ".ai", "scratchpad", "commit-msg-r.md"), "feat: r\n")
+        out, _err, status = vault_hook(repo, state,
+                                       { session_id: "abcd1234-x", tool_name: "Bash",
+                                         tool_input: { command: "rm -f .ai/scratchpad/commit-msg-r.md" } })
+        expect(status.exitstatus).to eq(0)
+        expect(JSON.parse(out)["systemMessage"]).to include("commit-msg-r")
+      end
+    end
+
+    it "ignores a Bash command that deletes nothing" do
+      with_repo do |repo, state|
+        File.write(File.join(repo, ".ai", "scratchpad", "commit-msg-r.md"), "feat: r\n")
+        out, _err, status = vault_hook(repo, state,
+                                       { session_id: "abcd1234-x", tool_name: "Bash",
+                                         tool_input: { command: "cat .ai/scratchpad/commit-msg-r.md" } })
+        expect(status.exitstatus).to eq(0)
+        expect(out).to eq("")
+        expect(vault_files(state)).to be_empty
+      end
+    end
+
+    it "defaults to progress.md when the event carries no tool_input" do
+      with_repo do |repo, state|
+        out, _err, status = vault_hook(repo, state, { session_id: "abcd1234-x" })
+        expect(status.exitstatus).to eq(0)
+        expect(JSON.parse(out)["systemMessage"]).to include("progress.md")
+      end
+    end
+  end
+
   describe "init" do
     it "creates the layer once and is a no-op after" do
       Dir.mktmpdir("rf-ai-init-") do |dir|

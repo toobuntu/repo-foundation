@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 require "fileutils"
+require "json"
 require "open3"
 require "tmpdir"
 
@@ -181,6 +182,55 @@ RSpec.describe "scripts/ai/guard-main.sh" do
 
       expect(status.exitstatus).to eq(2)
       expect(err).to include("Usage:")
+    end
+  end
+
+  # The PreToolUse half. Exemption rationale: branches do not version
+  # untracked files, so refusing .ai/progress.md on main protected nothing —
+  # but the exemption must stay path-scoped and each exempted write must be
+  # logged, or the visibility the old ceremony gave is silently lost.
+  describe "pre" do
+    def pre(dir, file_path)
+      payload = JSON.generate({ tool_input: { file_path: file_path } })
+      Open3.capture3({ "CLAUDE_PROJECT_DIR" => dir }, script, "pre",
+                     chdir: dir, stdin_data: payload)
+    end
+
+    it "refuses a tracked-file edit on main" do
+      with_repo do |dir|
+        _out, err, status = pre(dir, File.join(dir, "tracked.txt"))
+        expect(status.exitstatus).to eq(2)
+        expect(err).to include("git switch -c")
+      end
+    end
+
+    it "exempts the continuity files on main, and logs each write" do
+      with_repo do |dir|
+        FileUtils.mkdir_p(File.join(dir, ".ai", "scratchpad"))
+        [".ai/progress.md", ".ai/scratchpad/commit-msg-x.md"].each do |rel|
+          _out, _err, status = pre(dir, File.join(dir, rel))
+          expect(status.exitstatus).to eq(0), "#{rel} must be exempt on main"
+        end
+        log = File.read(File.join(dir, ".git", "claude-exempt-writes"))
+        expect(log).to include(".ai/progress.md")
+        expect(log).to include(".ai/scratchpad/commit-msg-x.md")
+      end
+    end
+
+    it "allows everything on a feature branch without logging" do
+      with_repo do |dir|
+        sh!(dir, "git", "switch", "--quiet", "-c", "feature/x")
+        _out, _err, status = pre(dir, File.join(dir, "tracked.txt"))
+        expect(status.exitstatus).to eq(0)
+        expect(File).not_to exist(File.join(dir, ".git", "claude-exempt-writes"))
+      end
+    end
+
+    it "leaves paths outside the project tree alone" do
+      with_repo do |dir|
+        _out, _err, status = pre(dir, "/somewhere/else.txt")
+        expect(status.exitstatus).to eq(0)
+      end
     end
   end
 end

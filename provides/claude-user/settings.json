@@ -23,8 +23,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] && \"$s\" start || true",
-            "timeout": 10
+            "command": "in=$(cat); s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; sid=$(printf '%s' \"$in\" | jq -r '.session_id // empty' 2>/dev/null || true); \"$s\" start ${sid:+--session=$sid} || true; printf '%s' \"$in\" | \"$s\" vault-hook || true",
+            "timeout": 15
           }
         ]
       }
@@ -34,7 +34,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] && \"$s\" end || true",
+            "command": "in=$(cat); s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; sid=$(printf '%s' \"$in\" | jq -r '.session_id // empty' 2>/dev/null || true); \"$s\" end ${sid:+--session=$sid} || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" close-check",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" vault-hook",
             "timeout": 10
           }
         ]
@@ -359,6 +381,9 @@
       "Bash(reboot:*)",
       "Bash(halt:*)",
       "Bash(killall -9:*)",
+
+      "Edit(~/.local/state/ai-history/**)",
+      "Write(~/.local/state/ai-history/**)",
 
       "Read(./.env)",
       "Read(./.env.*)",
