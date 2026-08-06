@@ -32,8 +32,10 @@
 # hook (asserted by spec).
 #
 # Usage:
-#   scripts/ai/ai-session.sh start            # snapshot; safe to repeat
-#   scripts/ai/ai-session.sh end              # report removed lines (exit 0)
+#   scripts/ai/ai-session.sh start [--session=ID]  # snapshot; warn on an
+#                                             # unclean previous close
+#   scripts/ai/ai-session.sh end [--session=ID]    # report removed lines,
+#                                             # write the clean-close marker
 #   scripts/ai/ai-session.sh relay-consume    # retire a promoted relay
 #   scripts/ai/ai-session.sh init             # create the .ai/ layer here
 #   scripts/ai/ai-session.sh vault [--json] [--session=ID] FILE...
@@ -61,7 +63,21 @@ fi
 
 progress="$root/.ai/progress.md"
 snapshot="$root/.ai/.progress.session-start"
+snapshot_sid="$root/.ai/.progress.session-start.sid"
+closed_marker="$root/.ai/.session-closed"
 relay="$root/.ai/org/relay.md"
+
+# One optional flag shared by start/end: the hook passes the session id it
+# reads from the hook JSON. Everything degrades gracefully without it.
+session=""
+case "${2:-}" in
+--session=*) session="${2#--session=}" ;;
+*) ;;
+esac
+
+progress_sum() {
+  cksum "$progress" 2> /dev/null | cut -d' ' -f1
+}
 
 # ---------- vault helpers ----------
 
@@ -268,7 +284,43 @@ start)
     printf 'Review and remove with: scripts/ai/ai-session.sh vault-gc\n'
   fi
 
+  # Same session resuming (Claude Code fires SessionStart on resume too):
+  # keep the existing snapshot — re-copying would destroy the diff base the
+  # end ritual needs, and would bury the unclean-close evidence below.
+  _prev_sid=$(cat "$snapshot_sid" 2> /dev/null || true)
+  if [ -n "$session" ] && [ "$session" = "$_prev_sid" ] && [ -f "$snapshot" ]; then
+    printf 'ai-session: same session resumed; keeping the existing snapshot\n'
+    exit 0
+  fi
+
+  # Unclean-close detection, BEFORE the snapshot is overwritten: a previous
+  # session left a snapshot but no clean-close marker matching the current
+  # progress.md. The prior session holds the context, so the primary remedy
+  # is to reopen IT and close there; reconciling here (from git log, the
+  # vault, and dispatch — not the transcript) is the stated fallback.
+  if [ -n "$_prev_sid" ]; then
+    _closed_ok=0
+    if [ -f "$closed_marker" ]; then
+      _rec_sum=$(sed -n '3p' "$closed_marker")
+      [ "$_rec_sum" = "$(progress_sum)" ] && _closed_ok=1
+    fi
+    if [ "$_closed_ok" -eq 0 ]; then
+      printf 'ai-session: the previous session here did NOT complete its close ritual\n'
+      printf '  session: %s\n' "$_prev_sid"
+      printf 'Its .ai/progress.md state is unreconciled. The vault holds dated copies.\n'
+      printf 'Preferred: reopen that session (it has the context) and close it there:\n'
+      printf '  claude --resume %s\n' "$_prev_sid"
+      printf '  then, as its first prompt:  /tb-session-close\n'
+      printf 'Fallback: reconcile here first (git log, the vault, dispatch) before new work.\n'
+    fi
+  fi
+
   cp "$progress" "$snapshot"
+  if [ -n "$session" ]; then
+    printf '%s\n' "$session" > "$snapshot_sid"
+  else
+    rm -f "$snapshot_sid"
+  fi
   printf 'ai-session: snapshotted .ai/progress.md for end-of-session comparison\n'
   ;;
 
@@ -298,6 +350,15 @@ end)
   grep -v '^[[:space:]]*$' "$snapshot" | sort > "$_a"
   grep -v '^[[:space:]]*$' "$progress" | sort > "$_b"
   removed=$(comm -23 "$_a" "$_b")
+
+  # The clean-close marker: session id, UTC, and the progress checksum the
+  # next session's `start` verifies. Written on every `end` — the ritual is
+  # idempotent, so the newest run's state is always the one recorded.
+  {
+    printf '%s\n' "${session:-unknown}"
+    date -u +%Y-%m-%dT%H:%M:%SZ
+    progress_sum
+  } > "$closed_marker"
 
   if [ -z "$removed" ]; then
     printf 'ai-session: nothing removed from .ai/progress.md this session\n'
