@@ -261,6 +261,20 @@ reviews:
         readme; applying it here would grow a deliberately short pointer into a
         document nobody reads. Do not suggest adding standard-readme sections,
         badges, install/usage, or a table of contents.
+    - path: "{.claude/settings.json,provides/repo/settings.baseline.json,provides/claude-user/settings.json}"
+      instructions: |
+        The curl-pipe deny rules are anchored PAIRS per shell — `Bash(curl * |
+        sh)` plus `Bash(curl * | sh *)` — because the permission matcher
+        anchors at the end (measured 2026-08-05: `echo x | cat -A` passed a
+        `Bash(echo * | cat)` deny while `echo alpha | cat` was denied). Do not
+        suggest whitespace-around-the-pipe variants (`|sh`, `| sh`, ` |sh`):
+        the matcher normalizes pipe spacing (measured the same day — `echo
+        echoing|cat` was denied by a `| cat` rule), so those variants are dead
+        rules that read as protection. Do not suggest a single trailing glob
+        (`| sh*`) either: it would deny `curl URL | shasum -a 256`, a
+        legitimate checksum pattern. The shell list is /etc/shells plus fish;
+        pipelines ARE matched whole and per-component (measured), so these
+        rules are live, not decorative.
     - path: "{.githooks/pre-commit.d/20-*,provides/githooks/pre-commit.d/20-*}"
       instructions: |
         The 20- language plugins read the WORKING TREE, not materialized index
