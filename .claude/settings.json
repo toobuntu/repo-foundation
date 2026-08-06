@@ -454,6 +454,11 @@
             "type": "command",
             "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" vault-hook",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/guard-curl-pipe.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\"",
+            "timeout": 5
           }
         ]
       }

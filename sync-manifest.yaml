@@ -248,6 +248,8 @@ component_sets:
     # The Write-creation SPDX guard the settings baseline wires; same
     # delivery coupling as guard-main.sh above.
     - { source: scripts/ai/guard-spdx.sh,              target: scripts/ai/guard-spdx.sh,              mode: canonical }
+    # The curl-substitution guard (the pipe-deny pairs' hook complement).
+    - { source: scripts/ai/guard-curl-pipe.sh,         target: scripts/ai/guard-curl-pipe.sh,         mode: canonical }
     - { source: scripts/lint-perms.sh,                 target: scripts/lint-perms.sh,                 mode: canonical }
     - { source: scripts/lint-unicode.sh,               target: scripts/lint-unicode.sh,               mode: canonical }
     # The python3 detector lint-unicode.sh prefers. A separate file rather than
