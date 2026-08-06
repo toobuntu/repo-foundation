@@ -313,3 +313,4 @@ hostnames
 askpass
 deduped
 deleters?
+[Cc]anonicaliz(e[ds]?|ing|ation)
