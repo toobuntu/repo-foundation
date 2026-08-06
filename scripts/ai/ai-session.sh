@@ -5,48 +5,239 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # ai-session.sh — bookend the volatile .ai/ files so a session cannot drop
-# work silently.
+# work silently, and keep every pre-write state of them recoverable.
 #
-# `.ai/progress.md` and `.ai/org/relay.md` are gitignored by design (ADR 0022):
+# `.ai/progress.md` and `.ai/scratchpad/` are gitignored by design (ADR 0022):
 # per-developer, rewritten freely, no history. That is right for status and
-# wrong for anything that turns out to be a commitment — and a rewrite has no
-# diff, so a dropped line leaves no trace anywhere. This happened: a queued
-# cleanup item vanished in a wholesale rewrite on 2026-07-25 and surfaced a
-# day later only by accident (incident record: repo-foundation ADR 0022).
+# wrong for anything that turns out to be a commitment — a rewrite has no
+# diff, a deletion has no reflog, and branches do not version untracked
+# files, so "work on a branch" protects none of it. Two mechanisms close the
+# gap:
 #
-# `start` snapshots progress.md; `end` reports what the session removed from
-# it. The point of `end` is NOT to forbid removals — most are correct, since
-# finished status should go away — but to make each one STATED in the handoff,
-# where a commitment that should have graduated is obvious. Backups alone do
-# not do this: nobody diffs a backup they have no reason to suspect.
+#   - `start`/`end` snapshot and diff progress.md, so removals are STATED in
+#     the handoff (accountability; the 2026-07-25 silent loss is the
+#     incident record, repo-foundation ADR 0022).
+#   - `vault` copies the pre-write state of those files into a per-repo
+#     directory under ${XDG_STATE_HOME:-~/.local/state}/ai-history/ before
+#     hooks let an overwrite or deletion proceed (recovery). Hooks run
+#     outside the agent sandbox and can write there; the sandboxed agent
+#     cannot, so the vault is one-way by construction.
+#
+# Vault pruning is evidence-first, never wall-clock for anything that could
+# still matter: progress.md copies keep the newest 10; a draft's copies are
+# kept while the draft exists, auto-pruned once it is gone AND its work
+# provably landed (a commit whose message matches, a parked merged/prNN
+# branch), and merely REPORTED as expired otherwise — `vault-gc`, the only
+# deleting subcommand for that class, is maintainer-run and wired into no
+# hook (asserted by spec).
 #
 # Usage:
-#   scripts/ai-session.sh start   # snapshot; safe to run repeatedly
-#   scripts/ai-session.sh end     # report removed lines (always exits 0)
-#   scripts/ai-session.sh relay-consume  # retire a promoted relay safely
+#   scripts/ai/ai-session.sh start            # snapshot; safe to repeat
+#   scripts/ai/ai-session.sh end              # report removed lines (exit 0)
+#   scripts/ai/ai-session.sh relay-consume    # retire a promoted relay
+#   scripts/ai/ai-session.sh init             # create the .ai/ layer here
+#   scripts/ai/ai-session.sh vault [--json] [--session=ID] FILE...
+#                                             # copy pre-write state in
+#   scripts/ai/ai-session.sh vault-gc         # remove REPORTED-expired copies
 #
-# Every subcommand is a no-op in a repository with no .ai/ layer, so it is safe
-# to wire into a SessionStart hook that fires everywhere.
+# Every subcommand except init is a no-op in a directory with no .ai/ layer,
+# so the hooks that call them are safe to fire everywhere. A directory that
+# is not a git repository is handled: the root falls back to
+# CLAUDE_PROJECT_DIR (or PWD), and git-dependent checks skip themselves.
 
 set -eu
 
 usage() {
-  printf 'Usage: %s start|end|relay-consume\n' "${0##*/}" >&2
+  printf 'Usage: %s start|end|relay-consume|init|vault [args]|vault-gc\n' \
+    "${0##*/}" >&2
 }
 
-repo_root() {
-  git rev-parse --show-toplevel 2> /dev/null || return 1
-}
-
-root=$(repo_root) || {
-  # Not a git repository: nothing to bookend. Silent, so a SessionStart hook
-  # firing in an arbitrary directory stays quiet.
-  exit 0
-}
+if root=$(git rev-parse --show-toplevel 2> /dev/null); then
+  in_git=1
+else
+  root="${CLAUDE_PROJECT_DIR:-$PWD}"
+  in_git=0
+fi
 
 progress="$root/.ai/progress.md"
 snapshot="$root/.ai/.progress.session-start"
 relay="$root/.ai/org/relay.md"
+
+# ---------- vault helpers ----------
+
+# Per-repo vault directory. The slug prefers the origin remote's
+# <org>/<repo> (stable across clones of the same repository); a remoteless
+# or non-git directory gets local/<basename>-<cksum-of-path>, so same-named
+# trees cannot collide. cksum is POSIX; the decimal is ugly but unambiguous.
+vault_dir() {
+  _state="${XDG_STATE_HOME:-$HOME/.local/state}/ai-history"
+  _url=""
+  if [ "$in_git" -eq 1 ]; then
+    _url=$(git -C "$root" remote get-url origin 2> /dev/null) || _url=""
+  fi
+  if [ -n "$_url" ]; then
+    # Normalize the scp-like form (git@host:org/repo.git) and URL forms
+    # alike: take the last two path components, drop a .git suffix.
+    _slug=$(printf '%s\n' "$_url" | sed -e 's/\.git$//' -e 's/:/\//g' |
+      awk -F/ 'NF >= 2 { print $(NF - 1) "/" $NF }')
+  else
+    _sum=$(printf '%s' "$root" | cksum | cut -d' ' -f1)
+    _slug="local/$(basename "$root")-$_sum"
+  fi
+  printf '%s/%s\n' "$_state" "$_slug"
+}
+
+# Vault copy name for a repo file: the path relative to .ai/, slashes
+# flattened to __ so the vault stays one level deep. Reversed by
+# vault_source_of; a source whose own name contains __ would round-trip
+# wrong, so vault skips those (no org draft convention produces one).
+vault_name_of() {
+  printf '%s\n' "${1#"$root"/.ai/}" | sed 's/\//__/g'
+}
+
+vault_source_of() {
+  printf '%s/.ai/%s\n' "$root" "$(printf '%s\n' "$1" | sed 's/__/\//g')"
+}
+
+# List vault copy filenames, newest last. Copies are <UTC>-<sid8>-<name>,
+# so lexical sort is chronological; the timestamp prefix filter keeps
+# bookkeeping files (.gone-noticed) out. The ls|grep pattern is safe here:
+# every listed name is script-generated (timestamp prefix, no whitespace),
+# so the glob-hostile cases ShellCheck warns about cannot occur.
+# shellcheck disable=SC2010
+vault_copies() {
+  ls -1 "$vdir" 2> /dev/null | grep '^[0-9]\{8\}T[0-9]\{6\}Z-' | sort
+}
+
+vault_copies_of() {
+  vault_copies | grep -F -- "-$1" || true
+}
+
+vault_newest() {
+  vault_copies_of "$1" | tail -n 1
+}
+
+# Whitespace-normalize a message: strip trailing space per line, drop
+# trailing blank lines. Shared by the draft-landed test and close-check.
+norm_msg() {
+  sed 's/[[:space:]]*$//' "$1" |
+    awk '{ l[NR] = $0 } END { while (NR > 0 && l[NR] == "") NR--; for (i = 1; i <= NR; i++) print l[i] }'
+}
+
+# The commit-landed test for a commit-msg draft. A subject-only match is NOT
+# landing evidence — an --amend keeps the subject while the body changes —
+# so the return distinguishes: 0 full match, 1 subject-only, 2 no match.
+draft_landed() {
+  [ "$in_git" -eq 1 ] || return 2
+  _subject=$(sed -n '1p' "$1")
+  [ -n "$_subject" ] || return 2
+  _draft=$(norm_msg "$1")
+  _found=2
+  for _h in $(git -C "$root" log -200 --fixed-strings --grep="$_subject" \
+    --format='%H' 2> /dev/null); do
+    _tmp=$(mktemp "${TMPDIR:-/tmp}/ai-session-msg.XXXXXX")
+    git -C "$root" log -1 --format='%B' "$_h" > "$_tmp"
+    _msg=$(norm_msg "$_tmp")
+    rm -f "$_tmp"
+    if [ "$_msg" = "$_draft" ]; then
+      return 0
+    fi
+    [ "$(printf '%s\n' "$_msg" | sed -n '1p')" = "$_subject" ] && _found=1
+  done
+  return "$_found"
+}
+
+# The merged test for a pr<N>-named draft: a parked merged/prNN/* branch
+# (the org's park convention) proves the PR landed. Zero-padding tolerated
+# by comparing the numbers, not the strings.
+pr_parked() {
+  [ "$in_git" -eq 1 ] || return 1
+  _n=$(printf '%s\n' "$1" | sed -n 's/.*pr0*\([1-9][0-9]*\).*/\1/p' | head -n 1)
+  [ -n "$_n" ] || return 1
+  git -C "$root" branch --list 'merged/pr*' --format='%(refname:short)' 2> /dev/null |
+    sed -n 's/^merged\/pr0*\([1-9][0-9]*\)\/.*/\1/p' |
+    grep -q "^$_n\$"
+}
+
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+drop_gone_record() {
+  [ -f "$gone_record" ] || return 0
+  grep -v "^$1 " "$gone_record" > "$gone_record.tmp" || true
+  mv "$gone_record.tmp" "$gone_record"
+}
+
+# Sweep the vault: enforce the progress cap, auto-prune evidence-landed
+# copies of gone drafts, record first-noticed-gone times for the rest.
+# Deletes NOTHING whose source still exists, and nothing in the no-evidence
+# class — that is vault-gc's job, and only the maintainer runs vault-gc.
+vault_sweep() {
+  [ -d "$vdir" ] || return 0
+
+  # progress.md: keep the newest 10 copies.
+  _n_prog=$(vault_copies_of progress.md | wc -l | tr -d ' ')
+  if [ "$_n_prog" -gt 10 ]; then
+    vault_copies_of progress.md | sed -n "1,$((_n_prog - 10))p" |
+      while IFS= read -r _old; do
+        rm -f "$vdir/$_old"
+      done
+  fi
+
+  _now=$(date +%s)
+  vault_copies | sed 's/^[0-9]\{8\}T[0-9]\{6\}Z-[^-]*-//' | sort -u |
+    grep -v '^progress\.md$' |
+    while IFS= read -r _name; do
+      _src=$(vault_source_of "$_name")
+      if [ -e "$_src" ]; then
+        drop_gone_record "$_name" # live again (or still): clear any record
+        continue
+      fi
+      _newest=$(vault_newest "$_name")
+      [ -n "$_newest" ] || continue
+      _landed=1
+      case "$_name" in
+      scratchpad__commit-msg-*)
+        if draft_landed "$vdir/$_newest"; then _landed=0; fi
+        ;;
+      scratchpad__pr*)
+        if pr_parked "$_name"; then _landed=0; fi
+        ;;
+      *) ;; # no evidence rule for this class; falls to the report path
+      esac
+      if [ "$_landed" -eq 0 ]; then
+        vault_copies_of "$_name" | while IFS= read -r _c; do
+          rm -f "$vdir/$_c"
+        done
+        drop_gone_record "$_name"
+        continue
+      fi
+      # No landing evidence: record when the sweep first noticed the source
+      # gone. Any TTL for the report runs from this noticing, never from a
+      # copy's own (possibly much older) timestamp.
+      if ! { [ -f "$gone_record" ] && grep -q "^$_name " "$gone_record"; }; then
+        printf '%s %s\n' "$_name" "$_now" >> "$gone_record"
+      fi
+    done
+}
+
+# Expired report-only copies: source gone 30+ days per the noticing record.
+# Prints "name<TAB>days" lines; empty output means nothing has expired.
+vault_expired() {
+  [ -f "$gone_record" ] || return 0
+  _now=$(date +%s)
+  while IFS=' ' read -r _name _epoch; do
+    [ -n "$_name" ] && [ -n "$_epoch" ] || continue
+    _days=$(((_now - _epoch) / 86400))
+    if [ "$_days" -ge 30 ]; then
+      printf '%s\t%s\n' "$_name" "$_days"
+    fi
+  done < "$gone_record"
+}
+
+vdir=$(vault_dir)
+gone_record="$vdir/.gone-noticed"
 
 case "${1:-}" in
 start)
@@ -64,6 +255,19 @@ start)
   done
 
   [ -f "$progress" ] || exit 0
+
+  # Report vault copies whose source is long gone with no landing evidence.
+  # Removal is deliberately manual and the maintainer's alone: vault-gc is
+  # the only deleter for this class, and no hook invokes it.
+  _expired=$(vault_expired)
+  if [ -n "$_expired" ]; then
+    printf 'ai-session: vault copies whose source is gone 30+ days, no landing evidence:\n'
+    printf '%s\n' "$_expired" | while IFS="$(printf '\t')" read -r _n _d; do
+      printf '  - %s (gone %s days)\n' "$_n" "$_d"
+    done
+    printf 'Review and remove with: scripts/ai/ai-session.sh vault-gc\n'
+  fi
+
   cp "$progress" "$snapshot"
   printf 'ai-session: snapshotted .ai/progress.md for end-of-session comparison\n'
   ;;
@@ -139,6 +343,101 @@ relay-consume)
   printf 'dispatch row) or been declined in writing — that condition, never an\n'
   printf 'age. Nothing deletes it on a timer: "ai-session.sh start" will keep\n'
   printf 'reminding you it is here, which is the intended nag.\n'
+  ;;
+
+init)
+  # Explicit, never automatic: creating a continuity layer is a state change
+  # the maintainer opts into per directory, not a side effect of a hook.
+  if [ -d "$root/.ai" ]; then
+    printf 'ai-session: %s already has a .ai/ layer\n' "$root"
+    exit 0
+  fi
+  mkdir -p "$root/.ai/scratchpad" "$root/.ai/org"
+  {
+    printf '# Session progress\n\n'
+    printf '> Volatile per-developer session state. Rewritten freely; untracked.\n\n'
+    printf '## Last touched\n\n## State\n\n## Next action\n\n## Watch out\n'
+  } > "$progress"
+  printf 'ai-session: created %s/.ai (progress.md seeded)\n' "$root"
+  if [ "$in_git" -eq 1 ] &&
+    ! { [ -f "$root/.gitignore" ] && grep -q '^\.ai/progress\.md$' "$root/.gitignore"; }; then
+    printf 'NOTE: add the .ai ignore lines to .gitignore (see the synced\n'
+    printf 'gitignore.baseline: progress.md, scratchpad/, session markers).\n'
+  fi
+  ;;
+
+vault)
+  shift
+  as_json=0
+  session=unknown
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+    --json) as_json=1 ;;
+    --session=*) session="${1#--session=}" ;;
+    *) break ;;
+    esac
+    shift
+  done
+  [ "$#" -gt 0 ] || exit 0
+  sid8=$(printf '%.8s' "$session")
+  utc=$(date -u +%Y%m%dT%H%M%SZ)
+  msg=""
+  for f in "$@"; do
+    case "$f" in
+    /*) abs="$f" ;;
+    *) abs="$root/$f" ;;
+    esac
+    [ -f "$abs" ] || continue
+    case "$abs" in
+    "$root/.ai/progress.md" | "$root/.ai/scratchpad/"*) ;;
+    *) continue ;; # only the volatile continuity files are vault material
+    esac
+    name=$(vault_name_of "$abs")
+    case "$name" in
+    *' '* | *__*__*__* | .*) continue ;; # unmappable or bookkeeping names
+    *) ;;
+    esac
+    mkdir -p "$vdir"
+    newest=$(vault_newest "$name")
+    if [ -n "$newest" ] && cmp -s "$abs" "$vdir/$newest"; then
+      continue # identical to the newest copy; nothing to save
+    fi
+    dest="$vdir/$utc-$sid8-$name"
+    cp -p "$abs" "$dest"
+    rel="${abs#"$root"/}"
+    short="ai-history/${vdir##*/ai-history/}/$utc-$sid8-$name"
+    if [ -n "$msg" ]; then
+      msg="$msg; "
+    fi
+    msg="${msg}Snapshotting $rel → $short"
+  done
+  vault_sweep
+  if [ -n "$msg" ]; then
+    if [ "$as_json" -eq 1 ]; then
+      printf '{"systemMessage":"%s"}\n' "$(json_escape "$msg")"
+    else
+      printf 'ai-session: %s\n' "$msg"
+    fi
+  fi
+  ;;
+
+vault-gc)
+  # The ONLY deleter for the no-evidence class, and deliberately unreachable
+  # from hooks (a spec asserts none wires it) and from the sandboxed agent
+  # (the vault is outside its writable area). Removes exactly what `start`
+  # reported as expired; everything else stays.
+  _expired=$(vault_expired)
+  if [ -z "$_expired" ]; then
+    printf 'ai-session: nothing expired in %s\n' "$vdir"
+    exit 0
+  fi
+  printf '%s\n' "$_expired" | while IFS="$(printf '\t')" read -r _name _days; do
+    vault_copies_of "$_name" | while IFS= read -r _c; do
+      rm -f "$vdir/$_c"
+      printf 'ai-session: removed %s (source gone %s days)\n' "$_c" "$_days"
+    done
+    drop_gone_record "$_name"
+  done
   ;;
 
 -h | --help)

@@ -26,7 +26,10 @@ vendor/bundle/
 # amendment): it carries org knowledge in transit, and ignoring it stranded
 # that knowledge on whichever machine wrote it.
 # scripts/ai/ai-session.sh bookkeeping: the session-start snapshot of
-# progress.md, and relays retired after promotion (kept for a grace period,
-# never the record — see the script's header).
+# progress.md, the clean-close and close-check markers, and relays retired
+# after promotion (kept for a grace period, never the record — see the
+# script's header).
 .ai/.progress.session-start
+.ai/.session-closed
+.ai/.close-check-state
 .ai/org/relay.consumed-*.md
