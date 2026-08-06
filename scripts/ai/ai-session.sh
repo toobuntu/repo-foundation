@@ -41,6 +41,8 @@
 #   scripts/ai/ai-session.sh vault [--json] [--session=ID] FILE...
 #                                             # copy pre-write state in
 #   scripts/ai/ai-session.sh vault-gc         # remove REPORTED-expired copies
+#   scripts/ai/ai-session.sh close-check      # Stop-hook gate on the close
+#                                             # ritual (reads hook JSON stdin)
 #
 # Every subcommand except init is a no-op in a directory with no .ai/ layer,
 # so the hooks that call them are safe to fire everywhere. A directory that
@@ -50,7 +52,7 @@
 set -eu
 
 usage() {
-  printf 'Usage: %s start|end|relay-consume|init|vault [args]|vault-gc\n' \
+  printf 'Usage: %s start|end|relay-consume|init|vault [args]|vault-gc|close-check\n' \
     "${0##*/}" >&2
 }
 
@@ -499,6 +501,222 @@ vault-gc)
     done
     drop_gone_record "$_name"
   done
+  ;;
+
+close-check)
+  # The Stop-hook gate on the close ritual. Reads the hook JSON from stdin
+  # and inspects last_assistant_message — the agent's final text — so three
+  # of the four checks need no guess about whether the session is closing:
+  # a message naming a dead path is wrong regardless.
+  #
+  # Output contract (all exits are 0; the JSON carries the decision):
+  #   {"decision":"block","reason":...}  — the turn does not end; the reason
+  #                                        is fed back to the agent to fix.
+  #   {"systemMessage":...}              — user-visible note, turn ends.
+  #   (nothing)                          — silence.
+  #
+  # Loop safety is layered: stop_hook_active=true (the harness's own signal
+  # that this Stop already blocked once this chain) always downgrades, and
+  # .ai/.close-check-state remembers the finding-set hash per session, so a
+  # distinct finding set blocks at most ONCE — an unfixable finding costs
+  # one retry turn and then surfaces as a visible note, never a loop.
+  #
+  # jq missing fails OPEN, unlike the annotate guard: that guard gates a
+  # sandbox escape, this one gates politeness — blocking every turn end on
+  # a missing tool would be the hook misfiring, which is worse than no hook.
+  command -v jq > /dev/null 2>&1 || exit 0
+  [ -d "$root/.ai" ] || exit 0
+  _in=$(cat)
+  [ -n "$_in" ] || exit 0
+
+  _msgf=$(mktemp "${TMPDIR:-/tmp}/close-check-msg.XXXXXX")
+  _fencef=$(mktemp "${TMPDIR:-/tmp}/close-check-fence.XXXXXX")
+  _blockf=$(mktemp "${TMPDIR:-/tmp}/close-check-block.XXXXXX")
+  _notef=$(mktemp "${TMPDIR:-/tmp}/close-check-note.XXXXXX")
+  trap 'rm -f "$_msgf" "$_fencef" "$_blockf" "$_notef"' EXIT INT TERM
+
+  printf '%s' "$_in" | jq -r '.last_assistant_message // empty' > "$_msgf"
+  _sid=$(printf '%s' "$_in" | jq -r '.session_id // "unknown"')
+  _active=$(printf '%s' "$_in" | jq -r '.stop_hook_active // false')
+
+  # ---- check 1: recipe truth, fenced blocks only ----
+  # Prose narration ("I deleted X") must never false-positive, so only the
+  # contents of ``` fences are parsed.
+  awk '/^[[:space:]]*```/ { inb = !inb; next } inb' "$_msgf" > "$_fencef"
+
+  # Resolve a recipe path token to an absolute path for existence checks.
+  # Scope mirrors where session artifacts actually live; anything else in a
+  # recipe (repo files, system paths) is not this check's business.
+  resolve_tok() {
+    case "$1" in
+    .ai/scratchpad/*) printf '%s/%s\n' "$root" "$1" ;;
+    /tmp/claude*) printf '%s\n' "$1" ;;
+    "\$HOME"/.claude* | "~"/.claude*) printf '%s/%s\n' "$HOME" "${1#*/}" ;;
+    provides/claude-user/*) printf '%s/%s\n' "$root" "$1" ;;
+    *) printf '\n' ;;
+    esac
+  }
+
+  while IFS= read -r _line; do
+    [ -n "$_line" ] || continue
+    _is_rm=0
+    case "$_line" in
+    rm\ * | *[\;\&]\ rm\ * | *\|\ rm\ *) _is_rm=1 ;;
+    *) ;;
+    esac
+    # cp/mv already-done detection: both endpoints exist and compare equal.
+    case "$_line" in
+    cp\ * | */bin/cp\ *)
+      # Word-splitting is the tokenizer here; recipe lines in org drafts
+      # carry no glob characters or spaces-in-paths worth preserving.
+      # shellcheck disable=SC2086
+      set -- $_line
+      _src=""
+      _dst=""
+      for _w in "$@"; do
+        case "$_w" in
+        -*) continue ;;
+        *cp) continue ;;
+        *)
+          if [ -z "$_src" ]; then _src="$_w"; else _dst="$_w"; fi
+          ;;
+        esac
+      done
+      _rs=$(resolve_tok "$_src")
+      _rd=$(resolve_tok "$_dst")
+      if [ -n "$_rs" ] && [ -n "$_rd" ] && [ -f "$_rs" ] && [ -f "$_rd" ] &&
+        cmp -s "$_rs" "$_rd"; then
+        # The backticks are markdown quoting for the reader, not expansion.
+        # shellcheck disable=SC2016
+        printf 'recipe step already done: `%s` (source and destination are identical; the real next step is removing the mirror copy)\n' \
+          "$_line" >> "$_blockf"
+      fi
+      ;;
+    *) ;;
+    esac
+    # Every in-scope path token on the line must exist — except on rm lines,
+    # where an ABSENT path is the finding (a stale step: the deletion
+    # already happened, so the recipe was not re-derived from state).
+    # The $HOME in the grep pattern is literal text to match, not expansion.
+    # shellcheck disable=SC2016
+    for _tok in $(printf '%s\n' "$_line" |
+      grep --only-matching --extended-regexp \
+        '(\.ai/scratchpad|/tmp/claude[^ ]*|\$HOME/\.claude[^ ]*|~/\.claude[^ ]*|provides/claude-user)[^ `"'"'"');]*' |
+      sed 's/[),.;:]*$//' | sort -u); do
+      _abs=$(resolve_tok "$_tok")
+      [ -n "$_abs" ] || continue
+      if [ -e "$_abs" ]; then
+        continue
+      fi
+      if [ "$_is_rm" -eq 1 ]; then
+        # The backticks are markdown quoting for the reader, not expansion.
+        # shellcheck disable=SC2016
+        printf 'stale recipe step: `%s` — %s does not exist (already removed); re-derive the recipe from current state\n' \
+          "$_line" "$_tok" >> "$_blockf"
+      else
+        # The backticks are markdown quoting for the reader, not expansion.
+        # shellcheck disable=SC2016
+        printf 'recipe names a path that does not exist: %s (in `%s`); re-derive the recipe from current state\n' \
+          "$_tok" "$_line" >> "$_blockf"
+      fi
+    done
+  done < "$_fencef"
+
+  # ---- close-shape and recipe presence ----
+  _ahead=0
+  _clean=0
+  if [ "$in_git" -eq 1 ]; then
+    if git -C "$root" rev-parse --verify --quiet '@{u}' > /dev/null 2>&1; then
+      _ahead=$(git -C "$root" log '@{u}..HEAD' --format='%H' | wc -l | tr -d ' ')
+    elif git -C "$root" rev-parse --verify --quiet origin/main > /dev/null 2>&1; then
+      _ahead=$(git -C "$root" log origin/main..HEAD --format='%H' | wc -l | tr -d ' ')
+    fi
+    [ -z "$(git -C "$root" status --porcelain)" ] && _clean=1
+  fi
+  _has_recipe=0
+  grep -qi 'closing recipe' "$_msgf" && _has_recipe=1
+  _claims_close=0
+  grep -qiE 'closing recipe|sign-push|hand-?off' "$_msgf" && _claims_close=1
+  _close_shaped=0
+  [ "$_ahead" -gt 0 ] && [ "$_clean" -eq 1 ] && _close_shaped=1
+
+  # ---- check 2: close claim (or shape) over a stale progress.md ----
+  if [ -f "$snapshot" ] && [ -f "$progress" ] && [ ! "$progress" -nt "$snapshot" ] &&
+    { [ "$_claims_close" -eq 1 ] || [ "$_close_shaped" -eq 1 ]; }; then
+    printf '.ai/progress.md has not been rewritten this session; update it to the current state and next action before closing\n' \
+      >> "$_blockf"
+  fi
+
+  # ---- check 4: close-shaped turn with no recipe and no reasoned decline ----
+  if [ "$_close_shaped" -eq 1 ] && [ "$_has_recipe" -eq 0 ]; then
+    # The backticks are markdown quoting for the reader, not expansion.
+    # shellcheck disable=SC2016
+    printf 'this turn looks like a session close (commits ahead, clean tree) but carries no closing recipe; print the full runnable recipe, or state `Closing recipe: none — <reason>`\n' \
+      >> "$_blockf"
+  fi
+
+  # ---- check 3: spent drafts still in the scratchpad ----
+  for _d in "$root"/.ai/scratchpad/commit-msg-*.md; do
+    [ -f "$_d" ] || continue
+    set +e
+    draft_landed "$_d"
+    _r=$?
+    set -e
+    if [ "$_r" -eq 0 ]; then
+      printf 'spent draft: %s matches a landed commit; delete it (the rm is vault-protected)\n' \
+        ".ai/scratchpad/${_d##*/}" >> "$_blockf"
+    elif [ "$_r" -eq 1 ]; then
+      printf 'draft %s shares a subject with a landed commit but the body differs — a pending --amend, or stale\n' \
+        ".ai/scratchpad/${_d##*/}" >> "$_notef"
+    fi
+  done
+  for _d in "$root"/.ai/scratchpad/pr*-*.md "$root"/.ai/scratchpad/pr-body-*.md; do
+    [ -f "$_d" ] || continue
+    if pr_parked "${_d##*/}"; then
+      printf 'spent draft: %s — its PR has a parked merged/prNN branch; delete it (the rm is vault-protected)\n' \
+        ".ai/scratchpad/${_d##*/}" >> "$_blockf"
+    fi
+  done
+
+  # ---- session reports (notes): direct-on-main writes the guard exempted ----
+  if [ "$in_git" -eq 1 ]; then
+    _gd=$(git -C "$root" rev-parse --git-dir)
+    case "$_gd" in
+    /*) ;;
+    *) _gd="$root/$_gd" ;;
+    esac
+    if [ -s "$_gd/claude-exempt-writes" ]; then
+      printf 'written directly on main this session (guard-exempt continuity files): %s\n' \
+        "$(sort -u "$_gd/claude-exempt-writes" | tr '\n' ' ')" >> "$_notef"
+      : > "$_gd/claude-exempt-writes"
+    fi
+  fi
+
+  # ---- decide: block once per distinct finding set, then downgrade ----
+  sort -u -o "$_blockf" "$_blockf"
+  _state="$root/.ai/.close-check-state"
+  if [ -s "$_blockf" ]; then
+    _hash=$(cksum "$_blockf" | cut -d' ' -f1)
+    _prev=$(cat "$_state" 2> /dev/null || true)
+    if [ "$_active" = "true" ] || [ "$_prev" = "$_sid $_hash" ]; then
+      # Already blocked on exactly this: let the turn end, but visibly.
+      printf 'finding persists after one retry, letting the turn end:\n%s\n' \
+        "$(cat "$_blockf")" >> "$_notef"
+    else
+      printf '%s %s\n' "$_sid" "$_hash" > "$_state"
+      if [ -s "$_notef" ]; then
+        jq -n --rawfile r "$_blockf" --rawfile n "$_notef" \
+          '{decision: "block", reason: ("close-check found:\n" + $r), systemMessage: $n}'
+      else
+        jq -n --rawfile r "$_blockf" \
+          '{decision: "block", reason: ("close-check found:\n" + $r)}'
+      fi
+      exit 0
+    fi
+  fi
+  if [ -s "$_notef" ]; then
+    jq -n --rawfile n "$_notef" '{systemMessage: ("close-check: " + $n)}'
+  fi
   ;;
 
 -h | --help)
