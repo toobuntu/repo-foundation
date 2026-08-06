@@ -393,7 +393,7 @@ These are blanket-denied. Don't propose workarounds:
 - System control: `shutdown`, `reboot`, `halt`
 - Kill: `killall -9` (use `kill -TERM` if a process needs stopping and surface to the maintainer first)
 - System package managers: `brew install/uninstall/upgrade/cleanup/autoremove`, `npm install/uninstall/exec`, `npx`, `pip install/uninstall`, `pip3 install/uninstall`, `gem install/uninstall`, `cargo install`, `go install`
-- Curl-pipe-shell variants: `curl ... | sh|bash|zsh|...`, `curl -X DELETE/PUT/POST/PATCH`
+- Curl-pipe-shell: `curl … | <shell>` with or without shell arguments, for every `/etc/shells` shell plus `fish`, and `curl -X DELETE/PUT/POST/PATCH`. Enforced as anchored deny-rule pairs (`Bash(curl * | sh)` + `Bash(curl * | sh *)`); the permission matcher was measured (2026-08-05) to match pipelines whole and per-component with pipe spacing normalized, so these rules are live. Honest residue no rule can express: `;`-sequences, `$(curl …)` substitution, and download-then-execute (`curl -o f … && sh f`) — `curl` itself stays ask-gated, which is the covering prompt for those shapes.
 - Network egress that bypasses the allowlist: `wget`, `ssh`, `scp`, `rsync`
 - Reading secrets: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, `~/Library/Keychains`, `~/.claude.json`, `~/.claude/`, `~/.netrc`, `~/.pgpass`, `./.env*`
 
