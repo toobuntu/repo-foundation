@@ -238,6 +238,11 @@ component_sets:
 
   scripts_core:
     - { source: scripts/ai/ai-session.sh,              target: scripts/ai/ai-session.sh,              mode: canonical }
+    # Every settings hook runs through this one validator, which parse-checks
+    # the script it is about to exec and stays silent when that check fails.
+    # It must ship with the scripts it guards: without it every hook command
+    # in the baseline resolves to nothing, and the guards stop running.
+    - { source: scripts/ai/hook-run.sh,                target: scripts/ai/hook-run.sh,                mode: canonical }
     # The main-branch dirty-tree guard the settings baseline wires as a
     # SessionStart seed and a PostToolUse check. repo_baseline delivers those
     # hooks, and every repo_baseline consumer takes scripts_core, so the two

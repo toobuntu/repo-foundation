@@ -7,6 +7,7 @@
 # checks are the ones a rename or a forgotten manifest edit would break:
 # every declared source file actually exists, every set a consumer names is
 # defined, and configs that must travel with their hook do.
+require "json"
 require "yaml"
 
 RSpec.describe "sync-manifest.yaml contract" do
@@ -87,10 +88,21 @@ RSpec.describe "sync-manifest.yaml contract" do
   # exists to catch, so the tripwire below now names a script the hook wiring
   # genuinely cannot work without rather than merely counting matches.
   it "delivers every script the settings baseline's hooks invoke" do
-    baseline = File.read(File.join(REPO_ROOT, "provides/repo/settings.baseline.json"))
-    invoked = baseline.scan(%r{scripts/[A-Za-z0-9._/-]+\.sh}).uniq
-    expect(invoked).to include("scripts/ai/ai-session.sh"),
-                       "the session hooks' own script is not referenced — did the wiring change shape? " \
+    settings = JSON.parse(File.read(File.join(REPO_ROOT, "provides/repo/settings.baseline.json")))
+    commands = settings.fetch("hooks").values.flatten
+                       .flat_map { |g| g.fetch("hooks", []) }.filter_map { |h| h["command"] }
+    # Scan the DECODED commands, and for two shapes: a script named by PATH
+    # (hook-run.sh itself, or any shim that execs directly) and a script named
+    # by NAME as an argument to hook-run.sh, which is how every guard is
+    # invoked since 2026-08-07. Collecting only paths would leave every guard
+    # unchecked while this example still passed — the failure mode that
+    # already happened once, when the scripts/ai/ move went unnoticed here.
+    by_path = commands.flat_map { |c| c.scan(%r{scripts/[A-Za-z0-9._/-]+\.sh}) }
+    by_name = commands.flat_map { |c| c.scan(/"\$h" ([a-z][a-z0-9-]*\.sh)/) }
+                      .flatten.map { |n| "scripts/ai/#{n}" }
+    invoked = (by_path + by_name).uniq
+    expect(invoked).to include("scripts/ai/ai-session.sh", "scripts/ai/hook-run.sh"),
+                       "the session hooks' own scripts are not referenced — did the wiring change shape? " \
                        "(saw: #{invoked.join(', ')})"
 
     shipped = sets.fetch("scripts_core").map { |c| c.fetch("target") }

@@ -43,6 +43,8 @@
 #   scripts/ai/ai-session.sh vault-gc         # remove REPORTED-expired copies
 #   scripts/ai/ai-session.sh close-check      # Stop-hook gate on the close
 #                                             # ritual (reads hook JSON stdin)
+#   scripts/ai/ai-session.sh compact-check    # PreCompact gate: progress.md
+#                                             # current before detail is lost
 #   scripts/ai/ai-session.sh vault-hook       # hook shim: vault the pre-write
 #                                             # state named by hook JSON stdin
 #
@@ -54,7 +56,7 @@
 set -eu
 
 usage() {
-  printf 'Usage: %s start|end|relay-consume|init|vault [args]|vault-hook|vault-gc|close-check\n' \
+  printf 'Usage: %s start|end|relay-consume|init|vault [args]|vault-hook|vault-gc|close-check|compact-check\n' \
     "${0##*/}" >&2
 }
 
@@ -81,6 +83,58 @@ esac
 
 progress_sum() {
   cksum "$progress" 2> /dev/null | cut -d' ' -f1
+}
+
+git_dir=""
+if [ "$in_git" -eq 1 ]; then
+  git_dir=$(git -C "$root" rev-parse --git-dir 2> /dev/null) || git_dir=""
+  case "$git_dir" in
+  '' | /*) ;;
+  *) git_dir="$root/$git_dir" ;;
+  esac
+fi
+
+# Is .ai/progress.md current WITH RESPECT TO THE WORK, rather than merely
+# newer than session start?
+#
+# "Newer than the session-start snapshot" is too weak and would pass the case
+# that matters: progress rewritten in the first hour of a five-hour session is
+# stale by the time compaction fires, yet its mtime is still newer than the
+# snapshot. So compare it against every cheap marker of activity instead —
+# each is one `-nt`, which is POSIX and needs no epoch arithmetic:
+#
+#   the session-start snapshot   progress was never touched at all
+#   the last-compact marker      nothing written since the previous compaction
+#   .git/logs/HEAD               a commit, switch, or reset landed since
+#   modified tracked files       edits in flight are newer than the write-up
+#   .ai/scratchpad/*             a draft was written after the write-up
+#
+# Any one of them newer than progress.md means work happened that progress.md
+# does not describe.
+progress_is_current() {
+  [ -f "$progress" ] || return 1
+  for _ev in "$snapshot" "$root/.ai/.last-compact" "$git_dir/logs/HEAD"; do
+    case "$_ev" in
+    /logs/HEAD) continue ;; # no git_dir: skip rather than test "/logs/HEAD"
+    *) ;;
+    esac
+    [ -e "$_ev" ] || continue
+    [ "$progress" -nt "$_ev" ] || return 1
+  done
+  for _f in "$root"/.ai/scratchpad/*; do
+    [ -f "$_f" ] || continue
+    [ "$progress" -nt "$_f" ] || return 1
+  done
+  [ "$in_git" -eq 1 ] || return 0
+  _mods=$(mktemp "${TMPDIR:-/tmp}/ai-session-mods.XXXXXX") || return 0
+  git -C "$root" diff --name-only > "$_mods" 2> /dev/null || true
+  _stale=0
+  while IFS= read -r _f; do
+    [ -n "$_f" ] && [ -e "$root/$_f" ] || continue
+    [ "$progress" -nt "$root/$_f" ] || _stale=1
+  done < "$_mods"
+  rm -f "$_mods"
+  [ "$_stale" -eq 0 ]
 }
 
 # ---------- vault helpers ----------
@@ -198,6 +252,108 @@ pr_parked() {
     grep -q "^$_n\$"
 }
 
+# Same question, asked of GitHub. The parked branch is checked FIRST by every
+# caller because it is local, free, and authoritative for this org's own
+# workflow; this covers the pull request that merged without being parked yet.
+pr_merged_upstream() {
+  _n=$(printf '%s\n' "$1" | sed -n 's/.*pr0*\([1-9][0-9]*\).*/\1/p' | head -n 1)
+  [ -n "$_n" ] || return 1
+  _slug=$(repo_slug) || return 1
+  net_get "repos/$_slug/pulls/$_n" |
+    jq -e '.merged == true' > /dev/null 2>&1
+}
+
+# The filed test for an issue-* draft. A draft names its destination
+# repository in its own text (the tb-issue-draft house style), so the first
+# owner/repo slug in the file is the repository to ask — which matters
+# because these drafts usually target an UPSTREAM, not this repository. An
+# open or closed issue whose title matches the draft's title is the evidence.
+# No slug, no title, or no network means no evidence, which is the
+# report-only path, not a finding.
+issue_filed() {
+  command -v jq > /dev/null 2>&1 || return 1
+  _title=$(sed -n 's/^#[[:space:]]*//p' "$1" | head -n 1)
+  [ -n "$_title" ] || _title=$(grep -v '^[[:space:]]*$' "$1" | sed -n '1p')
+  [ -n "$_title" ] || return 1
+  _target=$(grep -o -E '\b[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\b' "$1" |
+    grep -v -E '^(\.|/)' | grep -E '^[A-Za-z0-9]' | head -n 1)
+  [ -n "$_target" ] || _target=$(repo_slug) || return 1
+  net_get "repos/$_target/issues?state=all&per_page=100" |
+    jq -e --arg t "$_title" '[.[] | select(.title == $t)] | length > 0' > /dev/null 2>&1
+}
+
+# ---------- landing evidence that needs the network ----------
+
+# Days a vault copy's source may be gone, with no landing evidence, before
+# `start` reports it. This is a REPORT and never a deletion, so the cost of
+# firing early is one line while the cost of firing late is that nobody
+# remembers what the file was — which is why it is short.
+ORPHAN_REPORT_DAYS=14
+
+# Cache lifetime for an API answer. A pull request's merged state and a
+# repository's issue list change on the scale of minutes at most, and the
+# caller runs at every turn end, so this is what keeps a session's network
+# cost at roughly one call rather than one per turn.
+NET_TTL=600
+
+repo_slug() {
+  [ "$in_git" -eq 1 ] || return 1
+  _u=$(git -C "$root" remote get-url origin 2> /dev/null) || return 1
+  [ -n "$_u" ] || return 1
+  printf '%s\n' "$_u" | sed -e 's/\.git$//' -e 's/:/\//g' |
+    awk -F/ 'NF >= 2 { print $(NF - 1) "/" $NF }'
+}
+
+# GET a GitHub API path, cached. Prefers `gh`: hooks run OUTSIDE the agent
+# sandbox, so the credentials the sandboxed agent cannot read are available
+# here, which is 5000 requests/hour instead of 60. Falls back to
+# unauthenticated api.github.com with a hard timeout.
+#
+# EVERY failure path is silence: no network, no gh, a timeout, a rate-limit
+# body, a private repository. A landing check that cannot reach the network
+# must behave exactly like one that found no evidence — never like one that
+# found the work unlanded, and never like an error the user has to see.
+#
+# Which transport answered is appended to .netcache/.path-log, so the
+# gh-from-a-hook question is settled by production rather than by assertion.
+net_get() {
+  [ -n "${1:-}" ] || return 1
+  _cache="$vdir/.netcache"
+  _f="$_cache/$(printf '%s' "$1" | cksum | cut -d' ' -f1)"
+  _now_s=$(date +%s)
+  if [ -f "$_f" ]; then
+    _ts=$(sed -n '1p' "$_f")
+    case "$_ts" in
+    '' | *[!0-9]*) ;;
+    *)
+      if [ "$((_now_s - _ts))" -lt "$NET_TTL" ]; then
+        sed '1d' "$_f"
+        return 0
+      fi
+      ;;
+    esac
+  fi
+  mkdir -p "$_cache" 2> /dev/null || return 1
+  _body=""
+  _via=""
+  if command -v gh > /dev/null 2>&1; then
+    _body=$(gh api "$1" 2> /dev/null) && _via=gh || _body=""
+  fi
+  if [ -z "$_body" ]; then
+    _body=$(curl -sS --max-time 3 "https://api.github.com/$1" 2> /dev/null) &&
+      _via=curl || _body=""
+  fi
+  [ -n "$_body" ] || return 1
+  # A rate-limit or not-found body is not an answer; do not cache it as one.
+  printf '%s' "$_body" | jq -e 'has("message") | not' > /dev/null 2>&1 || return 1
+  {
+    printf '%s\n' "$_now_s"
+    printf '%s' "$_body"
+  } > "$_f"
+  printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_via" "$1" >> "$_cache/.path-log"
+  printf '%s' "$_body"
+}
+
 json_escape() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
@@ -249,7 +405,11 @@ vault_sweep() {
         if draft_landed "$vdir/$_newest"; then _landed=0; fi
         ;;
       scratchpad__pr*)
-        if pr_parked "$_name"; then _landed=0; fi
+        # Parked branch first: local, free, and authoritative here.
+        if pr_parked "$_name" || pr_merged_upstream "$_name"; then _landed=0; fi
+        ;;
+      scratchpad__issue-*)
+        if issue_filed "$vdir/$_newest"; then _landed=0; fi
         ;;
       *) ;; # no evidence rule for this class; falls to the report path
       esac
@@ -269,15 +429,15 @@ vault_sweep() {
     done
 }
 
-# Expired report-only copies: source gone 30+ days per the noticing record.
-# Prints "name<TAB>days" lines; empty output means nothing has expired.
+# Expired report-only copies: source gone ORPHAN_REPORT_DAYS+ per the
+# noticing record. Prints "name<TAB>days"; empty output means none expired.
 vault_expired() {
   [ -f "$gone_record" ] || return 0
   _now=$(date +%s)
   while IFS=' ' read -r _name _epoch; do
     [ -n "$_name" ] && [ -n "$_epoch" ] || continue
     _days=$(((_now - _epoch) / 86400))
-    if [ "$_days" -ge 30 ]; then
+    if [ "$_days" -ge "$ORPHAN_REPORT_DAYS" ]; then
       printf '%s\t%s\n' "$_name" "$_days"
     fi
   done < "$gone_record"
@@ -568,6 +728,60 @@ vault-hook)
   fi
   [ "$#" -gt 0 ] || exit 0
   exec "$0" vault --json "--session=$_sid" "$@"
+  ;;
+
+compact-check)
+  # The PreCompact gate. Compaction is the moment mid-session detail is
+  # summarized away, and it is the LAST moment the agent still holds that
+  # detail — so this blocks until .ai/progress.md has been brought current,
+  # for MANUAL and AUTO compaction alike.
+  #
+  # Blocking auto-compaction was first declined on the theory that it fires
+  # too near context-full to leave room for the writing. That does not
+  # survive the arithmetic (maintainer, 2026-08-07): auto fires around 80%,
+  # so the remaining fifth of the window is ample for a progress rewrite and
+  # a memory entry, and a PostCompact pointer to the vault copy is strictly
+  # worse — after compaction the agent no longer holds what it would need to
+  # write accurately, which is the whole problem.
+  #
+  # The copy is unconditional and happens FIRST, so a block can never cost a
+  # snapshot. The gate is self-clearing by mtime: the agent updates
+  # progress.md, the next attempt passes and stamps the marker. A counter
+  # caps consecutive blocks so a session that genuinely cannot write the file
+  # still compacts rather than wedging.
+  command -v jq > /dev/null 2>&1 || exit 0
+  [ -f "$progress" ] || exit 0
+  _in=$(cat)
+  _sid=$(printf '%s' "$_in" | jq -r '.session_id // "unknown"' 2> /dev/null || echo unknown)
+  _trigger=$(printf '%s' "$_in" | jq -r '.trigger // .matcher // "unknown"' 2> /dev/null || echo unknown)
+
+  printf '%s' "$_in" | "$0" vault-hook > /dev/null 2>&1 || true
+
+  _mark="$root/.ai/.last-compact"
+  _state="$root/.ai/.compact-check-state"
+
+  if ! progress_is_current; then
+    _n=0
+    _prev=$(cat "$_state" 2> /dev/null || true)
+    case "$_prev" in
+    "$_sid "*) _n=${_prev#"$_sid "} ;;
+    *) ;;
+    esac
+    case "$_n" in
+    '' | *[!0-9]*) _n=0 ;;
+    *) ;;
+    esac
+    if [ "$_n" -lt 2 ]; then
+      printf '%s %s\n' "$_sid" "$((_n + 1))" > "$_state"
+      jq -n --arg t "$_trigger" '{
+        decision: "block",
+        reason: ("Context is about to be compacted (" + $t + ") and the detail this session holds will not survive it. Update .ai/progress.md to the current state and next action, and append any durable learning to .ai/memory.md, NOW while you still hold the detail. A pre-compaction copy of progress.md is already in the vault. Then let the compaction proceed; this check passes once progress.md is newer than the last compaction.")
+      }'
+      exit 0
+    fi
+    jq -n '{systemMessage: "compact-check: .ai/progress.md is still stale after two prompts; allowing compaction so the session does not wedge. The pre-compaction copy is in the vault."}'
+  fi
+  : > "$_mark"
   ;;
 
 close-check)

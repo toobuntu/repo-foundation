@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "in=$(cat); s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; sid=$(printf '%s' \"$in\" | jq -r '.session_id // empty' 2>/dev/null || true); \"$s\" start ${sid:+--session=$sid} || true; printf '%s' \"$in\" | \"$s\" vault-hook || true",
+            "command": "in=$(cat); h=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/hook-run.sh\"; [ -x \"$h\" ] && sh -n \"$h\" 2>/dev/null || exit 0; sid=$(printf '%s' \"$in\" | jq -r '.session_id // empty' 2>/dev/null || true); \"$h\" ai-session.sh start ${sid:+--session=$sid} || true; printf '%s' \"$in\" | \"$h\" ai-session.sh vault-hook || true",
             "timeout": 15
           }
         ]
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "in=$(cat); s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; sid=$(printf '%s' \"$in\" | jq -r '.session_id // empty' 2>/dev/null || true); \"$s\" end ${sid:+--session=$sid} || true",
+            "command": "in=$(cat); h=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/hook-run.sh\"; [ -x \"$h\" ] && sh -n \"$h\" 2>/dev/null || exit 0; sid=$(printf '%s' \"$in\" | jq -r '.session_id // empty' 2>/dev/null || true); \"$h\" ai-session.sh end ${sid:+--session=$sid} || true",
             "timeout": 10
           }
         ]
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" close-check",
+            "command": "h=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/hook-run.sh\"; [ -x \"$h\" ] && sh -n \"$h\" 2>/dev/null || exit 0; exec \"$h\" ai-session.sh close-check",
             "timeout": 20
           }
         ]
@@ -56,8 +56,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/ai-session.sh\"; [ -x \"$s\" ] || exit 0; exec \"$s\" vault-hook",
-            "timeout": 10
+            "command": "h=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/hook-run.sh\"; [ -x \"$h\" ] && sh -n \"$h\" 2>/dev/null || exit 0; exec \"$h\" ai-session.sh compact-check",
+            "timeout": 15
           }
         ]
       }
@@ -392,7 +392,6 @@
       "Bash(killall -9:*)",
 
       "Edit(~/.local/state/ai-history/**)",
-      "Write(~/.local/state/ai-history/**)",
 
       "Read(./.env)",
       "Read(./.env.*)",

@@ -271,6 +271,118 @@ RSpec.describe "scripts/ai/ai-session.sh" do
     end
   end
 
+  # hook-run.sh is the validator every settings hook runs through. It exists
+  # because a syntax error in a hooked script exits 2, and exit 2 from
+  # PreToolUse/Stop BLOCKS — so on 2026-08-07 a broken ai-session.sh refused
+  # every Edit, Write, and Bash call at once, including the edit that would
+  # have fixed it. A guard whose own code is broken must fail OPEN.
+  describe "hook-run.sh" do
+    let(:runner) { File.expand_path("../../scripts/ai/hook-run.sh", __dir__) }
+
+    def run_hook(dir, *args)
+      Open3.capture3({ "CLAUDE_PROJECT_DIR" => dir }, runner, *args, chdir: dir)
+    end
+
+    around do |example|
+      Dir.mktmpdir("rf-hook-run-") do |dir|
+        FileUtils.mkdir_p(File.join(dir, "scripts", "ai"))
+        FileUtils.cp(File.expand_path("../../scripts/ai/hook-run.sh", __dir__),
+                     File.join(dir, "scripts", "ai"))
+        @dir = dir
+        example.run
+      end
+    end
+
+    def write_script(name, body)
+      path = File.join(@dir, "scripts", "ai", name)
+      File.write(path, body)
+      FileUtils.chmod(0o755, path)
+      path
+    end
+
+    it "runs a valid script and passes its arguments through" do
+      write_script("good.sh", "#!/bin/sh\nprintf 'ran:%s\\n' \"$1\"\n")
+      out, _err, status = run_hook(@dir, "good.sh", "verb")
+      expect(status.exitstatus).to eq(0)
+      expect(out).to include("ran:verb")
+    end
+
+    it "fails OPEN on a script with a syntax error, silently" do
+      write_script("bad.sh", "#!/bin/sh\nprintf 'unterminated\n")
+      out, err, status = run_hook(@dir, "bad.sh")
+      expect(status.exitstatus).to eq(0), "a broken hook script must not block the tool call"
+      expect(err).to be_empty, "the parse diagnostic must not reach the agent"
+      expect(out).to be_empty
+    end
+
+    it "fails open on a missing or non-executable script, and on no argument" do
+      File.write(File.join(@dir, "scripts", "ai", "plain.sh"), "#!/bin/sh\ntrue\n")
+      expect(run_hook(@dir, "absent.sh").last.exitstatus).to eq(0)
+      expect(run_hook(@dir, "plain.sh").last.exitstatus).to eq(0)
+      expect(run_hook(@dir).last.exitstatus).to eq(0)
+    end
+
+    it "propagates a valid script's own blocking exit" do
+      write_script("blocker.sh", "#!/bin/sh\necho nope >&2\nexit 2\n")
+      _out, err, status = run_hook(@dir, "blocker.sh")
+      expect(status.exitstatus).to eq(2), "a working guard must still be able to refuse"
+      expect(err).to include("nope")
+    end
+  end
+
+  describe "compact-check" do
+    def compact(repo, state, session: "sess-c")
+      payload = { session_id: session, trigger: "auto" }.to_json
+      out, _err, status = run_ai(repo, state, "compact-check", stdin: payload)
+      expect(status.exitstatus).to eq(0)
+      out.empty? ? {} : JSON.parse(out)
+    end
+
+    it "blocks when progress.md predates work done since it was written" do
+      with_repo do |repo, state|
+        run_ai(repo, state, "start", "--session=sess-c")
+        # progress.md rewritten, THEN more work lands — the case a plain
+        # newer-than-session-start test would wrongly pass.
+        sleep 1
+        File.write(File.join(repo, ".ai", "progress.md"), "# written early\n")
+        sleep 1
+        File.write(File.join(repo, ".ai", "scratchpad", "commit-msg-later.md"), "feat: later\n")
+
+        result = compact(repo, state)
+        expect(result["decision"]).to eq("block")
+        expect(result["reason"]).to include("compacted")
+        expect(result["reason"]).to include(".ai/memory.md")
+      end
+    end
+
+    it "passes once progress.md is brought current, and vaults regardless" do
+      with_repo do |repo, state|
+        run_ai(repo, state, "start", "--session=sess-c")
+        File.write(File.join(repo, ".ai", "scratchpad", "commit-msg-x.md"), "feat: x\n")
+        expect(compact(repo, state)["decision"]).to eq("block")
+        # The copy happens before the block, so a block never costs a snapshot.
+        expect(vault_files(state).any? { |f| f.end_with?("progress.md") }).to be(true)
+
+        sleep 1
+        File.write(File.join(repo, ".ai", "progress.md"), "# now current\n")
+        expect(compact(repo, state)).to eq({})
+      end
+    end
+
+    it "stops blocking after two attempts so a session cannot wedge" do
+      with_repo do |repo, state|
+        run_ai(repo, state, "start", "--session=sess-c")
+        sleep 1
+        File.write(File.join(repo, ".ai", "scratchpad", "stubborn.md"), "x\n")
+        expect(compact(repo, state)["decision"]).to eq("block")
+        expect(compact(repo, state)["decision"]).to eq("block")
+        third = compact(repo, state)
+        expect(third["decision"]).to be_nil
+        expect(third["systemMessage"]).to include("still stale")
+      end
+    end
+  end
+
   describe "init" do
     it "creates the layer once and is a no-op after" do
       Dir.mktmpdir("rf-ai-init-") do |dir|
