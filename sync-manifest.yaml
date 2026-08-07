@@ -253,6 +253,9 @@ component_sets:
     # The Write-creation SPDX guard the settings baseline wires; same
     # delivery coupling as guard-main.sh above.
     - { source: scripts/ai/guard-spdx.sh,              target: scripts/ai/guard-spdx.sh,              mode: canonical }
+    # The gate on the sandbox-excluded annotate.sh. Its settings shim fails
+    # CLOSED (this guards a sandbox escape), unlike the hook-run.sh shims.
+    - { source: scripts/ai/guard-annotate.sh,          target: scripts/ai/guard-annotate.sh,          mode: canonical }
     # The curl-substitution guard: the hook complement to the anchored
     # curl-pipe deny PAIRS, covering the shapes a permission rule cannot see.
     # Same delivery coupling as the two guards above — the settings baseline
