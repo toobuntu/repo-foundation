@@ -73,6 +73,20 @@ RSpec.describe "scripts/ai/guard-spdx.sh" do
     _out, _err, status = guard(@dir, "docs.md", body)
     expect(status.exitstatus).to eq(0)
   end
+
+  # Pin the window itself, not just a value far inside it: `head -n 10` is an
+  # off-by-one away from either refusing prose or missing a real header.
+  it "refuses a tag on the last line of the window (line 10)" do
+    body = ("prose line\n" * 9) + "# SPDX-License-Identifier: GPL-3.0-or-later\n"
+    _out, _err, status = guard(@dir, "edge-in.md", body)
+    expect(status.exitstatus).to eq(2)
+  end
+
+  it "allows a tag on the first line past the window (line 11)" do
+    body = ("prose line\n" * 10) + "# SPDX-License-Identifier: GPL-3.0-or-later\n"
+    _out, _err, status = guard(@dir, "edge-out.md", body)
+    expect(status.exitstatus).to eq(0)
+  end
   # REUSE-IgnoreEnd
 
   it "stays silent on input with no file path" do

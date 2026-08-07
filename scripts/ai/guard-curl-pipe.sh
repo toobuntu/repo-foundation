@@ -36,7 +36,14 @@ cmd=$(jq -r '.tool_input.command // empty' 2> /dev/null) || exit 0
 [ -n "$cmd" ] || exit 0
 
 shells='(sh|bash|zsh|ksh|dash|csh|tcsh|fish)'
-sub='\$\(curl|`curl'
+# A curl invocation as it appears inside a substitution. Optional leading
+# whitespace (`$( curl …` is valid shell), an optional `command` builtin
+# prefix, and an optional directory prefix (`/usr/bin/curl`) are all the same
+# fetch. The trailing class is the word boundary that keeps `curl-config` —
+# a legitimate build helper — out: it excludes a following hyphen or
+# alphanumeric, while admitting the space or `)` a real call is followed by.
+curlword='(command[[:space:]]+)?([^[:space:]]*/)?curl[^-[:alnum:]]'
+sub='\$\([[:space:]]*'"$curlword"'|`[[:space:]]*'"$curlword"
 
 # Normalize runs of whitespace so spacing games cannot dodge the patterns.
 flat=$(printf '%s' "$cmd" | tr -s '[:space:]' ' ')
@@ -50,7 +57,7 @@ printf '%s\n' "$flat" |
   grep -q -E "(^|[^[:alnum:]_])$shells(\.exe)? [^;|&]*($sub)" && matched=1
 # A shell fed a curl process substitution (bash <(curl …)).
 printf '%s\n' "$flat" |
-  grep -q -E "(^|[^[:alnum:]_])$shells [^;|&]*<\(curl" && matched=1
+  grep -q -E "(^|[^[:alnum:]_])$shells [^;|&]*<\([[:space:]]*$curlword" && matched=1
 
 [ "$matched" -eq 1 ] || exit 0
 

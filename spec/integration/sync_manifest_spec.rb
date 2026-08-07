@@ -72,15 +72,26 @@ RSpec.describe "sync-manifest.yaml contract" do
                        "  #{missing.join("\n  ")}"
   end
 
-  # settings.baseline.json wires hooks that shell out to repo scripts — today
-  # ai-session.sh (SessionStart/SessionEnd) and main-guard.sh (SessionStart
-  # seed, PostToolUse check). scripts_core is what delivers those. Both hooks
-  # no-op when their script is missing, which is the reason to test it: the
-  # failure is a guard that silently never runs, not a visible error.
+  # settings.baseline.json wires hooks that shell out to repo scripts —
+  # ai-session.sh (SessionStart/SessionEnd/Stop/PreCompact and the vault
+  # shims), guard-main.sh (seed, PostToolUse check, PreToolUse pre),
+  # guard-spdx.sh, guard-curl-pipe.sh. scripts_core is what delivers those.
+  # Every hook no-ops when its script is missing, which is the reason to test
+  # it: the failure is a guard that silently never runs, not a visible error.
+  #
+  # The path pattern MUST admit `/` inside the script path. It did not until
+  # 2026-08-06, and the move of these scripts into scripts/ai/ therefore
+  # blinded this example to all four of them — it went on passing because
+  # scripts/annotate.sh (still flat, named by the annotate guard) kept the
+  # match list non-empty. That is the exact silent-no-op failure the example
+  # exists to catch, so the tripwire below now names a script the hook wiring
+  # genuinely cannot work without rather than merely counting matches.
   it "delivers every script the settings baseline's hooks invoke" do
     baseline = File.read(File.join(REPO_ROOT, "provides/repo/settings.baseline.json"))
-    invoked = baseline.scan(%r{scripts/[A-Za-z0-9._-]+\.sh}).uniq
-    expect(invoked).not_to be_empty, "no scripts referenced — did the hook wiring change shape?"
+    invoked = baseline.scan(%r{scripts/[A-Za-z0-9._/-]+\.sh}).uniq
+    expect(invoked).to include("scripts/ai/ai-session.sh"),
+                       "the session hooks' own script is not referenced — did the wiring change shape? " \
+                       "(saw: #{invoked.join(', ')})"
 
     shipped = sets.fetch("scripts_core").map { |c| c.fetch("target") }
     expect(invoked - shipped).to be_empty,

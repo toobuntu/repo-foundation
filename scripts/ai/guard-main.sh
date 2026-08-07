@@ -63,10 +63,30 @@ usage() {
   printf 'Usage: %s seed|check|pre\n' "${0##*/}" >&2
 }
 
-git_dir=$(git rev-parse --git-dir 2> /dev/null) || {
+# Resolve against the PROJECT directory, not the hook process's working
+# directory: a hook that fires from elsewhere would otherwise read one
+# repository's branch and write another's exempt-writes log.
+proj="${CLAUDE_PROJECT_DIR:-$PWD}"
+
+git_dir=$(git -C "$proj" rev-parse --git-dir 2> /dev/null) || {
   # Not a git repository: nothing to guard. Silent, so a SessionStart hook
   # firing in an arbitrary directory stays quiet.
   exit 0
+}
+# `--git-dir` answers relative to the queried directory; the record path has
+# to work regardless of where this process is standing.
+case "$git_dir" in
+/*) ;;
+*) git_dir="$proj/$git_dir" ;;
+esac
+
+# Physical path of a directory, for prefix comparison. macOS reaches one tree
+# as both /var/... and /private/var/..., and a hook may supply either form,
+# so an uncanonicalized prefix test lets a project file read as "outside the
+# project tree" — the guard would then fail OPEN. Falls back to the input
+# when the directory does not exist.
+canon_dir() {
+  (cd "$1" 2> /dev/null && pwd -P) || printf '%s\n' "$1"
 }
 record="$git_dir/claude-main-guard"
 
@@ -81,7 +101,7 @@ record="$git_dir/claude-main-guard"
 # to catch. `normal` rather than `all` because a directory's first new file
 # already fires the report, and `all` walks every untracked tree.
 dirty_paths() {
-  git status --porcelain --untracked-files=normal | cut -c4-
+  git -C "$proj" status --porcelain --untracked-files=normal | cut -c4-
 }
 
 case "${1:-}" in
@@ -90,21 +110,32 @@ seed)
   ;;
 
 pre)
-  proj="${CLAUDE_PROJECT_DIR:-$PWD}"
   fp=""
   if command -v jq > /dev/null 2>&1; then
     fp=$(jq -r '.tool_input.file_path // empty' 2> /dev/null || true)
   fi
-  # An unparseable target is treated as a project file: without jq the guard
-  # cannot tell, and failing toward the refusal preserves the pre-existing
-  # inline guard's semantics.
-  [ -n "$fp" ] || fp="$proj/"
+  proj=$(canon_dir "$proj")
+  on_main=0
+  [ "$(git -C "$proj" branch --show-current 2> /dev/null)" = "$BRANCH" ] && on_main=1
+
+  # An unparseable target fails CLOSED on main: with no file_path (no jq, or
+  # malformed input) the guard cannot tell what is being written, and
+  # refusing is what the pre-existing inline guard did. Handled before any
+  # path arithmetic — routing it through a sentinel path is how a
+  # canonicalization step silently turned the refusal into an allow.
+  if [ -z "$fp" ]; then
+    [ "$on_main" -eq 0 ] && exit 0
+    printf 'Direct edits to main are not allowed. Create a feature branch (git switch -c feature/<topic>) before editing.\n' >&2
+    exit 2
+  fi
+
   case "$fp" in
   /*) ;;
   *) fp="$proj/$fp" ;;
   esac
-  on_main=0
-  [ "$(git branch --show-current 2> /dev/null)" = "$BRANCH" ] && on_main=1
+  # Canonicalize the target too. The file may not exist yet (a Write creating
+  # it), so its DIRECTORY is what gets resolved.
+  fp="$(canon_dir "$(dirname -- "$fp")")/$(basename -- "$fp")"
   case "$fp" in
   "$proj/.ai/progress.md" | "$proj/.ai/scratchpad/"*)
     # Volatile continuity files: exempt on every branch. On main the write
@@ -128,7 +159,7 @@ pre)
   ;;
 
 check)
-  [ "$(git branch --show-current 2> /dev/null)" = "$BRANCH" ] || exit 0
+  [ "$(git -C "$proj" branch --show-current 2> /dev/null)" = "$BRANCH" ] || exit 0
 
   now=$(mktemp "${TMPDIR:-/tmp}/main-guard.XXXXXX")
   trap 'rm -f "$now"' EXIT INT TERM

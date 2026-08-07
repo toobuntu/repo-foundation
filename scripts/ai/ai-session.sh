@@ -107,16 +107,35 @@ vault_dir() {
   printf '%s/%s\n' "$_state" "$_slug"
 }
 
-# Vault copy name for a repo file: the path relative to .ai/, slashes
-# flattened to __ so the vault stays one level deep. Reversed by
-# vault_source_of; a source whose own name contains __ would round-trip
-# wrong, so vault skips those (no org draft convention produces one).
+# Vault copy name for a repo file: the path relative to .ai/, flattened to a
+# single level and reversible.
+#
+# ESCAPE BEFORE JOIN, never refuse. A path component may itself contain the
+# separator sequence, and the naive flatten made `scratchpad/foo__bar.md`
+# decode back as `scratchpad/foo/bar.md`. Skipping such a file was considered
+# and is WRONG: this is a forced-backup mechanism, so declining to copy a
+# file because its NAME is awkward converts a naming inconvenience into the
+# data loss the vault exists to prevent. Every source gets a copy.
+#
+# Encode, in order: `_` -> `_U`, then `/` -> `__`, then ` ` -> `_S`. After the
+# first pass no bare `_` survives from the original, so every `_` in the
+# result opens a two-character marker and the mapping is one-to-one. Escaping
+# the space as well is what keeps whitespace out of the sweep's bookkeeping
+# format, so no name needs refusing on that ground either.
+#
+# Readability is preserved for the ordinary case: a component with no
+# underscore or space flattens exactly as before, so copies written under the
+# earlier scheme still decode correctly and need no migration.
 vault_name_of() {
-  printf '%s\n' "${1#"$root"/.ai/}" | sed 's/\//__/g'
+  printf '%s\n' "${1#"$root"/.ai/}" | sed -e 's/_/_U/g' -e 's|/|__|g' -e 's/ /_S/g'
 }
 
+# The inverse. Expression ORDER IS LOAD-BEARING: `__` must be consumed before
+# `_S`, or an encoded `a__Sb` (from `a/Sb`) would decode through the space
+# marker instead of the separator.
 vault_source_of() {
-  printf '%s/.ai/%s\n' "$root" "$(printf '%s\n' "$1" | sed 's/__/\//g')"
+  printf '%s/.ai/%s\n' "$root" \
+    "$(printf '%s\n' "$1" | sed -e 's|__|/|g' -e 's/_S/ /g' -e 's/_U/_/g')"
 }
 
 # List vault copy filenames, newest last. Copies are <UTC>-<sid8>-<name>,
@@ -452,7 +471,11 @@ vault)
     shift
   done
   [ "$#" -gt 0 ] || exit 0
-  sid8=$(printf '%.8s' "$session")
+  # Hyphens are stripped, not just truncated: the sweep splits a copy name on
+  # `-` to recover the file name, so a session id whose first characters
+  # include one would cut the field short. A UUID's first eight are hex, but
+  # nothing guarantees the id is a UUID.
+  sid8=$(printf '%s' "$session" | tr -d '-' | cut -c1-8)
   utc=$(date -u +%Y%m%dT%H%M%SZ)
   msg=""
   _phys_root=$(cd "$root" 2> /dev/null && pwd -P) && root="$_phys_root"
@@ -467,11 +490,9 @@ vault)
     "$root/.ai/progress.md" | "$root/.ai/scratchpad/"*) ;;
     *) continue ;; # only the volatile continuity files are vault material
     esac
+    # No name is refused: vault_name_of escapes rather than skipping, so
+    # separators, underscores, and spaces in a source name all round-trip.
     name=$(vault_name_of "$abs")
-    case "$name" in
-    *' '* | *__*__*__* | .*) continue ;; # unmappable or bookkeeping names
-    *) ;;
-    esac
     mkdir -p "$vdir"
     newest=$(vault_newest "$name")
     if [ -n "$newest" ] && cmp -s "$abs" "$vdir/$newest"; then

@@ -100,8 +100,59 @@ RSpec.describe "scripts/ai/ai-session.sh" do
 
     it "refuses files outside the volatile continuity set" do
       with_repo do |repo, state|
-        run_ai(repo, state, "vault", "--session=abcd1234", "tracked.txt")
+        # The status assertion is load-bearing: an empty vault also results
+        # from the script erroring out, so without it this example would pass
+        # for the wrong reason.
+        _out, _err, status = run_ai(repo, state, "vault", "--session=abcd1234", "tracked.txt")
+        expect(status.exitstatus).to eq(0)
         expect(vault_files(state)).to be_empty
+      end
+    end
+
+    it "vaults a NESTED scratchpad path and round-trips its name" do
+      with_repo do |repo, state|
+        nested = File.join(repo, ".ai", "scratchpad", "tb-coordination", "dispatch.md")
+        FileUtils.mkdir_p(File.dirname(nested))
+        File.write(nested, "row\n")
+        run_ai(repo, state, "vault", "--session=abcd1234",
+               ".ai/scratchpad/tb-coordination/dispatch.md")
+        copy = vault_files(state).find { |f| f.include?("tb-coordination") }
+        expect(copy).not_to be_nil, "a nested scratchpad path must still be vaulted"
+        expect(File.basename(copy)).to end_with("scratchpad__tb-coordination__dispatch.md")
+
+        # And the sweep must decode that name back to the live source rather
+        # than treating it as gone (which would start its expiry clock).
+        run_ai(repo, state, "vault", "--session=abcd1234", ".ai/progress.md")
+        gone = Dir.glob(File.join(state, "ai-history", "**", ".gone-noticed")).first
+        expect(gone.nil? || !File.read(gone).include?("tb-coordination")).to be(true)
+      end
+    end
+
+    # Awkward names get ESCAPED, never skipped. Refusing to copy a file
+    # because its name is awkward would convert a naming inconvenience into
+    # the data loss this whole mechanism exists to prevent.
+    [
+      ["a name carrying the separator", "foo__bar.md"],
+      ["a name carrying a single underscore", "foo_bar.md"],
+      ["a name carrying a space", "has space.md"],
+      ["a name carrying both markers literally", "_S_U__literal.md"],
+    ].each do |label, basename|
+      it "vaults #{label}, and the sweep reads it back to the live source" do
+        with_repo do |repo, state|
+          File.write(File.join(repo, ".ai", "scratchpad", basename), "x\n")
+          _out, _err, status = run_ai(repo, state, "vault", "--session=abcd1234",
+                                      ".ai/scratchpad/#{basename}")
+          expect(status.exitstatus).to eq(0)
+          expect(vault_files(state).length).to eq(1)
+
+          # Decoding is what proves the escape reversible: the sweep resolves
+          # each copy back to a source path, and a source it still finds on
+          # disk must NOT be recorded as gone.
+          run_ai(repo, state, "vault", "--session=abcd1234", ".ai/progress.md")
+          gone = Dir.glob(File.join(state, "ai-history", "**", ".gone-noticed")).first
+          expect(gone).to be_nil,
+                          "the escaped name decoded to the wrong path: #{gone && File.read(gone)}"
+        end
       end
     end
 

@@ -275,6 +275,19 @@ reviews:
         legitimate checksum pattern. The shell list is /etc/shells plus fish;
         pipelines ARE matched whole and per-component (measured), so these
         rules are live, not decorative.
+    - path: "scripts/ai/guard-curl-pipe.sh"
+      instructions: |
+        This guard deliberately does NOT match plain `curl … | shell`
+        pipelines. Those are covered by the anchored deny-rule PAIRS in the
+        settings files, and the permission matcher was measured (2026-08-05)
+        to see pipelines whole and per-component, so duplicating them here
+        would put one policy in two mechanisms that can drift apart. The
+        allow-list in spec/integration/guard_curl_pipe_spec.rb pins that
+        contract on purpose. Do not suggest adding pipeline matching. Also
+        out of scope by design: download-then-execute across separate
+        commands (`curl -o f … && sh f`), which is dataflow no string pattern
+        can follow — `curl` itself stays ask-gated, and that prompt is the
+        covering control (ADR 0026).
     - path: "{.githooks/pre-commit.d/20-*,provides/githooks/pre-commit.d/20-*}"
       instructions: |
         The 20- language plugins read the WORKING TREE, not materialized index

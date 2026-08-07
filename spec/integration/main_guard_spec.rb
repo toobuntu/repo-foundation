@@ -232,5 +232,32 @@ RSpec.describe "scripts/ai/guard-main.sh" do
         expect(status.exitstatus).to eq(0)
       end
     end
+
+    # An unparseable payload must fail CLOSED on main: the guard cannot tell
+    # what is being written, and the pre-existing inline guard refused in
+    # exactly this case.
+    it "refuses an unparseable payload while on main" do
+      with_repo do |dir|
+        _out, err, status = Open3.capture3({ "CLAUDE_PROJECT_DIR" => dir }, script, "pre",
+                                           chdir: dir, stdin_data: "")
+        expect(status.exitstatus).to eq(2)
+        expect(err).to include("git switch -c")
+      end
+    end
+
+    # macOS reaches one tree as both /var/... and /private/var/..., so an
+    # uncanonicalized prefix test would read a project file as "outside the
+    # project tree" and let a tracked-file edit through on main.
+    it "still refuses when the payload and project dir disagree on /var" do
+      with_repo do |dir|
+        physical = File.realpath(dir)
+        skip "tmpdir is not behind the /private symlink" if physical == dir
+
+        _out, _err, status = Open3.capture3({ "CLAUDE_PROJECT_DIR" => physical }, script, "pre",
+                                            chdir: dir,
+                                            stdin_data: JSON.generate({ tool_input: { file_path: File.join(dir, "tracked.txt") } }))
+        expect(status.exitstatus).to eq(2)
+      end
+    end
   end
 end
