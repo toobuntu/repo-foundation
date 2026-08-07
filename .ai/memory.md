@@ -173,6 +173,16 @@ So the technique catches the one defect I happened to test against (`lint-perms.
 
 The maintainer's original hint stands and was never that reuse would do the work: read `_find_first_spdx_comment` and `find_and_replace_header` in reuse's `header.py` (now at codeberg.org/fsfe/reuse-tool) and consider reusing its DETECTION logic inside the strip this still needs. Whether that is feasible is open. `--single-line` and custom `--template`s exist and may matter. The strip is still needed, and the backup-and-diff discipline is what makes it safe.
 
+## 2026-08-06 — Session-hygiene enforcement landed; where its edges are
+
+ADR 0026 records the decision; the org-memory 2026-08-06 entry records the measured harness facts. What belongs here is the local edges a later session will meet:
+
+- **close-check is live in this repository from the moment its settings land** — settings hot-reload, so the very session that builds a Stop hook finishes under it. Plan the final turns accordingly: the close-shaped block demands a closing recipe or a literal `Closing recipe: none — <reason>`, and a fenced recipe naming a dead `.ai/scratchpad/` path blocks the turn.
+- **The vault announces via `systemMessage`, which the agent never sees.** The maintainer sees the snapshot lines; an agent verifying vault behavior must look in `~/.local/state/ai-history/<org>/<repo>/` (readable, unwritable) rather than expect feedback.
+- **`vault-gc` is the only deleter for the no-evidence class and no hook may wire it** — `ai_session_spec.rb` asserts that over all three settings files. The live-fire probes of this session left two `vault-live-fire` copies whose 30-day report will surface for exactly this maintainer decision; that is the mechanism working, not litter to clean another way.
+- **`guard-spdx` fires only on Write-CREATION.** Overwriting an existing annotated file, and every Edit, are structurally out of scope — so a session that must regenerate an annotated file in place is not blocked, and the recovery for a refused creation is create-bare then bare `scripts/annotate.sh`.
+- The `20-ruby` pre-commit plugin runs over staged specs, so a spec whose fixture strings contain shell is linted as Ruby only — but `lint-shell.sh` runs on `scripts/ai/*.sh` in the same commit, and a ShellCheck directive must sit IMMEDIATELY above its line (SC1126 rejects one placed inside a pipeline; place it above the `for`, not above the `grep` stage).
+
 ## 2026-08-03 — The synced header had never met YAML frontmatter
 
 `insert_point` in the sync engine already skipped a frontmatter block, so the header landed immediately after the closing `---`. Correct for the loader and wrong for the Markdown gate: the rendered file fails MD071 (no blank line after frontmatter) and then MD012, because the blank line that used to follow the fence ends up under the header's own trailing blank. Latent for as long as it existed — no canonical Markdown source carried frontmatter until the `claude_skills` set (ADR 0025) — and it would have failed the `markdownlint` job in all six consumers at once on the first sync that shipped a skill.

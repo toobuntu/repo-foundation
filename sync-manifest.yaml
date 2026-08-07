@@ -237,14 +237,31 @@ component_sets:
     - { source: .githooks/pre-commit.d/10-shell,         target: .githooks/pre-commit.d/10-shell,  mode: canonical }
 
   scripts_core:
-    - { source: scripts/ai-session.sh,                 target: scripts/ai-session.sh,                 mode: canonical }
+    - { source: scripts/ai/ai-session.sh,              target: scripts/ai/ai-session.sh,              mode: canonical }
+    # Every settings hook runs through this one validator, which parse-checks
+    # the script it is about to exec and stays silent when that check fails.
+    # It must ship with the scripts it guards: without it every hook command
+    # in the baseline resolves to nothing, and the guards stop running.
+    - { source: scripts/ai/hook-run.sh,                target: scripts/ai/hook-run.sh,                mode: canonical }
     # The main-branch dirty-tree guard the settings baseline wires as a
     # SessionStart seed and a PostToolUse check. repo_baseline delivers those
     # hooks, and every repo_baseline consumer takes scripts_core, so the two
     # arrive together; the hook commands still test for the script and no-op
     # without it, since a hook that errors on every Bash call is worse than a
     # missing guard.
-    - { source: scripts/main-guard.sh,                 target: scripts/main-guard.sh,                 mode: canonical }
+    - { source: scripts/ai/guard-main.sh,              target: scripts/ai/guard-main.sh,              mode: canonical }
+    # The Write-creation SPDX guard the settings baseline wires; same
+    # delivery coupling as guard-main.sh above.
+    - { source: scripts/ai/guard-spdx.sh,              target: scripts/ai/guard-spdx.sh,              mode: canonical }
+    # The gate on the sandbox-excluded annotate.sh. Its settings shim fails
+    # CLOSED (this guards a sandbox escape), unlike the hook-run.sh shims.
+    - { source: scripts/ai/guard-annotate.sh,          target: scripts/ai/guard-annotate.sh,          mode: canonical }
+    # The curl-substitution guard: the hook complement to the anchored
+    # curl-pipe deny PAIRS, covering the shapes a permission rule cannot see.
+    # Same delivery coupling as the two guards above — the settings baseline
+    # wires it, repo_baseline delivers those settings, and every
+    # repo_baseline consumer takes scripts_core, so the two arrive together.
+    - { source: scripts/ai/guard-curl-pipe.sh,         target: scripts/ai/guard-curl-pipe.sh,         mode: canonical }
     - { source: scripts/lint-perms.sh,                 target: scripts/lint-perms.sh,                 mode: canonical }
     - { source: scripts/lint-unicode.sh,               target: scripts/lint-unicode.sh,               mode: canonical }
     # The python3 detector lint-unicode.sh prefers. A separate file rather than

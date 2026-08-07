@@ -7,6 +7,7 @@
 # checks are the ones a rename or a forgotten manifest edit would break:
 # every declared source file actually exists, every set a consumer names is
 # defined, and configs that must travel with their hook do.
+require "json"
 require "yaml"
 
 RSpec.describe "sync-manifest.yaml contract" do
@@ -72,15 +73,45 @@ RSpec.describe "sync-manifest.yaml contract" do
                        "  #{missing.join("\n  ")}"
   end
 
-  # settings.baseline.json wires hooks that shell out to repo scripts — today
-  # ai-session.sh (SessionStart/SessionEnd) and main-guard.sh (SessionStart
-  # seed, PostToolUse check). scripts_core is what delivers those. Both hooks
-  # no-op when their script is missing, which is the reason to test it: the
-  # failure is a guard that silently never runs, not a visible error.
+  # settings.baseline.json wires hooks that shell out to repo scripts —
+  # ai-session.sh (SessionStart/SessionEnd/Stop/PreCompact and the vault
+  # shims), guard-main.sh (seed, PostToolUse check, PreToolUse pre),
+  # guard-spdx.sh, guard-curl-pipe.sh. scripts_core is what delivers those.
+  # Every hook no-ops when its script is missing, which is the reason to test
+  # it: the failure is a guard that silently never runs, not a visible error.
+  #
+  # The path pattern MUST admit `/` inside the script path. It did not until
+  # 2026-08-06, and the move of these scripts into scripts/ai/ therefore
+  # blinded this example to all four of them — it went on passing because
+  # scripts/annotate.sh (still flat, named by the annotate guard) kept the
+  # match list non-empty. That is the exact silent-no-op failure the example
+  # exists to catch, so the tripwire below now names a script the hook wiring
+  # genuinely cannot work without rather than merely counting matches.
   it "delivers every script the settings baseline's hooks invoke" do
-    baseline = File.read(File.join(REPO_ROOT, "provides/repo/settings.baseline.json"))
-    invoked = baseline.scan(%r{scripts/[A-Za-z0-9._-]+\.sh}).uniq
-    expect(invoked).not_to be_empty, "no scripts referenced — did the hook wiring change shape?"
+    settings = JSON.parse(File.read(File.join(REPO_ROOT, "provides/repo/settings.baseline.json")))
+    commands = settings.fetch("hooks").values.flatten
+                       .flat_map { |g| g.fetch("hooks", []) }.filter_map { |h| h["command"] }
+    # Scan the DECODED commands, and for two shapes: a script named by PATH
+    # (hook-run.sh itself, or any shim that execs directly) and a script named
+    # by NAME as an argument to hook-run.sh, which is how every guard is
+    # invoked since 2026-08-07. Collecting only paths would leave every guard
+    # unchecked while this example still passed — the failure mode that
+    # already happened once, when the scripts/ai/ move went unnoticed here.
+    by_path = commands.flat_map { |c| c.scan(%r{scripts/[A-Za-z0-9._/-]+\.sh}) }
+    by_name = commands.flat_map { |c| c.scan(/"\$h" ([a-z][a-z0-9-]*\.sh)/) }
+                      .flatten.map { |n| "scripts/ai/#{n}" }
+    invoked = (by_path + by_name).uniq
+    # Name every script the wiring is supposed to invoke, not just a token
+    # one. The `invoked - shipped` check below cannot see a guard that was
+    # silently UNWIRED — an absent script is absent from `invoked` too, and
+    # the subtraction stays empty. This list is what turns that silence into
+    # a failure, which is the whole failure mode this branch exists to close.
+    expect(invoked).to include("scripts/ai/ai-session.sh", "scripts/ai/hook-run.sh",
+                               "scripts/ai/guard-main.sh", "scripts/ai/guard-spdx.sh",
+                               "scripts/ai/guard-annotate.sh", "scripts/ai/guard-curl-pipe.sh"),
+                       "a hook script the baseline is supposed to invoke is not referenced — " \
+                       "did the wiring change shape, or was a guard dropped? " \
+                       "(saw: #{invoked.join(', ')})"
 
     shipped = sets.fetch("scripts_core").map { |c| c.fetch("target") }
     expect(invoked - shipped).to be_empty,
@@ -165,8 +196,12 @@ RSpec.describe "sync-manifest.yaml contract" do
   end
 
   it "ignores the volatile .ai files in gitignore.baseline and RF's own .gitignore" do
+    # The snapshot line is a glob: the session-id sidecar
+    # (.progress.session-start.sid) rides the same prefix.
     volatile = [".ai/progress.md", ".ai/scratchpad/",
-                ".ai/.progress.session-start", ".ai/org/relay.consumed-*.md"]
+                ".ai/.progress.session-start*", ".ai/.session-closed",
+                ".ai/.close-check-state", ".ai/.last-compact",
+                ".ai/.compact-check-state", ".ai/org/relay.consumed-*.md"]
     [File.join(REPO_ROOT, "provides/repo/gitignore.baseline"),
      File.join(REPO_ROOT, ".gitignore")].each do |path|
       lines = File.readlines(path, chomp: true)

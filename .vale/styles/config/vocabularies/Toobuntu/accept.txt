@@ -311,3 +311,8 @@ dryrun
 dogfoods
 hostnames
 askpass
+deduped
+deleters?
+[Cc]anonicaliz(e[ds]?|ing|ation)
+matchers?
+unlanded

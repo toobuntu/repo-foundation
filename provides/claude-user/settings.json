@@ -10,7 +10,9 @@
   "showThinkingSummaries": true,
 
   "env": {
-    "HOMEBREW_NO_ANALYTICS": "1"
+    "HOMEBREW_NO_ANALYTICS": "1",
+    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70"
   },
 
   "attribution": {
@@ -23,8 +25,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai-session.sh\"; [ -x \"$s\" ] && \"$s\" start || true",
-            "timeout": 10
+            "command": "in=$(cat); h=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/hook-run.sh\"; [ -x \"$h\" ] && sh -n \"$h\" 2>/dev/null || exit 0; sid=$(printf '%s' \"$in\" | jq -r '.session_id // empty' 2>/dev/null || true); \"$h\" ai-session.sh start ${sid:+--session=$sid} || true; printf '%s' \"$in\" | \"$h\" ai-session.sh vault-hook || true",
+            "timeout": 15
           }
         ]
       }
@@ -34,8 +36,30 @@
         "hooks": [
           {
             "type": "command",
-            "command": "s=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai-session.sh\"; [ -x \"$s\" ] && \"$s\" end || true",
+            "command": "in=$(cat); h=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/hook-run.sh\"; [ -x \"$h\" ] && sh -n \"$h\" 2>/dev/null || exit 0; sid=$(printf '%s' \"$in\" | jq -r '.session_id // empty' 2>/dev/null || true); \"$h\" ai-session.sh end ${sid:+--session=$sid} || true",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "h=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/hook-run.sh\"; [ -x \"$h\" ] && sh -n \"$h\" 2>/dev/null || exit 0; exec \"$h\" ai-session.sh close-check",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "h=\"${CLAUDE_PROJECT_DIR:-.}/scripts/ai/hook-run.sh\"; [ -x \"$h\" ] && sh -n \"$h\" 2>/dev/null || exit 0; exec \"$h\" ai-session.sh compact-check",
+            "timeout": 15
           }
         ]
       }
@@ -308,12 +332,21 @@
       "Bash(curl -X PATCH:*)",
       "Bash(curl --request PATCH:*)",
       "Bash(curl * | bash)",
+      "Bash(curl * | bash *)",
       "Bash(curl * | csh)",
+      "Bash(curl * | csh *)",
       "Bash(curl * | dash)",
+      "Bash(curl * | dash *)",
       "Bash(curl * | fish)",
+      "Bash(curl * | fish *)",
+      "Bash(curl * | ksh)",
+      "Bash(curl * | ksh *)",
       "Bash(curl * | sh)",
+      "Bash(curl * | sh *)",
       "Bash(curl * | tcsh)",
+      "Bash(curl * | tcsh *)",
       "Bash(curl * | zsh)",
+      "Bash(curl * | zsh *)",
       "Bash(wget:*)",
       "Bash(ssh:*)",
       "Bash(scp:*)",
@@ -359,6 +392,8 @@
       "Bash(reboot:*)",
       "Bash(halt:*)",
       "Bash(killall -9:*)",
+
+      "Edit(~/.local/state/ai-history/**)",
 
       "Read(./.env)",
       "Read(./.env.*)",
