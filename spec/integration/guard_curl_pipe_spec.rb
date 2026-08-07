@@ -45,6 +45,9 @@ RSpec.describe "scripts/ai/guard-curl-pipe.sh" do
     "curl -o /tmp/claude/f https://example.invalid/x",
     "curl --version",
     "shellcheck $(curl-config --version)",
+    # Underscore is part of a command token, not a boundary. The first
+    # version of the pattern refused this spelling.
+    "shellcheck $(curl_config --version)",
     "echo sh -c literal text with no substitution",
     "sha256sum $(ls)",
     "git push origin main",

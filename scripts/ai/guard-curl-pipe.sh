@@ -42,7 +42,12 @@ shells='(sh|bash|zsh|ksh|dash|csh|tcsh|fish)'
 # fetch. The trailing class is the word boundary that keeps `curl-config` —
 # a legitimate build helper — out: it excludes a following hyphen or
 # alphanumeric, while admitting the space or `)` a real call is followed by.
-curlword='(command[[:space:]]+)?([^[:space:]]*/)?curl[^-[:alnum:]]'
+# The trailing class excludes hyphen, UNDERSCORE, and alphanumerics, so
+# `curl-config` and `curl_config` are both left alone: an underscore is part
+# of a command token, not a boundary. Demonstrated the hard way — the first
+# version refused a diagnostic of this very file that merely spelled
+# `curl_config`.
+curlword='(command[[:space:]]+)?([^[:space:]]*/)?curl[^-_[:alnum:]]'
 sub='\$\([[:space:]]*'"$curlword"'|`[[:space:]]*'"$curlword"
 
 # Normalize runs of whitespace so spacing games cannot dodge the patterns.

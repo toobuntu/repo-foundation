@@ -32,4 +32,6 @@ vendor/bundle/
 .ai/.progress.session-start*
 .ai/.session-closed
 .ai/.close-check-state
+.ai/.last-compact
+.ai/.compact-check-state
 .ai/org/relay.consumed-*.md

@@ -369,6 +369,26 @@ RSpec.describe "scripts/ai/ai-session.sh" do
       end
     end
 
+    it "gives a fresh prompt budget after the agent complies once" do
+      with_repo do |repo, state|
+        run_ai(repo, state, "start", "--session=sess-c")
+        sleep 1
+        File.write(File.join(repo, ".ai", "scratchpad", "a.md"), "x\n")
+        expect(compact(repo, state)["decision"]).to eq("block")
+        expect(compact(repo, state)["decision"]).to eq("block")
+
+        sleep 1
+        File.write(File.join(repo, ".ai", "progress.md"), "# complied\n")
+        expect(compact(repo, state)).to eq({})
+
+        # Stale again later: the cap counts CONSECUTIVE stale checks, so this
+        # must block rather than inherit the spent counter.
+        sleep 1
+        File.write(File.join(repo, ".ai", "scratchpad", "b.md"), "y\n")
+        expect(compact(repo, state)["decision"]).to eq("block")
+      end
+    end
+
     it "stops blocking after two attempts so a session cannot wedge" do
       with_repo do |repo, state|
         run_ai(repo, state, "start", "--session=sess-c")

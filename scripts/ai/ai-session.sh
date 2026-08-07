@@ -319,15 +319,20 @@ repo_slug() {
 net_get() {
   [ -n "${1:-}" ] || return 1
   _cache="$vdir/.netcache"
+  # cksum is a CRC, so the filename alone is a lossy key. Line 2 stores the
+  # requested path and is compared before any hit is served: a collision then
+  # reads as a miss and refetches, rather than answering one question with
+  # another question's cached answer.
   _f="$_cache/$(printf '%s' "$1" | cksum | cut -d' ' -f1)"
   _now_s=$(date +%s)
   if [ -f "$_f" ]; then
     _ts=$(sed -n '1p' "$_f")
+    _key=$(sed -n '2p' "$_f")
     case "$_ts" in
     '' | *[!0-9]*) ;;
     *)
-      if [ "$((_now_s - _ts))" -lt "$NET_TTL" ]; then
-        sed '1d' "$_f"
+      if [ "$_key" = "$1" ] && [ "$((_now_s - _ts))" -lt "$NET_TTL" ]; then
+        sed '1,2d' "$_f"
         return 0
       fi
       ;;
@@ -348,6 +353,7 @@ net_get() {
   printf '%s' "$_body" | jq -e 'has("message") | not' > /dev/null 2>&1 || return 1
   {
     printf '%s\n' "$_now_s"
+    printf '%s\n' "$1"
     printf '%s' "$_body"
   } > "$_f"
   printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_via" "$1" >> "$_cache/.path-log"
@@ -780,6 +786,11 @@ compact-check)
       exit 0
     fi
     jq -n '{systemMessage: "compact-check: .ai/progress.md is still stale after two prompts; allowing compaction so the session does not wedge. The pre-compaction copy is in the vault."}'
+  else
+    # Progress is current: clear the counter. The cap is on CONSECUTIVE stale
+    # checks, so a session that complies and later goes stale again gets the
+    # full prompt budget rather than inheriting a spent one.
+    rm -f "$_state"
   fi
   : > "$_mark"
   ;;
