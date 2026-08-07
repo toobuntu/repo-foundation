@@ -275,6 +275,20 @@ reviews:
         legitimate checksum pattern. The shell list is /etc/shells plus fish;
         pipelines ARE matched whole and per-component (measured), so these
         rules are live, not decorative.
+    - path: "provides/repo/{AGENTS.baseline.md,CONTRIBUTING.baseline.md,gitignore.baseline,settings.homebrew.json}"
+      instructions: |
+        These files carry NO inline SPDX header, deliberately, and running
+        scripts/annotate.sh on them would be a defect rather than a fix. They
+        are baseline-merge REGION SOURCES: the sync engine wraps each one's
+        content into a sentinel-delimited managed region inside a consumer's
+        AGENTS.md / CONTRIBUTING.md / .gitignore, so an inline header would be
+        carried into that region and duplicate the consumer file's own header.
+        Coverage comes from `provides/repo/REUSE.toml`, whose `[[annotations]]`
+        block lists exactly these paths — `reuse lint-file` honors it (exit 0,
+        verified 2026-08-07), and the `85-reuse` pre-commit plugin says so in
+        its own header comment. Do not suggest adding SPDX headers, a
+        `.license` sidecar, or a per-file exception in the plugin. Declined
+        2026-08-07.
     - path: "scripts/ai/guard-curl-pipe.sh"
       instructions: |
         This guard deliberately does NOT match plain `curl … | shell`

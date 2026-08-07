@@ -101,8 +101,16 @@ RSpec.describe "sync-manifest.yaml contract" do
     by_name = commands.flat_map { |c| c.scan(/"\$h" ([a-z][a-z0-9-]*\.sh)/) }
                       .flatten.map { |n| "scripts/ai/#{n}" }
     invoked = (by_path + by_name).uniq
-    expect(invoked).to include("scripts/ai/ai-session.sh", "scripts/ai/hook-run.sh"),
-                       "the session hooks' own scripts are not referenced — did the wiring change shape? " \
+    # Name every script the wiring is supposed to invoke, not just a token
+    # one. The `invoked - shipped` check below cannot see a guard that was
+    # silently UNWIRED — an absent script is absent from `invoked` too, and
+    # the subtraction stays empty. This list is what turns that silence into
+    # a failure, which is the whole failure mode this branch exists to close.
+    expect(invoked).to include("scripts/ai/ai-session.sh", "scripts/ai/hook-run.sh",
+                               "scripts/ai/guard-main.sh", "scripts/ai/guard-spdx.sh",
+                               "scripts/ai/guard-annotate.sh", "scripts/ai/guard-curl-pipe.sh"),
+                       "a hook script the baseline is supposed to invoke is not referenced — " \
+                       "did the wiring change shape, or was a guard dropped? " \
                        "(saw: #{invoked.join(', ')})"
 
     shipped = sets.fetch("scripts_core").map { |c| c.fetch("target") }
